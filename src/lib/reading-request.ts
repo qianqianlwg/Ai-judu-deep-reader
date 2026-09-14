@@ -1,10 +1,21 @@
-import { decodeChatEvent, isAnalysis, isRecord, type Analysis, type ChatEvent, type ChatMessage } from "./chat-stream";
+import { decodeChatEvent, isAnalysis, isRecord, type Analysis, type ChatEvent, type ChatMessage, type ToolActivity, type TokenUsage } from "./chat-stream";
 import { DEFAULT_CONTEXT_SETTINGS, type ContextMessage, type ContextSettings } from "./context-compaction";
 import { SseDecoder } from "./sse";
 
 export type ReadingAnchor = { paragraphId: string; startOffset: number; endOffset: number; selectedText: string };
 
+export type RetryContextSettings = Pick<ContextSettings, "maxInputTokens" | "maxOutputTokens">;
+export function readRetryContextSettings(value: unknown): RetryContextSettings {
+  if (!isRecord(value) || !Number.isSafeInteger(value.maxInputTokens) || !Number.isSafeInteger(value.maxOutputTokens) || (value.maxInputTokens as number) < 4096 || (value.maxInputTokens as number) > 131072 || (value.maxOutputTokens as number) < 1024 || (value.maxOutputTokens as number) > 16384) throw new Error("重试预算须为有效的输入/输出 Token 整数上限");
+  return { maxInputTokens: value.maxInputTokens as number, maxOutputTokens: value.maxOutputTokens as number };
+}
+export function withRetryContextSettings(state: ReadingRequestState, value: RetryContextSettings): ReadingRequestState {
+  if (state.status !== "error" && state.status !== "cancelled") throw new Error("只有未完成的消息可调整重试预算");
+  // WHY：只更新执行预算；问题、原文、历史快照和两个消息ID仍沿用首次提交。
+  return { ...state, payload: { ...state.payload, retryContextSettings: readRetryContextSettings(value) } };
+}
 export type ReadingRequestInput = {
+  retryContextSettings?: RetryContextSettings;
   mode: "chat" | "analyze";
   question: string;
   selectedText: string;
@@ -92,6 +103,10 @@ export type ReadingRequestState = {
   content: string;
   analysis?: Analysis & { anchor?: ReadingAnchor };
   error?: string;
+  usage?: TokenUsage;
+  tools?: ToolActivity[];
+  warnings?: string[];
+  outputFormat?: "text" | "legacy-json";
 };
 
 export function createReadingRequest(input: ReadingRequestInput, makeId = () => crypto.randomUUID()): ReadingRequestState {
@@ -124,7 +139,7 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
 
 export function beginReadingRequest(state: ReadingRequestState, messages: ChatMessage[]): { state: ReadingRequestState; messages: ChatMessage[] } {
   if (state.status === "streaming" || state.status === "completed") throw new Error("当前请求不能重试");
-  const next: ReadingRequestState = { ...state, status: "streaming", attempt: state.attempt + 1, content: "", analysis: undefined, error: undefined };
+  const next: ReadingRequestState = { ...state, status: "streaming", attempt: state.attempt + 1, content: "", analysis: undefined, usage: undefined, tools: [], warnings: [], outputFormat: "text", error: undefined };
   return { state: next, messages: applyReadingRequest(messages, next) };
 }
 
@@ -141,7 +156,7 @@ export function applyReadingRequest(messages: ChatMessage[], state: ReadingReque
     return message.id === userId && !sameAnchor ? { ...message, anchor } : message;
   });
   if (!user) next.push({ id: userId, role: "user", kind: "chat", anchor, content: question, status: "completed" });
-  const replacement: ChatMessage = { id: assistantId, anchor, role: "assistant", kind: mode === "analyze" ? "analysis" : "chat", content: state.content, analysis: state.analysis, status: state.status === "completed" ? "completed" : state.status === "streaming" ? "streaming" : "error" };
+  const replacement: ChatMessage = { id: assistantId, anchor, role: "assistant", kind: mode === "analyze" ? "analysis" : "chat", content: state.content, analysis: state.analysis, outputFormat: state.outputFormat ?? "text", usage: state.usage, tools: state.tools, warnings: state.warnings, status: state.status === "completed" ? "completed" : state.status === "streaming" ? "streaming" : "error" };
   const index = next.findIndex((message) => message.id === assistantId);
   // WHY：只替换原助手消息；后续对话的位置和原用户消息不动，也不把旧的半截回答拼进重试结果。
   if (index >= 0) next[index] = replacement;
@@ -149,15 +164,22 @@ export function applyReadingRequest(messages: ChatMessage[], state: ReadingReque
   return next;
 }
 
+function endPendingTools(tools: ToolActivity[] | undefined): ToolActivity[] | undefined {
+  return tools?.map(tool => tool.status === "running" ? { ...tool, status: "error", result: { ok: false, message: "本轮生成已结束，工具未完成" } } : tool);
+}
+
 export function reduceReadingRequest(state: ReadingRequestState, event: ChatEvent): ReadingRequestState {
   if (state.status !== "streaming") return state;
   switch (event.type) {
     case "meta":
       if (event.threadId !== state.payload.threadId || (event.messageId && event.messageId !== state.payload.clientAssistantMessageId)) throw new Error("服务端返回了其他请求的消息 ID");
-      return state;
+      return event.outputFormat ? { ...state, outputFormat: event.outputFormat } : state;
     case "raw_delta": return { ...state, content: state.content + event.text };
     case "structured": return { ...state, analysis: event.result };
-    case "error": return { ...state, status: "error", error: event.message };
+    case "usage": return { ...state, usage: event.usage };
+    case "tool": return { ...state, tools: [...(state.tools ?? []).filter(tool => tool.id !== event.tool.id), event.tool] };
+    case "warning": return { ...state, warnings: [...(state.warnings ?? []), event.message] };
+    case "error": return { ...state, status: "error", error: event.message, tools: endPendingTools(state.tools) };
     case "done": {
       const content = event.content ?? state.content;
       return content.trim() ? { ...state, content, status: "completed" } : { ...state, status: "error", error: "模型没有返回内容，请重试" };
@@ -178,7 +200,7 @@ export async function executeReadingRequest(started: ReadingRequestState, option
   const publish = (next: ReadingRequestState) => { state = next; options.onState?.(state); };
   const cancelled = () => {
     if (state.status !== "streaming") return;
-    publish({ ...state, status: "cancelled", error: "已停止生成，可以重试" });
+    publish({ ...state, status: "cancelled", error: "已停止生成，可以重试", tools: endPendingTools(state.tools) });
     void reader?.cancel().catch((error: unknown) => console.error("取消聊天流失败", error));
   };
   const consume = (events: ReturnType<SseDecoder["push"]>) => {
@@ -212,10 +234,10 @@ export async function executeReadingRequest(started: ReadingRequestState, option
       if (chunk.done) { consume(decoder.finish()); break; }
       consume(decoder.push(chunk.value));
     }
-    if (state.status === "streaming") publish({ ...state, status: "error", error: "消息流中断，未收到完成确认，请重试" });
+    if (state.status === "streaming") publish({ ...state, status: "error", error: "消息流中断，未收到完成确认，请重试", tools: endPendingTools(state.tools) });
   } catch (error: unknown) {
     if (options.signal?.aborted) cancelled();
-    else { console.error("阅读请求失败", error); publish({ ...state, status: "error", error: error instanceof Error ? error.message : "生成失败，请重试" }); }
+    else { console.error("阅读请求失败", error); publish({ ...state, status: "error", error: error instanceof Error ? error.message : "生成失败，请重试", tools: endPendingTools(state.tools) }); }
   } finally {
     options.signal?.removeEventListener("abort", cancelled);
     if (reader) {

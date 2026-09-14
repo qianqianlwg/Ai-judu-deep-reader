@@ -1,48 +1,42 @@
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 type MemoryDatabase = { exec(sql: string): void; close(): void };
 const state = vi.hoisted(() => ({ db: undefined as MemoryDatabase | undefined }));
-vi.mock("@/lib/db", () => ({ getDb: () => {
-  if (!state.db) throw new Error("测试数据库未初始化");
-  return state.db;
-} }));
+vi.mock("@/lib/db", () => ({ getDb: () => { if (!state.db) throw new Error("测试数据库未初始化"); return state.db; } }));
 import { GET } from "./route";
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as { DatabaseSync: new (file: string) => MemoryDatabase };
-
 beforeEach(() => {
-  // WHY：只在内存中建立书架测试夹具，真实用户数据库不会被打开。
   state.db = new DatabaseSync(":memory:");
-  state.db.exec(`CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, author TEXT, created_at TEXT, private_note TEXT);
-    INSERT INTO books VALUES ('old','同名书','旧作者','2026-01-01','不应公开'),
-      ('other','另一部书','另一作者','2026-02-01','不应公开'),
-      ('new','同名书','新作者','2026-03-01','不应公开');`);
+  state.db.exec(
+    "CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, author TEXT, created_at TEXT, private_note TEXT);" +
+    "CREATE TABLE editions (id TEXT PRIMARY KEY, book_id TEXT, file_name TEXT, file_type TEXT, created_at TEXT, file_hash TEXT);" +
+    "INSERT INTO books VALUES ('old','同名书','旧作者','2026-01-01','private'),('other','另一部书','另一作者','2026-02-01','private'),('new','同名书','新作者','2026-03-01','private');" +
+    "INSERT INTO editions VALUES ('old-v0','old','初版.epub','epub','2025-01-01','hash-secret'),('old-v1','old','修订.epub','epub','2026-01-01','hash-secret'),('new-v1','new','新译.pdf','pdf','2026-03-01','hash-secret'),('other-v1','other','另一部书.txt','txt','2026-02-01','hash-secret');"
+  );
 });
 afterEach(() => { state.db?.close(); state.db = undefined; });
-
-describe("GET library", () => {
-  it("按创建时间倒序，仅返回书架公开字段", async () => {
-    const response = await GET();
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual([{ id: "new", title: "同名书", author: "新作者" },
-      { id: "other", title: "另一部书", author: "另一作者" }]);
+describe("GET library 保留全部书籍与版本", () => {
+  it("不再按标题去重，返回全部BookID和可辨版本公开元数据", async () => {
+    const response = await GET(); const value = await response.json();
+    expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(value.map((book: { id: string }) => book.id)).toEqual(["new", "other", "old"]);
+    expect(value[2]).toEqual({ id: "old", title: "同名书", author: "旧作者", createdAt: "2026-01-01", editions: [
+      { id: "old-v1", fileName: "修订.epub", fileType: "epub", createdAt: "2026-01-01" },
+      { id: "old-v0", fileName: "初版.epub", fileType: "epub", createdAt: "2025-01-01" },
+    ] });
+    expect(JSON.stringify(value)).not.toContain("private"); expect(JSON.stringify(value)).not.toContain("hash-secret");
   });
-  it("明确覆盖当前按精确书名去重并保留最新一本的契约", async () => {
-    state.db?.exec("INSERT INTO books VALUES ('newest','同名书','第三位作者','2026-04-01','private')");
-    const value: unknown = await (await GET()).json();
-    expect(value).toEqual([{ id: "newest", title: "同名书", author: "第三位作者" },
-      { id: "other", title: "另一部书", author: "另一作者" }]);
+  it("8个BookID即使只有2种书名也全部可达，9个EditionID均保留", async () => {
+    for (let index = 0; index < 5; index += 1) state.db?.exec("INSERT INTO books VALUES ('extra" + index + "','同名书','作者','2026-04-01','private'); INSERT INTO editions VALUES ('extra-v" + index + "','extra" + index + "','同一文件.epub','epub','2026-04-01','hash');");
+    const value = await (await GET()).json();
+    expect(value).toHaveLength(8);
+    expect(new Set(value.map((book: { id: string }) => book.id)).size).toBe(8);
+    expect(new Set(value.flatMap((book: { editions: { id: string }[] }) => book.editions.map(edition => edition.id))).size).toBe(9);
   });
-  it("同作者不同标题仍是不同的书", async () => {
-    state.db?.exec("INSERT INTO books VALUES ('different','不同标题','新作者','2026-04-01','private')");
-    expect(await (await GET()).json()).toHaveLength(3);
+  it("没有版本的BookID也保留，不创建或猜测EditionID", async () => {
+    state.db?.exec("INSERT INTO books VALUES ('empty','暂无正文','作者','2026-05-01','private')");
+    const value = await (await GET()).json(); expect(value.find((book: { id: string }) => book.id === "empty").editions).toEqual([]);
   });
-  it("空书架返回空数组，不创建示例数据", async () => {
-    state.db?.exec("DELETE FROM books");
-    expect(await (await GET()).json()).toEqual([]);
-  });
-  it("数据库异常上抛，不伪装成空书架", async () => {
-    state.db?.exec("DROP TABLE books");
-    await expect(GET()).rejects.toThrow();
-  });
+  it("空书架返回空数组，不创建示例数据", async () => { state.db?.exec("DELETE FROM books; DELETE FROM editions"); expect(await (await GET()).json()).toEqual([]); });
+  it("数据库异常上抛，不伪装成空书架", async () => { state.db?.exec("DROP TABLE books"); await expect(GET()).rejects.toThrow(); });
 });

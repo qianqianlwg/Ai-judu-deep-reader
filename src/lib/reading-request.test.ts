@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { captureReadingContext, readReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, reduceReadingRequest, restoreReadingRequest } from "./reading-request";
+import { withRetryContextSettings, captureReadingContext, readReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, reduceReadingRequest, restoreReadingRequest } from "./reading-request";
 import type { ChatMessage } from "./chat-stream";
 
 function request() {
@@ -167,3 +167,9 @@ describe("阅读请求的首次上下文快照", () => {
     expect(() => readReadingContextSnapshot({ ...captureReadingContext(context()), contextSettings: { maxInputTokens: "错误" } })).toThrow("上下文设置损坏");
   });
 });
+
+it("Agent工具、用量、警告贯通状态机，重试清空上次运行数据",()=>{let s=beginReadingRequest(request(),[]).state;const usage={inputTokens:20,outputTokens:10,totalTokens:30,contextTokens:30,contextWindow:8192,source:"provider" as const};s=reduceReadingRequest(s,{type:"tool",tool:{id:"t",name:"search_book",status:"running"}});s=reduceReadingRequest(s,{type:"tool",tool:{id:"t",name:"search_book",status:"completed",result:{ok:true}}});s=reduceReadingRequest(s,{type:"usage",usage});s=reduceReadingRequest(s,{type:"warning",message:"已压缩上下文"});const messages=applyReadingRequest([],s);expect(messages[1]).toMatchObject({outputFormat:"text",usage,warnings:["已压缩上下文"]});expect(messages[1].tools).toHaveLength(1);s=reduceReadingRequest(s,{type:"error",message:"中断"});const retry=beginReadingRequest(s,messages);expect(retry.state.usage).toBeUndefined();expect(retry.state.tools).toEqual([]);expect(retry.state.warnings).toEqual([]);});
+
+it("生成失败后工具不再保持执行中",()=>{let s=beginReadingRequest(request(),[]).state;s=reduceReadingRequest(s,{type:"tool",tool:{id:"running",name:"search_book",status:"running"}});s=reduceReadingRequest(s,{type:"error",message:"已停止"});expect(s.tools?.[0].status).toBe("error");});
+
+it("预算覆盖只改变执行配置，不替换原问题、选文或消息ID",()=>{const initial=request();const failed={...initial,status:"error" as const};const updated=withRetryContextSettings(failed,{maxInputTokens:8192,maxOutputTokens:2048});expect(updated.payload.retryContextSettings).toEqual({maxInputTokens:8192,maxOutputTokens:2048});expect(updated.payload.question).toBe(initial.payload.question);expect(updated.payload.selectedText).toBe(initial.payload.selectedText);expect(updated.payload.clientUserMessageId).toBe(initial.payload.clientUserMessageId);expect(updated.payload.clientAssistantMessageId).toBe(initial.payload.clientAssistantMessageId);expect(updated.payload.contextSettings).toEqual(initial.payload.contextSettings);});

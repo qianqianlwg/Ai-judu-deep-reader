@@ -1,12 +1,19 @@
+import { isTokenUsage, type TokenUsage } from "./token-usage";
+export type { TokenUsage } from "./token-usage";
 import type { StreamEvent } from "./sse";
 
 export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string };
 export type Analysis = { summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
 export type MessageAnchor = { paragraphId: string; startOffset: number; endOffset: number; selectedText: string };
-export type ChatMessage = { anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; status?: "streaming" | "completed" | "error" };
+export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown };
+export type HistoricalToolActivity = ToolActivity & { attemptId: string | null; auditId: string };
+export type ChatMessage = { historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; status?: "streaming" | "completed" | "error" };
 export type ChatEvent =
-  | { type: "meta"; threadId: string; messageId?: string }
+  | { type: "meta"; threadId: string; messageId?: string; outputFormat?: "text" | "legacy-json" }
   | { type: "raw_delta"; text: string }
+  | {type:"usage";usage:TokenUsage}
+  | {type:"tool";tool:ToolActivity}
+  | {type:"warning";message:string}
   | { type: "structured"; result: Analysis; messageId?: string }
   | { type: "done"; content?: string }
   | { type: "error"; message: string };
@@ -35,7 +42,10 @@ export function streamingPreview(content: string, kind: ChatMessage["kind"] = "c
 export function decodeChatEvent(event: StreamEvent): ChatEvent | null {
   const data: unknown = JSON.parse(event.data);
   if (!isRecord(data)) throw new Error("聊天流返回了无效的数据");
-  if (event.event === "meta" && typeof data.threadId === "string") return { type: "meta", threadId: data.threadId, messageId: typeof data.messageId === "string" ? data.messageId : undefined };
+  if (event.event === "meta" && typeof data.threadId === "string") return { type: "meta", threadId: data.threadId, messageId: typeof data.messageId === "string" ? data.messageId : undefined, ...(data.outputFormat === "text" || data.outputFormat === "legacy-json" ? { outputFormat: data.outputFormat } : {}) };
+  if (event.event === "usage" && isTokenUsage(data.usage)) return {type:"usage",usage:data.usage};
+  if (event.event === "warning" && typeof data.message === "string") return {type:"warning",message:data.message};
+  if (event.event === "tool" && isRecord(data.tool) && typeof data.tool.id === "string" && typeof data.tool.name === "string" && ["running","completed","error"].includes(String(data.tool.status))) return {type:"tool",tool:data.tool as ToolActivity};
   if (event.event === "raw_delta" && typeof data.text === "string") return { type: "raw_delta", text: data.text };
   if (event.event === "structured" && isAnalysis(data.result)) return { type: "structured", result: data.result, messageId: typeof data.messageId === "string" ? data.messageId : undefined };
   if (event.event === "done") return { type: "done", content: typeof data.content === "string" ? data.content : undefined };
@@ -48,6 +58,9 @@ export function applyChatEvent(messages: ChatMessage[], assistantId: string, eve
   return messages.map((message) => {
     if (message.id !== assistantId || message.role !== "assistant") return message;
     switch (event.type) {
+      case "usage": return {...message,usage:event.usage};
+      case "tool": return {...message,tools:[...(message.tools??[]).filter(t=>t.id!==event.tool.id),event.tool]};
+      case "warning": return { ...message, warnings: [...(message.warnings ?? []), event.message] };
       case "raw_delta": return { ...message, content: message.content + event.text, status: "streaming" };
       case "structured": return { ...message, kind: "analysis", analysis: event.result };
       case "done": return { ...message, content: event.content ?? message.content, status: "completed" };

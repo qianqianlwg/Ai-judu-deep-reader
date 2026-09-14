@@ -1,17 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
-import { getDb } from "@/lib/db";
-import { buildProviderHeaders, buildProviderRequestBody, buildProviderUrl, type AiProviderKind, type ProviderConfig, type ProviderMessage } from "@/lib/ai-provider";
-import { readResponseText } from "@/lib/response-text";
-import { sourceIdForParagraph, validateCitations, type CitationSource } from "@/lib/citation-validation";
+import { POST as streamAnalysis } from "./stream/route";
+import { decodeChatEvent, type Analysis } from "@/lib/chat-stream";
+import { SseDecoder } from "@/lib/sse";
+import type { TokenUsage } from "@/lib/token-usage";
 export const runtime = "nodejs";
-type Analysis = { summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: { sourceId: string; paragraphId: string; quote: string; messageId?: string }[] };
-const demoAnalysis = (): Analysis => ({ summary: "请结合当前原文、上下文和检索结果进行句读。未配置真实模型。", breakdown: [], concepts: [], context: "基于当前原文和上下文的演示结果。", uncertainty: "基于当前原文和上下文的演示结果。" });
-function readConfig(db: ReturnType<typeof getDb>): ProviderConfig { const row = db.prepare("SELECT provider, base_url, api_key, model FROM ai_provider_configs WHERE id = ?").get("default") as { provider?: string; base_url?: string; api_key?: string; model?: string } | undefined; return { provider: row?.provider === "claude" ? "claude" : "openai" as AiProviderKind, baseUrl: row?.base_url || process.env.AI_BASE_URL || "https://api.openai.com/v1", apiKey: row?.api_key || process.env.AI_API_KEY || "", model: row?.model || process.env.AI_MODEL || "gpt-4o-mini" }; }
-export async function POST(request: NextRequest) { const db = getDb(); const body = await request.json() as Record<string, unknown>; const selectedText = String(body.selectedText ?? "").trim(); if (!selectedText) return NextResponse.json({ error: "selected text required" }, { status: 400 }); const config = readConfig(db); let result = demoAnalysis(); let source = "demo"; if (config.apiKey) { try { const instruction = "You are a reading assistant. Return strict JSON with summary, breakdown, concepts, context, uncertainty."; const messages: ProviderMessage[] = [{ role: "system", content: instruction }, { role: "user", content: "Selected text: " + selectedText + "\nContext: " + String(body.context ?? "") + "\nQuestion: " + String(body.question ?? "Analyze this text") }]; const response = await fetch(buildProviderUrl(config), { method: "POST", headers: buildProviderHeaders(config), body: JSON.stringify(buildProviderRequestBody(config, { messages, temperature: 0.2, maxTokens: 4096, stream: false })) }); if (!response.ok) throw new Error("AI request failed"); const data = await response.json() as { choices?: { message?: { content?: string } }[]; content?: { text?: string }[]; output_text?: string; output?: { content?: unknown }[] }; const text = data.choices?.[0]?.message?.content ?? data.content?.[0]?.text ?? data.output_text ?? readResponseText(data); result = JSON.parse(text.replace(/^```json\s*/i, "").replace(/\s*```$/, "")) as Analysis; source = "ai"; } catch (error: unknown) { console.error("AI analyze failed", error); } } const assistantMessageId = randomUUID();
-  const sourceRows = body.editionId ? db.prepare("SELECT p.id, p.text FROM paragraphs p JOIN chapters c ON c.id = p.chapter_id WHERE c.edition_id = ?").all(body.editionId) as { id: string; text: string }[] : [];
-  const sources: CitationSource[] = sourceRows.map((row) => ({ sourceId: sourceIdForParagraph(String(body.editionId ?? ""), row.id), paragraphId: row.id, text: row.text }));
-  if (sourceRows.length > 0 && config.apiKey) {
-    result = { ...result, citations: validateCitations(result.citations ?? [], sources, assistantMessageId) };
+
+// WHY：兼容非流式调用者，但共享同一个 Agent；不能保留另一条强迫 JSON 或伪造演示成功的路径。
+export async function POST(request: NextRequest) {
+  const response = await streamAnalysis(request);
+  if (!response.ok || !response.body) return response;
+  let content = "", threadId = "", analysisId = "", failure = "", completed = false;
+  let result: Analysis | undefined;
+  let usage: TokenUsage | undefined;
+  const reader = response.body.getReader();
+  const decoder = new SseDecoder();
+  const consume = (events: ReturnType<SseDecoder["push"]>) => {
+    for (const raw of events) {
+      const event = decodeChatEvent(raw);
+      if (!event) continue;
+      if (event.type === "meta") { threadId = event.threadId; analysisId = event.messageId ?? ""; }
+      else if (event.type === "raw_delta") content += event.text;
+      else if (event.type === "structured") result = event.result;
+      else if (event.type === "usage") usage = event.usage;
+      else if (event.type === "error") failure = event.message;
+      else if (event.type === "done") { content = event.content ?? content; completed = true; }
+    }
+  };
+  try {
+    while (true) { const chunk = await reader.read(); if (chunk.done) { consume(decoder.finish()); break; } consume(decoder.push(chunk.value)); }
+  } catch (error: unknown) {
+    console.error("读取 Agent 非流式结果失败", { name: error instanceof Error ? error.name : "UnknownError" });
+    failure = "Agent 响应中断，请重试";
+  } finally {
+    try { await reader.cancel(); } catch (error: unknown) { console.error("释放 Agent 结果流失败", error); }
+    reader.releaseLock();
   }
-  const threadId = String(body.threadId ?? randomUUID()); const now = new Date().toISOString(); if (body.editionId) db.prepare("INSERT INTO chat_messages (id, thread_id, role, content, raw_content, structured_output, status, model_name, prompt_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(assistantMessageId, threadId, "assistant", result.summary, result.summary, JSON.stringify(result), "completed", config.model, "v4", now); return NextResponse.json({ analysisId: assistantMessageId, threadId, source, result }); }
+  const body = { analysisId, threadId, source: "agent", content, result, usage };
+  return failure || !completed ? NextResponse.json({ ...body, error: failure || "未收到 Agent 完成确认" }, { status: 502 }) : NextResponse.json(body);
+}

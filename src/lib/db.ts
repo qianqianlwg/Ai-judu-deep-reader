@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { repairLegacyThreadIds } from "./legacy-threads";
 
 type SqliteStatement = {
   run: (...args: unknown[]) => unknown;
@@ -7,6 +8,7 @@ type SqliteStatement = {
   get: (...args: unknown[]) => unknown;
 };
 type SqliteDatabase = {
+  close(): void;
   exec: (sql: string) => void;
   prepare: (sql: string) => SqliteStatement;
   transaction: (fn: () => void) => () => void;
@@ -44,6 +46,19 @@ function createDatabase() {
   const columns = db.prepare("PRAGMA table_info(annotations)").all() as { name: string }[];
   if (!columns.some((column) => column.name === "concept_details")) db.exec("ALTER TABLE annotations ADD COLUMN concept_details TEXT NOT NULL DEFAULT '[]'");
   if (!columns.some((column) => column.name === "message_id")) db.exec("ALTER TABLE annotations ADD COLUMN message_id TEXT");
+  const threadColumns = db.prepare("PRAGMA table_info(reading_threads)").all() as {name:string}[];
+  if (!threadColumns.some(c=>c.name==="title")) db.exec("ALTER TABLE reading_threads ADD COLUMN title TEXT NOT NULL DEFAULT '新会话'");
+  const messageColumns = db.prepare("PRAGMA table_info(chat_messages)").all() as {name:string}[];
+  if (!messageColumns.some(c=>c.name==="usage_json")) db.exec("ALTER TABLE chat_messages ADD COLUMN usage_json TEXT");
+  db.exec("CREATE TABLE IF NOT EXISTS agent_tool_runs (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, thread_id TEXT NOT NULL, tool_name TEXT NOT NULL, input_json TEXT NOT NULL, output_json TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tool_runs_message ON agent_tool_runs(message_id, created_at)");
+  const toolColumns = db.prepare("PRAGMA table_info(agent_tool_runs)").all() as {name:string}[];
+  if (!toolColumns.some(c=>c.name==="attempt_id")) db.exec("ALTER TABLE agent_tool_runs ADD COLUMN attempt_id TEXT");
+  const contextColumns = db.prepare("PRAGMA table_info(context_snapshots)").all() as {name:string}[];
+  if (!contextColumns.some(c=>c.name==="checkpoint_json")) db.exec("ALTER TABLE context_snapshots ADD COLUMN checkpoint_json TEXT");
+  // WHY：旧空会话 ID 会锁住历史加载；先以事务迁移所有引用并保留内容，再把连接交给业务。
+  const repaired = repairLegacyThreadIds(db);
+  if (repaired.migrated) console.info("旧会话 ID 已无损迁移", { count: repaired.migrated });
   return db;
 }
 

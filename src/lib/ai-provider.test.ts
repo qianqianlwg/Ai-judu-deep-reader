@@ -46,3 +46,5 @@ describe("ai provider adapter", () => {
     expect(() => parseProviderSseEvent({ event: "message", data: "not-json" })).toThrow("AI 流式事件不是合法 JSON");
   });
 });
+
+it("Claude连接测试与Agent一致，不重复追加用户填写的v1端点",()=>{expect(buildProviderUrl({...claude,baseUrl:"https://example.test/api/v1/messages"})).toBe("https://example.test/api/v1/messages");});

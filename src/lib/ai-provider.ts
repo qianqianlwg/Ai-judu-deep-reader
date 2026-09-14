@@ -9,10 +9,13 @@ export type ProviderRequestBody = OpenAiRequestBody | ClaudeRequestBody;
 export type ProviderDelta = { text: string; done: boolean };
 export type ProviderSseEvent = { event: string; data: string };
 
-function normalizedUrl(baseUrl: string): string {
-  const trimmed = baseUrl.trim().replace(/\/$/, "");
-  if (!trimmed) throw new Error("AI 服务地址不能为空");
-  return trimmed;
+export function normalizeProviderBaseUrl(config: ProviderConfig): string {
+  const url = new URL(config.baseUrl.trim());
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("AI 地址必须是无账号、查询参数的 HTTP(S) 地址");
+  let path = url.pathname.replace(/\/+$/u, "");
+  // WHY：连接测试和实际 Agent 共用规范化，防止 Claude 出现 /v1/v1/messages。
+  path = config.provider === "claude" ? path.replace(/(?:\/v1)?\/messages$/u, "").replace(/\/v1$/u, "") : path.replace(/\/(?:chat\/completions|responses)$/u, "");
+  return url.origin + path;
 }
 function positiveInteger(value: number | undefined): number { return value !== undefined && Number.isInteger(value) && value > 0 ? value : 4096; }
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object"; }
@@ -20,7 +23,7 @@ function isClaudeMessage(message: ProviderMessage): message is ClaudeMessage { r
 function stringValue(value: unknown): string | null { return typeof value === "string" ? value : null; }
 
 export function buildProviderUrl(config: ProviderConfig): string {
-  const base = normalizedUrl(config.baseUrl);
+  const base = normalizeProviderBaseUrl(config);
   return config.provider === "openai" ? `${base}/chat/completions` : `${base}/v1/messages`;
 }
 export function buildProviderHeaders(config: ProviderConfig): Record<string, string> {
