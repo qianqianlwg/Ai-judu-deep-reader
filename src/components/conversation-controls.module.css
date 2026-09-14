@@ -1,0 +1,23 @@
+.controls { position: relative; min-width: 0; flex: 1 1 auto; }
+.toolbar { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.trigger, .iconButton { border: 0; background: transparent; color: #415955; cursor: pointer; border-radius: 7px; }
+.trigger { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 7px 8px; text-align: left; font-size: 14px; }
+.heading { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.iconButton { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; margin-left: auto; flex-shrink: 0; }
+.trigger:hover, .iconButton:hover { background: #dfe8e580; }
+.controls button:disabled, .controls input:disabled { opacity: .5; cursor: not-allowed; }
+.controls button:focus-visible, .controls input:focus-visible { outline: 2px solid #789f95; outline-offset: 2px; }
+.popover { position: absolute; top: calc(100% + 7px); right: 0; left: 0; z-index: 20; display: flex; flex-direction: column; gap: 10px; max-height: min(360px, max(120px, calc(100dvh - 230px))); min-width: 0; padding: 12px; overflow: auto; background: #fff; border: 1px solid #dce4e1; border-radius: 10px; box-shadow: 0 8px 24px #233e3519; }
+.popoverHeading { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11px; color: #778983; }
+.popoverHeading button { border: 0; padding: 3px 0; background: none; color: #537c6e; cursor: pointer; font-size: 10px; }
+.search, .renameForm input { width: 100%; min-width: 0; border: 1px solid #dce5e1; border-radius: 6px; padding: 7px 8px; color: #40564f; background: #f9fbfa; font-size: 12px; }
+.renameForm { display: flex; flex-wrap: wrap; gap: 5px; }
+.renameForm input { flex-basis: 100%; }
+.renameForm button { padding: 4px 9px; border: 1px solid #d4e1db; border-radius: 5px; background: #f7faf8; color: #47675a; cursor: pointer; font-size: 11px; }
+.list { display: flex; flex-direction: column; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.list button { display: block; width: 100%; min-width: 0; padding: 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; color: #405b51; cursor: pointer; }
+.list button:hover, .list button[aria-current="true"] { background: #eef4f1; }
+.rowTitle { display: block; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
+.rowMeta { display: block; margin-top: 3px; color: #889890; font-size: 10px; }
+.empty, .hint { margin: 4px 0; color: #83948c; font-size: 11px; line-height: 1.6; }
+.error { margin: 5px 0 0; color: #9e574c; font-size: 11px; overflow-wrap: anywhere; }

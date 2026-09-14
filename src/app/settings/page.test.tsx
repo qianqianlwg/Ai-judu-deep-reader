@@ -1,5 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { renderToString } from "react-dom/server";
-import SettingsPage from "./page";
-
-describe("设置页", () => { it("提供返回入口和阅读设置", () => { const html = renderToString(<SettingsPage />); expect(html).toContain("设置"); expect(html).toContain("返回阅读器"); expect(html).toContain("正文大小"); }); });
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, expect, it, vi } from "vitest";
+import Settings from "./page";
+afterEach(()=>{vi.unstubAllGlobals();localStorage.clear();});
+it("可设置128K输入和独立输出预算，不再宣称保留最近消息",async()=>{
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",true);vi.stubGlobal("requestAnimationFrame",(callback:FrameRequestCallback)=>{callback(0);return 1;});
+  vi.stubGlobal("fetch",vi.fn(async()=>Response.json({provider:"openai",baseUrl:"https://example.test/v1",model:"test"})));
+  const node=document.createElement("div");document.body.append(node);const root=createRoot(node);
+  try{await act(async()=>root.render(<Settings/>));
+    const input=node.querySelector<HTMLSelectElement>('select[aria-label="最大输入 Token"]')!,output=node.querySelector<HTMLSelectElement>('select[aria-label="最大输出 Token"]')!;
+    expect(Array.from(input.options).map(option=>option.value)).toContain("131072");
+    await act(async()=>{input.value="131072";input.dispatchEvent(new Event("change",{bubbles:true}));output.value="2048";output.dispatchEvent(new Event("change",{bubbles:true}));});
+    expect(localStorage.getItem("judu:maxInputTokens")).toBe("131072");expect(localStorage.getItem("judu:maxOutputTokens")).toBe("2048");expect(node.textContent).not.toContain("保留最近消息");expect(node.textContent).toContain("检查点");
+  }finally{await act(async()=>root.unmount());node.remove();}
+});

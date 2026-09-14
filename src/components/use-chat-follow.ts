@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 const BOTTOM_EPSILON = 1;
 
-export function useChatFollow(generating: boolean, contentVersion: unknown) {
+export function useChatFollow(generating: boolean, contentVersion: unknown, conversationKey?: string | null) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const following = useRef(true);
@@ -12,6 +12,7 @@ export function useChatFollow(generating: boolean, contentVersion: unknown) {
   const initialized = useRef(false);
   const generatingRef = useRef(generating);
   const previousGenerating = useRef(false);
+  const previousConversation = useRef(conversationKey);
   const lastTop = useRef(0);
   const frame = useRef<number | null>(null);
   const [showLatest, setShowLatest] = useState(false);
@@ -60,6 +61,11 @@ export function useChatFollow(generating: boolean, contentVersion: unknown) {
   }, [moveToBottom, scheduleBottom]);
 
   useLayoutEffect(() => {
+    if (previousConversation.current !== conversationKey) {
+      // WHY：切会话取消旧会话的待执行滚动，不能把上一会话的跟随/结束状态带入新会话。
+      cancelFrame(); initialized.current = false; previousGenerating.current = false; interacting.current = false;
+      previousConversation.current = conversationKey;
+    }
     if (!initialized.current) {
       following.current = atBottom();
       lastTop.current = viewportRef.current?.scrollTop ?? 0;
@@ -73,7 +79,7 @@ export function useChatFollow(generating: boolean, contentVersion: unknown) {
       refresh();
     }
     previousGenerating.current = generating;
-  }, [generating, contentVersion, atBottom, moveToBottom, refresh]);
+  }, [generating, contentVersion, conversationKey, atBottom, cancelFrame, moveToBottom, refresh]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -133,7 +139,7 @@ export function useChatFollow(generating: boolean, contentVersion: unknown) {
       window.removeEventListener("pointercancel", onPointerUp);
       window.removeEventListener("resize", onResize);
     };
-  }, [atBottom, cancelFrame, pauseFollowing, refresh, scheduleBottom]);
+  }, [conversationKey, atBottom, cancelFrame, pauseFollowing, refresh, scheduleBottom]);
 
   return { viewportRef, contentRef, showLatest, jumpToLatest, pauseFollowing };
 }

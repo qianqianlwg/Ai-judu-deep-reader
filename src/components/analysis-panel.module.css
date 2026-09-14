@@ -105,3 +105,42 @@
   white-space: nowrap;
   border: 0;
 }
+
+.header { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 10px 12px; }
+.markdown { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.markdown p { margin: 0 0 10px; }
+.markdown p:last-child { margin-bottom: 0; }
+.markdown :is(h1,h2,h3,h4) { margin: 16px 0 8px; line-height: 1.4; font-family: inherit; color: inherit; }
+.markdown h1 { font-size: 19px; }.markdown h2 { font-size: 17px; }.markdown h3,.markdown h4 { font-size: 14px; }
+.markdown :is(ul,ol) { padding-left: 21px; margin: 8px 0; }
+.markdown blockquote { margin: 10px 0; padding-left: 10px; border-left: 2px solid #a5c3b7; color: #698275; }
+.markdown pre,.toolOutput { max-width: 100%; overflow: auto; padding: 10px; border-radius: 6px; background: #eaf0ed; font: 12px/1.6 ui-monospace,monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown code { font-family: ui-monospace,monospace; font-size: .92em; }
+.markdown table { display: block; overflow-x: auto; border-collapse: collapse; max-width: 100%; font-size: 12px; }
+.markdown th,.markdown td { padding: 6px 9px; border: 1px solid #d7e1db; text-align: left; }
+.markdown a { color: #437967; text-decoration: underline; text-underline-offset: 3px; }
+.toolRecord { margin: 10px 0 0; border: 1px solid #d7e3dc; border-radius: 7px; padding: 8px 10px; color: #567263; font-size: 12px; }
+.toolRecord > summary { cursor: pointer; font-size: 11px; }
+.toolRecord > summary > span { margin-left: 7px; color: #8a9c92; font-size: 10px; }
+.toolRecord[open] > summary { margin-bottom: 10px; }
+.usageFooter { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 7px; margin-bottom: 8px; color: #7b9084; font-size: 10px; }
+.modelName { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px; }
+.usageDetails { min-width: 0; max-width: 100%; }
+.usageDetails > summary { display: flex; align-items: center; justify-content: flex-end; gap: 5px; cursor: pointer; list-style: none; }
+.usageDetails > summary::-webkit-details-marker { display: none; }
+.contextRing { width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%; mask-image: radial-gradient(transparent 42%, #000 46%); }
+.usageSource { color: #92a298; font-size: 9px; }
+.usageDetails[open] { flex-basis: 100%; }
+.usageBreakdown,.usageUnknown { margin: 8px 0 0; padding: 8px 10px; border-radius: 7px; background: #f4f8f5; max-height: 160px; overflow: auto; line-height: 1.6; }
+.usageBreakdown p { margin: 3px 0; }.usageBreakdown dl { display: grid; grid-template-columns: auto auto; gap: 3px 14px; margin: 5px 0; }.usageBreakdown dd { margin: 0; text-align: right; color: #526b5d; }
+
+.messageWarning { padding: 7px 9px; border-left: 2px solid #b69a6c; background: #faf7f0; border-radius: 0 5px 5px 0; color: #806d50; font-size: 11px; line-height: 1.6; }
+
+.toolSources > p { margin: 0 0 8px; font-size: 11px; color: #7b9084; }
+.toolSource { margin: 8px 0; padding: 9px; background: #f5f8f6; border: 1px solid #dce7e0; border-radius: 6px; }
+.toolSourceTitle { margin-bottom: 5px; font-size: 11px; color: #56796a; }
+.toolSourcePreview { cursor: pointer; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.toolSource blockquote { margin: 8px 0; padding-left: 9px; border-left: 2px solid #adc8b9; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
+
+.stopButton { cursor: pointer; font-size: 12px; }
+.stopButton:focus-visible { outline: 2px solid #769a88; outline-offset: 3px; }

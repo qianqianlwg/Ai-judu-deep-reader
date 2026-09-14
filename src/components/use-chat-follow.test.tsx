@@ -20,8 +20,8 @@ class Observer implements ResizeObserver {
   disconnect() { this.targets.clear(); }
   notify() { if (this.targets.size) this.callback([], this); }
 }
-function Harness({ generating = true, revision = "first" }: { generating?: boolean; revision?: string }) {
-  const { viewportRef, contentRef, showLatest, jumpToLatest } = useChatFollow(generating, revision);
+function Harness({ generating = true, revision = "first", conversationKey }: { generating?: boolean; revision?: string; conversationKey?: string }) {
+  const { viewportRef, contentRef, showLatest, jumpToLatest } = useChatFollow(generating, revision, conversationKey);
   return <div><div ref={viewportRef} data-testid="viewport" tabIndex={0}><div ref={contentRef}>{revision}</div></div>
     <button data-testid="latest" hidden={!showLatest} onClick={jumpToLatest}>最新</button><input aria-label="输入框" /></div>;
 }
@@ -152,6 +152,18 @@ describe("useChatFollow 真实 React 滚动意图", () => {
     metrics.height = 1200;
     await render(true, "新字");
     expect(metrics.top).toBe(600);
+  });
+  it("切换会话取消上一会话 latest 的延后滚动，不把跟随状态带过去", async () => {
+    metrics.top = 100;
+    await act(async () => root.render(<Harness generating={false} conversationKey="t1" />));
+    await act(async () => button().click());
+    expect(frames.size).toBe(1);
+    metrics.top = 150;
+    await act(async () => root.render(<Harness generating={false} conversationKey="t2" revision="第二会话" />));
+    expect(frames.size).toBe(0);
+    metrics.height = 1500;
+    await flushFrames();
+    expect(metrics.top).toBe(150);
   });
   it("StrictMode 重挂载与连续渲染不累计 listener，卸载清理 observer 和 RAF", async () => {
     const add = vi.spyOn(EventTarget.prototype, "addEventListener");
