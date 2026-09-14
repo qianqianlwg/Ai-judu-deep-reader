@@ -1,0 +1,392 @@
+import { NextRequest } from "next/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { getDb } from "@/lib/db";
+
+type TestDb = ReturnType<typeof getDb> & { close(): void };
+const fixture = vi.hoisted(() => ({ db: undefined as TestDb | undefined }));
+vi.mock("@/lib/db", () => ({ getDb: () => { if (!fixture.db) throw new Error("测试数据库未初始化"); return fixture.db; } }));
+import { POST } from "./route";
+import { captureReadingContext, type ReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, restoreReadingRequest } from "@/lib/reading-request";
+
+const runtime = (process as unknown as { getBuiltinModule(name: string): { DatabaseSync: new (file: string) => TestDb } }).getBuiltinModule("node:sqlite");
+const encoder = new TextEncoder();
+const fetcher = vi.fn<typeof fetch>();
+const payload = { threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", mode: "chat", question: "测试", selectedText: "原文", selectionStart: 2, selectionEnd: 4 };
+const analysis = { summary: "解释", breakdown: [], concepts: [], context: "上下文", uncertainty: "", citations: [] };
+const block = (data: unknown, event?: string) => (event ? "event: " + event + "\n" : "") + "data: " + (typeof data === "string" ? data : JSON.stringify(data)) + "\n\n";
+const delta = (content: string) => block({ choices: [{ delta: { content } }] });
+const done = () => block("[DONE]");
+function upstream(...chunks: string[]) { return new Response(new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(encoder.encode(chunk)); controller.close(); } }), { headers: { "Content-Type": "text/event-stream" } }); }
+function request(overrides: Record<string, unknown> = {}, signal?: AbortSignal) { return new NextRequest("http://localhost/api/analyze/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, ...overrides }), signal }); }
+async function call(overrides: Record<string, unknown> = {}) { const response = await POST(request(overrides)); return { status: response.status, text: await response.text() }; }
+function row(id = "assistant-1") { return fixture.db!.prepare("SELECT * FROM chat_messages WHERE id = ?").get(id) as { id: string; role: string; content: string; raw_content: string; structured_output: string; status: string; created_at: string }; }
+const stored = () => JSON.parse(row().structured_output) as Record<string, unknown> & { _request: { failure?: { code: string; retryable: boolean }; attemptId: string; fingerprint: string; contextSnapshot?: ReadingContextSnapshot } };
+const count = () => (fixture.db!.prepare("SELECT count(*) AS count FROM chat_messages").get() as { count: number }).count;
+function setProvider(provider = "openai", key = "test-key") { fixture.db!.prepare("UPDATE ai_provider_configs SET provider = ?, api_key = ? WHERE id = 'default'").run(provider, key); }
+
+beforeEach(() => {
+  // WHY：使用真实内存 SQLite 执行事务和幂等 SQL；只替换上游传输，不访问外网、不启停服务。
+  fixture.db = new runtime.DatabaseSync(":memory:");
+  fixture.db.exec(String.raw`
+    CREATE TABLE ai_provider_configs (id TEXT PRIMARY KEY, provider TEXT, base_url TEXT, api_key TEXT, model TEXT);
+    INSERT INTO ai_provider_configs VALUES ('default', 'openai', 'https://provider.test', 'test-key', 'test-model');
+    CREATE TABLE reading_threads (id TEXT PRIMARY KEY, book_id TEXT, edition_id TEXT NOT NULL, chapter_id TEXT, paragraph_id TEXT, selected_text TEXT, created_at TEXT, updated_at TEXT);
+    CREATE TABLE chat_messages (id TEXT PRIMARY KEY, thread_id TEXT, role TEXT, content TEXT NOT NULL, raw_content TEXT, structured_output TEXT, status TEXT, model_name TEXT, prompt_version TEXT, created_at TEXT);
+    CREATE TABLE context_snapshots (id TEXT PRIMARY KEY, thread_id TEXT, book_id TEXT, edition_id TEXT, summary TEXT, recent_messages TEXT, token_count INTEGER, version INTEGER, created_at TEXT);
+    CREATE TABLE chapters (id TEXT PRIMARY KEY, edition_id TEXT);
+    CREATE TABLE paragraphs (id TEXT PRIMARY KEY, chapter_id TEXT, text TEXT);
+    INSERT INTO chapters VALUES ('chapter-1', 'edition-1'), ('chapter-2', 'edition-2');
+    INSERT INTO paragraphs VALUES ('p1', 'chapter-1', '前言原文后文'), ('p2', 'chapter-2', '前言原文后文');
+  `);
+  fetcher.mockReset().mockImplementation(async () => upstream(delta("你好"), delta("，世界"), done()));
+  vi.stubGlobal("fetch", fetcher);
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+});
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); fixture.db?.close(); fixture.db = undefined; });
+
+describe("流式 Provider 路由集成", () => {
+  it("OpenAI 请求鉴权、真实增量、落库和 meta ID 一致", async () => {
+    const response = await POST(request());
+    expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+    const text = await response.text();
+    expect(text).toContain('event: raw_delta\ndata: {"text":"你好"}');
+    expect(text).toContain('event: raw_delta\ndata: {"text":"，世界"}');
+    expect(text).toContain('"messageId":"assistant-1","userMessageId":"user-1"');
+    expect(text).toContain("event: done");
+    expect(fetcher.mock.calls[0][0]).toBe("https://provider.test/chat/completions");
+    expect(fetcher.mock.calls[0][1]?.headers).toMatchObject({ Authorization: "Bearer test-key" });
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toMatchObject({ stream: true, model: "test-model" });
+    expect(row()).toMatchObject({ content: "你好，世界", status: "completed" });
+    expect(row("user-1")).toMatchObject({ role: "user", content: "测试" });
+    expect(count()).toBe(2);
+  });
+  it("Claude system、鉴权、CRLF 分片与 message_stop", async () => {
+    setProvider("claude");
+    const wire = block({}, "message_start") + block({ delta: { type: "text_delta", text: "你好" } }, "content_block_delta") + block({}, "message_stop");
+    const crlf = wire.replace(/\n/g, "\r\n");
+    fetcher.mockResolvedValueOnce(upstream(...Array.from(crlf)));
+    const result = await call();
+    const init = fetcher.mock.calls[0][1];
+    expect(fetcher.mock.calls[0][0]).toBe("https://provider.test/v1/messages");
+    expect(init?.headers).toMatchObject({ "x-api-key": "test-key", "anthropic-version": "2023-06-01" });
+    expect(JSON.parse(String(init?.body))).toMatchObject({ stream: true, system: expect.any(String), messages: [{ role: "user", content: expect.stringContaining("测试") }] });
+    expect(result.text).toContain('event: raw_delta\ndata: {"text":"你好"}');
+    expect(row()).toMatchObject({ content: "你好", status: "completed" });
+  });
+  it("未发出完成确认前，增量已可读取且助手状态为 streaming", async () => {
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    fetcher.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { source = controller; controller.enqueue(encoder.encode(delta("第一段"))); } })));
+    const response = await POST(request());
+    const reader = response.body!.getReader();
+    let text = "";
+    while (!text.includes("raw_delta")) text += new TextDecoder().decode((await reader.read()).value);
+    expect(row()).toMatchObject({ status: "streaming", content: "第一段" });
+    source.enqueue(encoder.encode(delta("第二段") + done())); source.close();
+    while (true) { const next = await reader.read(); if (next.done) break; text += new TextDecoder().decode(next.value); }
+    reader.releaseLock();
+    expect(text).toContain("event: done");
+    expect(row().content).toBe("第一段第二段");
+  });
+});
+
+describe("服务端失败重试的原消息幂等闭环", () => {
+  it("首条请求在 HTTP 失败前已保存两个客户端 ID，重试不新增消息", async () => {
+    fetcher.mockResolvedValueOnce(new Response("故障", { status: 503 }));
+    const failed = await call();
+    expect(failed.text).toContain("event: error");
+    expect(row().status).toBe("error");
+    expect(stored()._request.failure).toMatchObject({ code: "upstream_failed", retryable: true });
+    const createdAt = row().created_at;
+    const firstAttempt = stored()._request.attemptId;
+    const result = await call();
+    expect(result.text).toContain("event: done");
+    expect(count()).toBe(2);
+    expect(row().created_at).toBe(createdAt);
+    expect(row().status).toBe("completed");
+    expect(stored()._request.attemptId).not.toBe(firstAttempt);
+    expect(stored()._request.failure).toBeUndefined();
+  });
+  it("配置错误也保存可重试状态，补齐 key 后复用 ID", async () => {
+    vi.stubEnv("AI_API_KEY", "");
+    try {
+      setProvider("openai", "");
+      const failed = await call();
+      expect(failed.status).toBe(503);
+      expect(stored()._request.failure?.code).toBe("not_configured");
+      expect(fetcher).not.toHaveBeenCalled();
+      setProvider();
+      expect((await call()).text).toContain("event: done");
+      expect(count()).toBe(2);
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("传输异常可重试", async () => {
+    fetcher.mockRejectedValueOnce(new TypeError("connection lost"));
+    expect((await call()).text).toContain("event: error");
+    expect(row().status).toBe("error");
+    expect((await call()).text).toContain("event: done");
+    expect(count()).toBe(2);
+  });
+  it.each([
+    ["空输出", [done()], "empty_output", ""],
+    ["中途 EOF", [delta("半截")], "interrupted", "半截"],
+    ["上游错误事件", [delta("半截"), block({ error: { message: "失败" } }, "error")], "upstream_failed", "半截"],
+    ["OpenAI 内嵌错误", [delta("半截"), block({ error: { message: "失败" } })], "upstream_failed", "半截"],
+    ["非法 SSE JSON", [delta("半截"), "data: invalid\n\n"], "upstream_failed", "半截"],
+  ])("%s 不能伪装成功，保留失败部分并重试原消息", async (_name, chunks, code, partial) => {
+    fetcher.mockResolvedValueOnce(upstream(...chunks as string[]));
+    const failed = await call();
+    expect(failed.text).not.toContain("event: done");
+    expect(failed.text).toContain("event: error");
+    expect(row()).toMatchObject({ status: "error", content: partial, raw_content: partial });
+    expect(stored()._request.failure?.code).toBe(code);
+    const retried = await call();
+    expect(retried.text).toContain("event: done");
+    expect(row().content).toBe("你好，世界");
+    expect(count()).toBe(2);
+  });
+  it("已成功的重复请求回放原答案，不重新调用模型或新增消息", async () => {
+    await call();
+    const createdAt = row().created_at;
+    const result = await call();
+    expect(result.text).toContain('"replayed":true');
+    expect(result.text).toContain("你好，世界");
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(row().created_at).toBe(createdAt);
+    expect(count()).toBe(2);
+  });
+  it("并发请求返回 409；取消挂起请求后可重试，同一时刻不双发", async () => {
+    const abort = new AbortController();
+    fetcher.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })));
+    const pending = await POST(request({}, abort.signal));
+    const duplicate = await call();
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.text).toContain("request_in_progress");
+    expect(fetcher).toHaveBeenCalledOnce();
+    abort.abort();
+    expect(await pending.text()).toContain("cancelled");
+    expect(row().status).toBe("error");
+    const retry = await call();
+    expect(retry.text).toContain("event: done");
+    expect(row().status).toBe("completed");
+    expect(count()).toBe(2);
+  });
+  it("浏览器取消读取保留已收到文本，失败消息可原位重试", async () => {
+    const cancelled = vi.fn();
+    fetcher.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(encoder.encode(delta("部分输出"))); }, cancel: cancelled })));
+    const response = await POST(request());
+    const reader = response.body!.getReader();
+    let text = "";
+    while (!text.includes("raw_delta")) text += new TextDecoder().decode((await reader.read()).value);
+    await reader.cancel(); reader.releaseLock();
+    expect(row()).toMatchObject({ status: "error", content: "部分输出" });
+    expect(stored()._request.failure?.code).toBe("cancelled");
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect((await call()).text).toContain("event: done");
+    expect(count()).toBe(2);
+  });
+  it("已取消的旧流不能覆盖新重试的成功结果", async () => {
+    let resolveFetch!: (value: Response) => void;
+    const abort = new AbortController();
+    fetcher.mockImplementationOnce(() => new Promise((resolve) => { resolveFetch = resolve; }));
+    const pending = await POST(request({}, abort.signal));
+    abort.abort();
+    await pending.text();
+    await call();
+    resolveFetch(upstream(delta("旧请求迟到"), done()));
+    await vi.waitFor(() => expect(row().content).toBe("你好，世界"));
+    expect(row().status).toBe("completed");
+    expect(count()).toBe(2);
+  });
+  it("客户端状态机到路由到 SQLite：首条失败重试 UI 和数据库均只有原两条消息", async () => {
+    const ids = ["thread-1", "user-1", "assistant-1"];
+    const initial = createReadingRequest({ mode: "analyze", question: "请句读这一段", selectedText: "原文", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", selectionStart: 2, selectionEnd: 4 }, () => ids.shift()!);
+    const transport: typeof fetch = async (_url, init) => POST(new NextRequest("http://localhost/api/analyze/stream", { ...init, signal: init?.signal ?? undefined }));
+    fetcher.mockResolvedValueOnce(upstream(delta("部分生成")));
+    const started = beginReadingRequest(initial, []);
+    const failed = await executeReadingRequest(started.state, { fetcher: transport });
+    expect(failed.status).toBe("error");
+    expect(row().status).toBe("error");
+    const messages = applyReadingRequest(started.messages, failed);
+    const restored = restoreReadingRequest(initial.payload.threadId, { ...row(), structuredOutput: row().structured_output });
+    const retried = beginReadingRequest(restored!, messages);
+    fetcher.mockResolvedValueOnce(upstream(delta(JSON.stringify(analysis)), done()));
+    const completed = await executeReadingRequest(retried.state, { fetcher: transport });
+    const finalMessages = applyReadingRequest(retried.messages, completed);
+    expect(completed.status).toBe("completed");
+    expect(completed.analysis?.anchor).toMatchObject({ paragraphId: "p1", startOffset: 2, endOffset: 4 });
+    expect(finalMessages).toHaveLength(2);
+    expect(finalMessages[0]).toBe(started.messages[0]);
+    expect(finalMessages.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
+    expect(count()).toBe(2);
+    expect(row().content).toBe(finalMessages[1].content);
+  });
+  it("底层连接中途报错也保存 partial 并允许原 ID 重试", async () => {
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    fetcher.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { source = controller; controller.enqueue(encoder.encode(delta("已收到"))); } })));
+    const response = await POST(request());
+    const reader = response.body!.getReader();
+    let text = "";
+    while (!text.includes("raw_delta")) text += new TextDecoder().decode((await reader.read()).value);
+    source.error(new Error("connection reset"));
+    while (true) { const next = await reader.read(); if (next.done) break; text += new TextDecoder().decode(next.value); }
+    reader.releaseLock();
+    expect(text).toContain("event: error");
+    expect(text).not.toContain("event: done");
+    expect(row()).toMatchObject({ status: "error", content: "已收到" });
+    expect((await call()).text).toContain("event: done");
+    expect(count()).toBe(2);
+  });
+  it("过期的 streaming 占位可以恢复，不永久卡住", async () => {
+    await call();
+    const saved = stored();
+    fixture.db!.prepare("UPDATE chat_messages SET status = 'streaming', structured_output = ? WHERE id = ?").run(JSON.stringify({ ...saved, _request: { ...saved._request, leaseUntil: 0 } }), "assistant-1");
+    expect((await call()).text).toContain("event: done");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(count()).toBe(2);
+  });
+  it.each([
+    { question: "换了问题" }, { selectedText: "换了选区" }, { threadId: "another-thread" },
+    { clientAssistantMessageId: "another-assistant" }, { clientUserMessageId: "another-user" }, { editionId: "edition-2" },
+  ])("不能复用 ID 偷换原消息输入 %j", async (overrides) => {
+    await call();
+    expect((await call(overrides)).status).toBe(409);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(count()).toBe(2);
+  });
+  it("历史中移除本轮 ID 和失败 assistant，避免给模型重复用户指令", async () => {
+    await call({ chatHistory: [{ id: "old", role: "user", content: "保留历史" }, { id: "user-1", role: "user", content: "重复指令" }, { id: "assistant-1", role: "assistant", content: "失败半截" }, { id: "failed-old", role: "assistant", content: "其他失败", status: "error" }] });
+    const text = String(fetcher.mock.calls[0][1]?.body);
+    expect(text).toContain("保留历史");
+    expect(text).not.toContain("重复指令");
+    expect(text).not.toContain("失败半截");
+    expect(text).not.toContain("其他失败");
+  });
+});
+
+describe("成功 Analysis 的服务端合法锚点", () => {
+  it("合法范围写入 anchor，同时保持 Analysis 字段和客户端消息 ID", async () => {
+    fetcher.mockResolvedValueOnce(upstream(delta(JSON.stringify(analysis)), done()));
+    const result = await call({ mode: "analyze" });
+    expect(result.text).toContain('"messageId":"assistant-1"');
+    expect(stored()).toMatchObject({ ...analysis, anchor: { paragraphId: "p1", startOffset: 2, endOffset: 4, selectedText: "原文" } });
+    const replay = await call({ mode: "analyze" });
+    expect(replay.text).toContain('"anchor":{"paragraphId":"p1"');
+    expect(replay.text).not.toContain("_request");
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { selectionStart: undefined, selectionEnd: undefined }, { selectionStart: -1 }, { selectionStart: 2.5 },
+    { selectionEnd: 100 }, { selectionEnd: 3 }, { paragraphId: "p2" }, { chapterId: "chapter-2" },
+    { selectedText: "不存在" }, { selectedText: " 原文 " },
+  ])("缺失或非法选区不猜锚点，也不接受模型伪造 anchor %j", async (overrides) => {
+    fetcher.mockResolvedValueOnce(upstream(delta(JSON.stringify({ ...analysis, anchor: { paragraphId: "fake", startOffset: 0, endOffset: 1, selectedText: "假" } })), done()));
+    await call({ mode: "analyze", ...overrides });
+    expect(row().status).toBe("completed");
+    expect(stored().anchor).toBeUndefined();
+  });
+  it("失败的 Analysis 不落已完成锚点，保留原请求输入供重试", async () => {
+    fetcher.mockResolvedValueOnce(upstream(delta('{"summary":"半截')));
+    await call({ mode: "analyze" });
+    expect(row().status).toBe("error");
+    expect(stored().anchor).toBeUndefined();
+    expect(stored()._request).toMatchObject({ input: { paragraphId: "p1", selectionStart: 2, selectionEnd: 4, selectedText: "原文" } });
+  });
+});
+
+describe("请求边界校验", () => {
+  it.each([{ clientUserMessageId: undefined }, { clientAssistantMessageId: "user-1" }, { threadId: "bad id" }, { question: " " }])("非法 ID 或输入不写入任何消息 %j", async (overrides) => {
+    expect((await call(overrides)).status).toBe(400);
+    expect(count()).toBe(0);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("非法 JSON 返回 400", async () => {
+    const response = await POST(new NextRequest("http://localhost/api/analyze/stream", { method: "POST", body: "{" }));
+    expect(response.status).toBe(400);
+    expect(count()).toBe(0);
+  });
+});
+
+
+describe("首次上下文快照：持久化、刷新和重试", () => {
+  const original = () => ({
+    bookTitle: "精神现象学", chapterTitle: "承认关系", context: "首次提交的前后文", textHash: "first-hash",
+    contextSettings: { maxInputTokens: 65536, maxOutputTokens: 8192, compressionStrategy: "aggressive" as const },
+    chatHistory: [{ id: "history-1", role: "user" as const, content: "此前的问题" }, { id: "history-2", role: "assistant" as const, content: "此前已确认的回答" }],
+    bookSearch: [{ sourceId: "book:p1", paragraphId: "p1", excerpt: "首次检索命中的片段", context: { before: [{ id: "before", text: "首次检索前文" }], after: [] } }],
+  });
+  it("重试篡改标题、历史、检索、预算和 contextSnapshot 不改变首次上游输入", async () => {
+    const first = original();
+    fetcher.mockResolvedValueOnce(new Response("失败", { status: 503 }));
+    await call(first);
+    const firstBody = String(fetcher.mock.calls[0][1]?.body);
+    const firstMeta = stored()._request;
+    expect(firstMeta.contextSnapshot).toEqual({ version: 1, ...first });
+    await call({ bookTitle: "新书名", chapterTitle: "新章节", context: "不同前后文", textHash: "new-hash", contextSettings: { maxInputTokens: 8192, maxOutputTokens: 1024, compressionStrategy: "conservative" }, chatHistory: [{ role: "user", content: "新历史" }], bookSearch: [{ excerpt: "新检索结果" }], contextSnapshot: { ...captureReadingContext(first), context: "伪造快照" } });
+    expect(String(fetcher.mock.calls[1][1]?.body)).toBe(firstBody);
+    expect(firstBody).toContain("精神现象学");
+    expect(firstBody).toContain("承认关系");
+    expect(firstBody).toContain("首次提交的前后文");
+    expect(JSON.parse(firstBody).max_tokens).toBe(8192);
+    expect(stored()._request.contextSnapshot).toEqual(firstMeta.contextSnapshot);
+    expect(stored()._request.fingerprint).toBe(firstMeta.fingerprint);
+    expect(count()).toBe(2);
+  });
+  it("刷新恢复后由执行器再次发送，Provider 看到的完整请求与首次一致", async () => {
+    const first = original();
+    fetcher.mockResolvedValueOnce(upstream(delta("半截")));
+    await call(first);
+    const firstBody = String(fetcher.mock.calls[0][1]?.body);
+    const restored = restoreReadingRequest("thread-1", { ...row(), structuredOutput: row().structured_output }, [{ role: "user", content: "刷新后新增的问题" }]);
+    expect(restored?.payload).toMatchObject(first);
+    const transport: typeof fetch = async (_url, init) => POST(new NextRequest("http://localhost/api/analyze/stream", { ...init, signal: init?.signal ?? undefined }));
+    const started = beginReadingRequest(restored!, []);
+    const result = await executeReadingRequest(started.state, { fetcher: transport });
+    expect(result.status).toBe("completed");
+    expect(String(fetcher.mock.calls[1][1]?.body)).toBe(firstBody);
+    expect(count()).toBe(2);
+  });
+  it("配置失败也先保存上下文，但不保存请求或嵌套 metadata 中的密钥", async () => {
+    vi.stubEnv("AI_API_KEY", "");
+    try {
+      setProvider("openai", "");
+      const first = original();
+      const result = await call({ ...first, apiKey: "root-secret", api_key: "snake-secret", headers: { Authorization: "auth-secret" }, contextSettings: { ...first.contextSettings, apiKey: "settings-secret" }, chatHistory: first.chatHistory.map((item) => ({ ...item, token: "history-secret" })), bookSearch: first.bookSearch.map((item) => ({ ...item, apiKey: "search-secret", context: { ...item.context, credentials: "nested-secret" } })) });
+      expect(result.status).toBe(503);
+      expect(stored()._request.contextSnapshot).toEqual({ version: 1, ...first });
+      expect(row().structured_output).not.toContain("secret");
+      expect(fetcher).not.toHaveBeenCalled();
+      setProvider();
+      await call({ context: "保存配置后不同的上下文", contextSettings: { maxOutputTokens: 1024 } });
+      const body = String(fetcher.mock.calls[0][1]?.body);
+      expect(body).toContain("首次提交的前后文");
+      expect(body).not.toContain("保存配置后不同的上下文");
+      expect(JSON.parse(body).max_tokens).toBe(8192);
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("没有旧快照的记录仍沿用原指纹和 ID，兼容快照只补录一次", async () => {
+    fetcher.mockResolvedValueOnce(upstream(delta("半截")));
+    await call();
+    const saved = stored();
+    const fingerprint = saved._request.fingerprint;
+    delete saved._request.contextSnapshot;
+    fixture.db!.prepare("UPDATE chat_messages SET structured_output = ? WHERE id = ?").run(JSON.stringify(saved), "assistant-1");
+    fetcher.mockResolvedValueOnce(upstream(delta("第二次仍中断")));
+    await call(original());
+    expect(stored()._request.fingerprint).toBe(fingerprint);
+    expect(stored()._request.contextSnapshot).toEqual({ version: 1, ...original() });
+    const firstAvailableBody = String(fetcher.mock.calls[1][1]?.body);
+    await call({ context: "第三次不同的上下文", bookTitle: "不应覆盖" });
+    expect(String(fetcher.mock.calls[2][1]?.body)).toBe(firstAvailableBody);
+    expect(count()).toBe(2);
+  });
+  it("已有快照损坏时不能借新 body 覆盖存储", async () => {
+    fetcher.mockResolvedValueOnce(upstream(delta("半截")));
+    await call(original());
+    const saved = stored();
+    fixture.db!.prepare("UPDATE chat_messages SET structured_output = ? WHERE id = ?").run(JSON.stringify({ ...saved, _request: { ...saved._request, contextSnapshot: {} } }), "assistant-1");
+    const corrupt = row().structured_output;
+    expect((await call(original())).status).toBe(500);
+    expect(row().structured_output).toBe(corrupt);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+});

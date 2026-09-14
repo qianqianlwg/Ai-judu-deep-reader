@@ -1,28 +1,17 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
+import { buildProviderHeaders, buildProviderRequestBody, buildProviderUrl, type AiProviderKind, type ProviderConfig, type ProviderMessage } from "@/lib/ai-provider";
+import { readResponseText } from "@/lib/response-text";
+import { sourceIdForParagraph, validateCitations, type CitationSource } from "@/lib/citation-validation";
 export const runtime = "nodejs";
-
-export async function POST(request: NextRequest) {
-  const db = getDb();
-  const body = await request.json();
-  const selectedText = String(body.selectedText || "").trim();
-  const context = String(body.context || "").trim();
-  if (!selectedText) return NextResponse.json({ error: "没有选中文本" }, { status: 400 });
-  const endpoint = process.env.AI_BASE_URL;
-  const apiKey = process.env.AI_API_KEY;
-  let result;
-  let source = "demo";
-  if (endpoint && apiKey) {
-    const response = await fetch(`${endpoint.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: process.env.AI_MODEL || "gpt-4o-mini", temperature: 0.2, response_format: { type: "json_object" }, messages: [{ role: "system", content: "你是中文经典原著阅读助手。只基于提供的原文和上下文回答，返回 JSON：summary、breakdown（数组，每项含label和text）、concepts（数组，每项含name和text）、context、uncertainty。不要编造引用。" }, { role: "user", content: `选中文本：${selectedText}\n上下文：${context}` }] }) });
-    if (response.ok) { const data = await response.json(); result = JSON.parse(data.choices?.[0]?.message?.content || "{}"); source = "ai"; }
+type Analysis = { summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: { sourceId: string; paragraphId: string; quote: string; messageId?: string }[] };
+const demoAnalysis = (): Analysis => ({ summary: "请结合当前原文、上下文和检索结果进行句读。未配置真实模型。", breakdown: [], concepts: [], context: "基于当前原文和上下文的演示结果。", uncertainty: "基于当前原文和上下文的演示结果。" });
+function readConfig(db: ReturnType<typeof getDb>): ProviderConfig { const row = db.prepare("SELECT provider, base_url, api_key, model FROM ai_provider_configs WHERE id = ?").get("default") as { provider?: string; base_url?: string; api_key?: string; model?: string } | undefined; return { provider: row?.provider === "claude" ? "claude" : "openai" as AiProviderKind, baseUrl: row?.base_url || process.env.AI_BASE_URL || "https://api.openai.com/v1", apiKey: row?.api_key || process.env.AI_API_KEY || "", model: row?.model || process.env.AI_MODEL || "gpt-4o-mini" }; }
+export async function POST(request: NextRequest) { const db = getDb(); const body = await request.json() as Record<string, unknown>; const selectedText = String(body.selectedText ?? "").trim(); if (!selectedText) return NextResponse.json({ error: "selected text required" }, { status: 400 }); const config = readConfig(db); let result = demoAnalysis(); let source = "demo"; if (config.apiKey) { try { const instruction = "You are a reading assistant. Return strict JSON with summary, breakdown, concepts, context, uncertainty."; const messages: ProviderMessage[] = [{ role: "system", content: instruction }, { role: "user", content: "Selected text: " + selectedText + "\nContext: " + String(body.context ?? "") + "\nQuestion: " + String(body.question ?? "Analyze this text") }]; const response = await fetch(buildProviderUrl(config), { method: "POST", headers: buildProviderHeaders(config), body: JSON.stringify(buildProviderRequestBody(config, { messages, temperature: 0.2, maxTokens: 4096, stream: false })) }); if (!response.ok) throw new Error("AI request failed"); const data = await response.json() as { choices?: { message?: { content?: string } }[]; content?: { text?: string }[]; output_text?: string; output?: { content?: unknown }[] }; const text = data.choices?.[0]?.message?.content ?? data.content?.[0]?.text ?? data.output_text ?? readResponseText(data); result = JSON.parse(text.replace(/^```json\s*/i, "").replace(/\s*```$/, "")) as Analysis; source = "ai"; } catch (error: unknown) { console.error("AI analyze failed", error); } } const assistantMessageId = randomUUID();
+  const sourceRows = body.editionId ? db.prepare("SELECT p.id, p.text FROM paragraphs p JOIN chapters c ON c.id = p.chapter_id WHERE c.edition_id = ?").all(body.editionId) as { id: string; text: string }[] : [];
+  const sources: CitationSource[] = sourceRows.map((row) => ({ sourceId: sourceIdForParagraph(String(body.editionId ?? ""), row.id), paragraphId: row.id, text: row.text }));
+  if (sourceRows.length > 0 && config.apiKey) {
+    result = { ...result, citations: validateCitations(result.citations ?? [], sources, assistantMessageId) };
   }
-  if (!result) result = { summary: "这段文字的核心意思需要结合上下文理解。当前使用演示结果；配置 AI_BASE_URL 和 AI_API_KEY 后将调用真实模型。", breakdown: [{ label: "原文范围", text: "分析对象是用户当前选中的一句或一段。" }, { label: "阅读提示", text: "可以继续结合前后段落，确认作者是在陈述观点、提供理由，还是回应反驳。" }], concepts: [], context: "已传入当前段落及相邻上下文。", uncertainty: "当前为演示分析。" };
-
-  const analysisId = randomUUID();
-  if (body.editionId && body.chapterId) {
-    db.prepare("INSERT INTO analyses (id, edition_id, chapter_id, paragraph_id, selected_text, context, model_name, prompt_version, result_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(analysisId, body.editionId, body.chapterId, body.paragraphId || null, selectedText, context, source === "ai" ? (process.env.AI_MODEL || "unknown") : "demo", "v1", JSON.stringify(result), new Date().toISOString());
-  }
-  return NextResponse.json({ analysisId, source, result });
-}
-
+  const threadId = String(body.threadId ?? randomUUID()); const now = new Date().toISOString(); if (body.editionId) db.prepare("INSERT INTO chat_messages (id, thread_id, role, content, raw_content, structured_output, status, model_name, prompt_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(assistantMessageId, threadId, "assistant", result.summary, result.summary, JSON.stringify(result), "completed", config.model, "v4", now); return NextResponse.json({ analysisId: assistantMessageId, threadId, source, result }); }
