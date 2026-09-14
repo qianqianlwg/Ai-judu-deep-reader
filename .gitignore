@@ -42,3 +42,10 @@ next-env.d.ts
 
 # local runtime data
 /data/
+
+.next-*/
+
+.verify-*/
+.verify-*.log
+.verify-*.pid
+.main*.log
