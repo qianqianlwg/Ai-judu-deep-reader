@@ -1,0 +1,25 @@
+/* WHY：正文视口只占工具栏与选区操作栏之间的区域，测量不包含底部按钮及页码。 */
+.app-shell { height: 100dvh; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.app-shell .topbar { flex: 0 0 58px; min-height: 58px; }
+.app-shell .reader-layout { flex: 1; height: auto; min-height: 0; overflow: hidden; }
+.app-shell .reading-pane { display: grid; grid-template-rows: 52px minmax(0, 1fr) auto 42px; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.app-shell .reading-toolbar { height: 52px; min-height: 0; padding: 0 24px; }
+.app-shell .reading-content { box-sizing: border-box; width: 100%; min-width: 0; min-height: 0; height: 100%; padding: 20px 32px 10px; margin: 0; overflow: hidden; position: relative; }
+.reader-sheet { box-sizing: border-box; display: flow-root; max-width: 650px; margin: 0 auto; font-family: Georgia, "Songti SC", "SimSun", serif; font-size: calc(16px * var(--reading-scale, 1)); color: #455457; }
+.reader-sheet > p, .app-shell .reading-content .reader-sheet > p { display: block; margin: 0 0 18px; padding: 0; font-family: inherit; font-size: calc(16px * var(--reading-scale, 1)); font-weight: 400; line-height: 2; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; letter-spacing: 0; text-align: start; }
+.reader-sheet .page-heading, .app-shell .reading-content .reader-sheet .page-heading { padding: 0; margin: 0 0 20px; }
+.reader-sheet .page-heading small { display: block; margin-bottom: 8px; font-family: sans-serif; font-size: 11px; line-height: 1.5; color: #658786; }
+.reader-sheet .page-heading h1, .app-shell .reading-content .reader-sheet .page-heading h1 { font-family: inherit; font-size: 25px; line-height: 1.45; letter-spacing: 0; font-weight: 400; color: #31575b; padding: 0; margin: 0; overflow-wrap: anywhere; }
+.reader-measure-sheet { position: fixed; left: -100000px; top: 0; height: auto; visibility: hidden; pointer-events: none; contain: layout style; }
+.reader-sheet[data-measuring="true"] { visibility: hidden; }
+.reader-paginating { position: absolute; inset: 40% 12px auto; text-align: center; font-size: 13px; color: #758b89; }
+.app-shell .selection-bar { position: static; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; min-height: 50px; padding: 6px 18px; margin: 0; border-top: 1px solid #edf0ef; background: white; }
+.app-shell .selection-actions { display: flex; align-items: center; justify-content: center; gap: 10px; flex: 1; }
+.app-shell .selection-bar .reading-settings { position: static; margin: 0; flex: 0 0 auto; box-shadow: none; }
+.app-shell .selection-bar .reading-settings button { color: #658582; padding: 0; background: transparent; width: 28px; height: 28px; }
+.app-shell .page-nav { height: 42px; min-height: 0; margin: 0; padding: 0 16px; }
+.app-shell .knowledge-entry { margin: 4px 0; }
+.app-shell .reading-content [data-active-source="true"] { outline: 1px solid #b5d5cd; outline-offset: 4px; border-radius: 2px; }
+@media (max-width: 900px) { .app-shell .reading-content { padding: 16px 22px 8px; } }
+
+.app-shell .chat-messages { overflow-anchor: none; scroll-behavior: auto; }

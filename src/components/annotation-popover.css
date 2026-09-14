@@ -1,0 +1,91 @@
+/* 独立命名空间：不复用旧 reading-annotation / concept-mark / annotation-popover。 */
+.judu-annotation-text {
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-color: #80a9a1;
+  text-decoration-thickness: 1px;
+  text-underline-offset: .2em;
+}
+.judu-concept-term {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: help;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: #4f8b88;
+  text-decoration-thickness: 1px;
+  text-underline-offset: .2em;
+}
+.judu-history-anchor {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  line-height: 0;
+  vertical-align: baseline;
+  user-select: none;
+}
+.judu-history-marker {
+  position: absolute;
+  left: .12em;
+  bottom: .04em;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: #4f8b88;
+  background: transparent;
+  cursor: pointer;
+  line-height: 1;
+}
+.judu-history-marker:hover { background: #e9f0ee; }
+.judu-history-marker:focus-visible, .judu-concept-term:focus-visible {
+  outline: 2px solid #4f8b88;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.judu-annotation-popover {
+  position: fixed;
+  z-index: 100;
+  visibility: hidden;
+  box-sizing: border-box;
+  width: 320px;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
+  border: 1px solid #d8e1df;
+  border-radius: 10px;
+  background: #fff;
+  color: #344643;
+  box-shadow: 0 8px 28px #1c353b24;
+  font: 13px/1.65 system-ui, sans-serif;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  text-decoration: none;
+}
+.judu-annotation-popover[data-theme="dark"] { color: #d7e4e2; background: #26302f; border-color: #57706a; }
+.judu-annotation-popover[data-theme="paper"] { color: #514b43; background: #fbf8f1; }
+.judu-annotation-popover__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.judu-annotation-popover__header strong { font-size: 13px; font-weight: 600; }
+.judu-annotation-popover button { font: inherit; cursor: pointer; color: inherit; }
+.judu-annotation-popover__header button { flex: 0 0 28px; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; font-size: 20px; }
+.judu-annotation-popover button:focus-visible { outline: 2px solid #4f8b88; outline-offset: 2px; }
+.judu-annotation-popover__header button:hover { background: #79968a20; }
+.judu-annotation-history { list-style: none; padding: 0; margin: 0; }
+.judu-annotation-history li + li { border-top: 1px solid #95aaa64a; margin-top: 12px; padding-top: 12px; }
+.judu-annotation-history time { color: #708580; font-size: 11px; }
+.judu-annotation-summary, .judu-concept-definition { white-space: pre-wrap; }
+.judu-concept-definition > div + div { margin-top: 10px; }
+.judu-annotation-history button { border: 0; background: transparent; padding: 8px 0 0; text-decoration: underline; text-underline-offset: 3px; }
