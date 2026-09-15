@@ -312,3 +312,64 @@ body { background: var(--ui-bg); }
 
 .search-index-status { margin: 8px 10px 4px; padding: 6px 8px; border: 1px solid #dce8e7; border-radius: 6px; color: #6f8584; background: #f8fcfc; font-size: 10px; line-height: 1.4; }
 .search-results small { display: block; margin-top: 3px; color: #91a3a2; font-size: 9px; }
+
+
+/* 参考色方案：暖白正文 + 冷灰青两侧，保持中间阅读区最安静。 */
+:root {
+  --ink: #263238;
+  --muted: #6b7778;
+  --line: #d7e2e0;
+  --paper: #fffdf9;
+  --sage: #ddebe7;
+  --accent: #4f8b88;
+  --chrome: #eef4f2;
+  --ui-bg: #f7faf9;
+  --ui-panel: #eef4f2;
+  --ui-panel-deep: #e6efec;
+  --ui-border: #d7e2e0;
+  --ui-text: #263238;
+  --ui-subtle: #6b7778;
+  --ui-accent: #4f8b88;
+}
+
+/* WHY：正文使用暖白，不与两侧工作区争夺注意力；颜色只承担区域分层。 */
+body { background: var(--ui-bg); color: var(--ui-text); }
+.app-shell { background: var(--ui-bg); }
+.topbar { background: var(--ui-panel); border-color: var(--ui-border); }
+.sidebar { background: var(--ui-panel); border-color: var(--ui-border); }
+.analysis-panel { background: var(--ui-bg); border-color: var(--ui-border); }
+.reading-pane, .page-nav, .selection-bar { background: var(--paper); }
+.reading-toolbar { border-color: var(--ui-border); background: var(--paper); }
+.reading-content p { color: #39464a; }
+.reading-content h1 { color: #263238; }
+.chapter-kicker { color: var(--accent); }
+.status-dot { background-color: var(--accent); }
+
+/* 交互态只使用浅青底色，避免大面积高饱和颜色。 */
+.chapter-item:hover, .recent-item:hover, .sidebar-nav-item:hover,
+.shelf-book:hover, .sidebar-account:hover, .help-button:hover { background: var(--sage); }
+.chapter-item.active, .shelf-book.active, .sidebar-nav-item.active { background: var(--sage); color: #315f60; }
+.selection-bar, .selection-toolbar { background: #f4faf8; border-color: var(--ui-border); }
+.selection-bar button, .selection-toolbar button { background: var(--accent); }
+.selection-bar button:hover, .selection-toolbar button:hover { background: #3f7773; }
+
+/* 右侧聊天区比左侧更轻，卡片再用白色拉开层次。 */
+.analysis-header { background: #f3f8f6; border-color: var(--ui-border); }
+.chat-messages { background: var(--ui-bg); }
+.chat-composer { background: #edf4f1; border-color: var(--ui-border); }
+.chat-composer textarea { background: #fffdf9; border-color: var(--ui-border); color: var(--ui-text); }
+.send-button { background: #354448; }
+.send-button:hover { background: #263238; }
+
+/* 阅读标记与概念词共用唯一强调色，但不改变正文粗细。 */
+.judu-annotation-text { text-decoration-color: #6f9d97; }
+.judu-concept-term { text-decoration-color: var(--accent); }
+.judu-history-marker { color: var(--accent); }
+.judu-history-marker:hover { background: var(--sage); }
+.judu-annotation-popover { border-color: var(--ui-border); background: #fffdf9; color: var(--ui-text); box-shadow: 0 8px 28px rgba(38, 50, 56, .14); }
+
+/* 设置页与书架沿用同一套区域角色，避免出现第三套绿灰。 */
+.settings-page { background: var(--ui-bg); color: var(--ui-text); }
+.settings-card { background: var(--paper); border-color: var(--ui-border); }
+.settings-card h1, .settings-header h1 { color: var(--ui-text); }
+.settings-card h2 { color: #466b69; }
