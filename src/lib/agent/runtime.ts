@@ -6,6 +6,7 @@ import { accumulateUsage, estimatedUsage, estimateTextTokens, type TokenUsage } 
 import { createReadingModel } from "./model";
 import { readingToolSchemaText } from "./schemas";
 import { createReadingTools, type ReadingToolDependencies } from "./tools";
+import { logAgentEvent } from "./logger";
 
 export class ReadingAgentError extends Error { constructor(readonly code: string, message: string) { super(message); this.name = "ReadingAgentError"; } }
 export function readingAgentFailure(error: unknown): { code: string; message: string } | undefined {
@@ -76,18 +77,20 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       const id = request.toolCall.id ?? crypto.randomUUID();
       const name = request.toolCall.name;
       emit({ type: "tool", tool: { id, name, status: "running" } });
+      logAgentEvent("info", "tool_started", { id, name, inputKeys: isRecord(request.toolCall.args) ? Object.keys(request.toolCall.args) : [] });
       let result;
       try { result = await handler(request); }
       catch (error: unknown) {
         signal.throwIfAborted();
-        console.warn("Agent 工具调用失败", { name, error: error instanceof Error ? error.name : "UnknownError" });
-        result = new ToolMessage({ tool_call_id: id, status: "error", content: JSON.stringify({ ok: false, error: "工具参数校验或执行失败，请按工具 schema 修正后重试。" }) });
+        logAgentEvent("error", "tool_exception", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : String(error) });
+        result = new ToolMessage({ tool_call_id: id, status: "error", content: JSON.stringify({ ok: false, error: "工具执行失败", detail: error instanceof Error ? error.message.slice(0, 500) : "未知错误" }) });
       }
       signal.throwIfAborted();
       const output = toolResult(result);
       const status = isRecord(output) && output.ok === false ? "error" : "completed";
+      logAgentEvent(status === "error" ? "warn" : "info", "tool_finished", { id, name, status, error: isRecord(output) && typeof output.error === "string" ? output.error : undefined });
       // WHY：审计失败不能伪装为工具成功，交给上层请求保存失败状态。
-      await options.audit({ id, name, input: request.toolCall.args, output, status });
+      try { await options.audit({ id, name, input: request.toolCall.args, output, status }); } catch (error: unknown) { logAgentEvent("error", "tool_audit_failed", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : String(error) }); throw error; }
       const activity: ToolActivity = { id, name, status, result: output };
       emit({ type: "tool", tool: activity });
       return result;

@@ -13,7 +13,7 @@ const runtime = (process as unknown as { getBuiltinModule(name: string): { Datab
 const encoder = new TextEncoder();
 const fetcher = vi.fn<typeof fetch>();
 const payload = { threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", mode: "chat", question: "测试", selectedText: "原文", selectionStart: 2, selectionEnd: 4 };
-const analysis = { summary: "解释", breakdown: [], concepts: [], context: "上下文", uncertainty: "", citations: [] };
+const analysis = { readingText: "原文啊", summary: "解释", breakdown: [], concepts: [], context: "上下文", uncertainty: "", citations: [] };
 const block = (data: unknown, event?: string) => (event ? "event: " + event + "\n" : "") + "data: " + (typeof data === "string" ? data : JSON.stringify(data)) + "\n\n";
 const delta = (content: string) => block({ id: "text-step", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
 const done = () => block({ id: "text-step", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }) + block("[DONE]");

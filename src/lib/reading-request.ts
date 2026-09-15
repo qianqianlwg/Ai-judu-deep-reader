@@ -1,6 +1,7 @@
 import { decodeChatEvent, isAnalysis, isRecord, type Analysis, type ChatEvent, type ChatMessage, type ToolActivity, type TokenUsage } from "./chat-stream";
 import { DEFAULT_CONTEXT_SETTINGS, MAX_CONTEXT_INPUT_TOKENS, type ContextMessage, type ContextSettings } from "./context-compaction";
 import { SseDecoder } from "./sse";
+import { normalizeReadingDetail, type ReadingDetail } from "./reading-detail";
 
 export type ReadingAnchor = { paragraphId: string; startOffset: number; endOffset: number; selectedText: string };
 
@@ -16,6 +17,7 @@ export function withRetryContextSettings(state: ReadingRequestState, value: Retr
 }
 export type ReadingRequestInput = {
   retryContextSettings?: RetryContextSettings;
+  detail?: ReadingDetail;
   mode: "chat" | "analyze";
   question: string;
   selectedText: string;
@@ -113,7 +115,7 @@ export function createReadingRequest(input: ReadingRequestInput, makeId = () => 
   if (!input.question.trim()) throw new Error("问题不能为空");
   if (input.mode === "analyze" && !input.selectedText.trim()) throw new Error("没有选中文本");
   // WHY：重试使用第一次提交的完整输入快照，不受切书、选区或当前输入框变化影响。
-  const payload = structuredClone({ ...input, threadId: input.threadId || makeId(), clientUserMessageId: makeId(), clientAssistantMessageId: makeId() });
+  const payload = structuredClone({ ...input, detail: normalizeReadingDetail(input.detail), threadId: input.threadId || makeId(), clientUserMessageId: makeId(), clientAssistantMessageId: makeId() });
   return { payload, status: "idle", attempt: 0, content: "" };
 }
 
@@ -131,7 +133,7 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   const failure = isRecord(meta.failure) ? meta.failure : undefined;
   const status = message.status === "completed" && message.content.trim() ? "completed" : failure?.code === "cancelled" ? "cancelled" : "error";
   return {
-    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, question: input.question, selectedText: input.selectedText, editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
+    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, detail: normalizeReadingDetail(input.detail), question: input.question, selectedText: input.selectedText, editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
     status, attempt: 1, content: message.content, analysis: isAnalysis(saved) ? saved : undefined,
     error: status === "completed" ? undefined : typeof failure?.message === "string" ? failure.message : "上次生成未完成，可以重试",
   };

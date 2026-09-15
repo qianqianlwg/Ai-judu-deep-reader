@@ -3,7 +3,7 @@ export type { TokenUsage } from "./token-usage";
 import type { StreamEvent } from "./sse";
 
 export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string };
-export type Analysis = { summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
+export type Analysis = { readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
 export type MessageAnchor = { paragraphId: string; startOffset: number; endOffset: number; selectedText: string };
 export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown };
 export type HistoricalToolActivity = ToolActivity & { attemptId: string | null; auditId: string };
@@ -19,7 +19,7 @@ export type ChatEvent =
   | { type: "error"; message: string };
 export const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object";
 export function isAnalysis(value: unknown): value is Analysis {
-  return isRecord(value) && typeof value.summary === "string" && typeof value.context === "string" && typeof value.uncertainty === "string"
+  return isRecord(value) && (value.readingText === undefined || typeof value.readingText === "string") && typeof value.summary === "string" && typeof value.context === "string" && typeof value.uncertainty === "string"
     && Array.isArray(value.breakdown) && value.breakdown.every((item) => isRecord(item) && typeof item.label === "string" && typeof item.text === "string")
     && Array.isArray(value.concepts) && value.concepts.every((item) => isRecord(item) && typeof item.name === "string" && typeof item.text === "string");
 }

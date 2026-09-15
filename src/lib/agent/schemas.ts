@@ -10,6 +10,7 @@ export const readSourceSchema = z.object({
   neighbors: z.number().int().min(0).max(2).default(1),
 }).strict();
 export const saveAnalysisSchema = z.object({
+  readingText: z.string().trim().min(1).max(24000).describe("第一部分句读文本；长度须符合当前详细程度，并与正常回复的句读文本一致"),
   summary: z.string().trim().min(1).max(4000),
   breakdown: z.array(z.object({ label: z.string().min(1).max(100), text: z.string().min(1).max(12000) }).strict()).max(24),
   concepts: z.array(z.object({ name: z.string().trim().min(1).max(80).describe("必须逐字出现在选中文本中的概念词"), text: z.string().trim().min(1).max(2000) }).strict()).max(20),

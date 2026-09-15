@@ -1,6 +1,7 @@
 import { tool } from "langchain";
 import type { Analysis } from "../chat-stream";
 import type { ReadingAnchor } from "../reading-request";
+import { isReadingTextLengthValid, normalizeReadingDetail, readingDetailSpec, type ReadingDetail } from "../reading-detail";
 import { readSourceSchema, saveAnalysisSchema, searchBookSchema, type ReadSourceInput, type SearchBookInput } from "./schemas";
 
 export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; excerpts?: string[] };
@@ -8,6 +9,7 @@ export type SavedReadingAnalysis = Analysis & { anchor?: ReadingAnchor };
 export type ReadingToolDependencies = {
   messageId: string;
   selectedText: string;
+  detail?: ReadingDetail;
   anchor?: ReadingAnchor;
   search: (input: SearchBookInput) => Promise<BookSource[]>;
   read: (input: ReadSourceInput) => Promise<BookSource[]>;
@@ -33,6 +35,8 @@ export function createReadingTools(deps: ReadingToolDependencies) {
     }, { name: "read_source", description: "读取已检索来源及相邻段落，理解前后文。不能读取其他书籍或任意 ID。", schema: readSourceSchema }),
     tool(async (input) => {
       if (!deps.selectedText.trim()) return { ok: false, error: "本轮没有选文，不能保存句读。请自然回答用户。" };
+      const detail = normalizeReadingDetail(deps.detail);
+      if (!isReadingTextLengthValid(deps.selectedText, input.readingText, detail)) return { ok: false, error: "句读文本长度不符合" + readingDetailSpec(detail).label + "模式，请按约定比例重新生成", expected: readingDetailSpec(detail).instruction };
       const invalidConcepts = input.concepts.filter(c => !deps.selectedText.includes(c.name));
       if (invalidConcepts.length) return { ok: false, error: "以下概念未逐字出现在选文中，请修正", invalidConcepts: invalidConcepts.map(c => c.name) };
       const citations: NonNullable<Analysis["citations"]> = [];

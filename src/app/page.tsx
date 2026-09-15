@@ -351,9 +351,10 @@ export default function Home() {
     if (requestedMode === "analyze" && !selectionAnchor) { setNotice("请重新选中要句读的原文。"); return; }
     const paragraph = sourceParagraphs.find(p=>p.id===selectionAnchor?.paragraphId) ?? currentPage.paragraphs[0];
     const strategy = localStorage.getItem("judu:compressionStrategy");
+    const detail = localStorage.getItem("judu:readingDetail");
     const savedOutput = Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096);
     const maxOutputTokens = Number.isSafeInteger(savedOutput) && savedOutput >= 1024 && savedOutput <= 16384 ? savedOutput : 4096;
-    const request = createReadingRequest({ mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, context:paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
+    const request = createReadingRequest({ mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, context:paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), detail: detail === "concise" || detail === "detailed" ? detail : "standard", contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
     await runRequest(request);
   }
 

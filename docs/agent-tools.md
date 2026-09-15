@@ -22,6 +22,8 @@
 | chapterId | 可选章节 ID；默认 null，全书 |
 | limit | 1–8，默认 5 |
 
+句读详细程度由请求中的 detail 控制：concise=精简（约 1:1.2）、standard=标准（约 1:1.5）、detailed=详细（约 1:2）。服务端会按非空白字符数校验 readingText，比例只是近似范围，短选文允许更宽容的下限。
+
 成功输出：
 
 ```json
@@ -49,6 +51,7 @@
 
 ```json
 {
+  "readingText":"按当前详细程度整理后的句读文本",
   "summary":"这段文字的主要观点",
   "breakdown":[{"label":"前提","text":"该语义层次的解释"}],
   "concepts":[{"name":"认识","text":"本段中这一概念的含义"}],
@@ -58,7 +61,7 @@
 }
 ```
 
-全部字段必填，数组可以为空。summary ≤4000字符；breakdown ≤24项；concepts ≤20项；citations ≤16项。精确限制见 src/lib/agent/schemas.ts。
+全部字段必填，数组可以为空。readingText 是第一部分句读文本，必须与正常回复中的“句读文本”一致，并按本轮精简/标准/详细比例生成；summary ≤4000字符；breakdown ≤24项；concepts ≤20项；citations ≤16项。精确限制见 src/lib/agent/schemas.ts。
 
 校验规则：
 
@@ -87,6 +90,10 @@
 saved 表示结构记录已写入当前助手消息。本轮最终完成后才发布到知识库；后续模型断流时保留草稿并提供重试，不能误报整个请求完成。
 
 语义校验失败输出 {"ok":false,"error":"修正说明"}，可包含 invalidConcepts 或 sourceId。schema 错误转换为工具错误消息，Agent 可在有界循环中修正。数据库审计失败会使本轮失败，不静默吞掉。
+
+## Agent 日志
+
+服务端输出结构化 `[judu-agent]` 日志，记录 `agent_started`、`tool_started`、`tool_finished`、`tool_exception`、`tool_audit_failed`、`analysis_save_requested`、`agent_completed` 和 `agent_failed`。日志包含工具名、请求/尝试 ID、详细程度、长度和错误原因摘要；API Key、Authorization、password、secret 等字段统一脱敏，不记录正文参数。
 
 ## SSE 与 Token
 

@@ -74,6 +74,7 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
 }) {
   const citations = Array.isArray(analysis.citations) ? analysis.citations.filter(validCitation) : [];
   return <div className="message-content assistant-readable">
+    {analysis.readingText && <section><h4>句读文本</h4><p className="reading-text-result">{analysis.readingText}</p></section>}
     <p className="assistant-summary">{analysis.summary}</p>
     {analysis.breakdown.length > 0 && <section><h4>句子拆解</h4>{analysis.breakdown.map((item, index) => <div className="answer-row" key={index}><b>{item.label}</b><span>{item.text}</span></div>)}</section>}
     {analysis.concepts.length > 0 && <section><h4>关键概念</h4>{analysis.concepts.map((item, index) => <div className="answer-row" key={index}><b>{item.name}</b><span>{item.text}</span></div>)}</section>}
@@ -99,7 +100,7 @@ function toolResultText(result: unknown): string {
 }
 function ToolActivityResult({ tool, messageId, onOpenCitation, historical = false }: { tool: ToolActivity; messageId?: string; onOpenCitation?: Props["onOpenCitation"]; historical?: boolean }) {
   const result = isRecord(tool.result) ? tool.result : undefined;
-  const errorText = result && (typeof result.message === "string" ? result.message : typeof result.error === "string" ? result.error : undefined);
+  const errorText = result && (typeof result.detail === "string" ? (typeof result.error === "string" ? result.error + "：" + result.detail : result.detail) : typeof result.message === "string" ? result.message : typeof result.error === "string" ? result.error : undefined);
   if (tool.name === "compress_reading_context") return <p role="status" data-context-progress="true" className={tool.status === "error" ? styles.failedMessage : undefined}>
     {/* WHY：上下文整理是内部进度，不把记忆快照或工具参数作为聊天正文、JSON 卡片公开。 */}
     {typeof tool.result === "string" ? tool.result : tool.status === "running" ? "正在整理阅读记忆…" : tool.status === "error" ? "阅读记忆整理未完成，可以重试。" : "阅读记忆整理完成。"}
@@ -128,7 +129,7 @@ function ToolRecords({ message, onOpenCitation, includeAnalysis = true }: { mess
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((warning): warning is string => typeof warning === "string") : [];
   return <>
     {analysis && <details className={styles.toolRecord} data-testid="analysis-record"><summary>句读记录 <span>工具结果</span></summary>
-      <StructuredAnswer analysis={analysis} rawContent={JSON.stringify({ summary: analysis.summary, breakdown: analysis.breakdown, concepts: analysis.concepts, context: analysis.context, uncertainty: analysis.uncertainty, citations: analysis.citations }, null, 2)} messageId={message.id} onOpenCitation={onOpenCitation} />
+      <StructuredAnswer analysis={analysis} rawContent={JSON.stringify({ readingText: analysis.readingText, summary: analysis.summary, breakdown: analysis.breakdown, concepts: analysis.concepts, context: analysis.context, uncertainty: analysis.uncertainty, citations: analysis.citations }, null, 2)} messageId={message.id} onOpenCitation={onOpenCitation} />
     </details>}
     {tools.map((tool) => <details className={styles.toolRecord} data-tool-id={tool.id} key={tool.id}>
       <summary>{TOOL_LABELS[tool.name] ?? tool.name}<span>{tool.status === "running" ? "执行中" : tool.status === "error" ? "执行失败" : "已完成"}</span></summary>

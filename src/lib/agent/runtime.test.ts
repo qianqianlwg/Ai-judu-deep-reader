@@ -52,10 +52,10 @@ async function mockProvider(provider: "openai" | "claude", steps: Step[]) {
   const address = server.address(); if (!address || typeof address === "string") throw new Error("missing test address");
   return { requests, config: { provider, baseUrl: "http://127.0.0.1:" + address.port + (provider === "openai" ? "/v1" : "/v1"), apiKey: "test-key", model: "test-model" } satisfies ProviderConfig };
 }
-const analysis = { summary: "认识并不是外在工具。", breakdown: [], concepts: [{ name: "认识", text: "认识活动" }], context: "导论", uncertainty: "", citations: [] };
+const analysis = { readingText: "认识改变对象啊啊", summary: "认识并不是外在工具。", breakdown: [], concepts: [{ name: "认识", text: "认识活动" }], context: "导论", uncertainty: "", citations: [] };
 function fixture() {
   const events: ChatEvent[] = [];
-  const tools: ReadingToolDependencies = { messageId: "assistant", selectedText: "认识改变对象", sources: new Map(), search: vi.fn(async () => []), read: vi.fn(async () => []), save: vi.fn(async () => undefined) };
+  const tools: ReadingToolDependencies = { messageId: "assistant", selectedText: "认识改变对象", detail: "standard", sources: new Map(), search: vi.fn(async () => []), read: vi.fn(async () => []), save: vi.fn(async () => undefined) };
   return { events, tools, audit: vi.fn(async () => undefined), emit: (event: ChatEvent) => { events.push(event); }, signal: new AbortController().signal, systemPrompt: "正常回答并通过工具保存结构数据", messages: [{ role: "user" as const, content: "请句读" }], maxOutputTokens: 2048, contextWindow: 32768 };
 }
 describe("真实 LangChain + HTTP 双协议闭环", () => {

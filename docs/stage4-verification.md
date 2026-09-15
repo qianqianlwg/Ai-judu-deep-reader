@@ -16,7 +16,7 @@
 | 要求 | 实现与验证 |
 | --- | --- |
 | 真正 Agent | LangChain createAgent + typed tools；OpenAI Chat Completions / Claude Messages 原生工具调用，多步执行、纠错与循环上限有协议集成测试 |
-| 普通正文与结构结果分开 | raw_delta 只发文字；结构化结果只能来自 save_reading_analysis；非流式兼容路由复用同一链路，不再强迫正文 JSON |
+| 普通正文与结构结果分开 | raw_delta 只发文字；结构化结果只能来自 save_reading_analysis；工具保存 readingText、概念、拆解和引用；非流式兼容路由复用同一链路，不再强迫正文 JSON |
 | 来源可信 | 只允许当前版本、本轮确实提供的片段；逐字验证引用及概念，不允许模型填写保存锚点 |
 | 原位重试 | 原两个消息 ID、首次上下文快照、租约与 attemptId 写栅栏；取消后旧结果不能覆盖新尝试 |
 | 审计与回放 | 当前与历史工具尝试隔离；成功请求回放恢复工具事件，不重调模型；旧 NULL 归属记录不冒充当前成功 |

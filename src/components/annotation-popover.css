@@ -4,37 +4,36 @@
   font: inherit;
   color: inherit;
   text-decoration-line: underline;
+  text-decoration-style: dashed;
   text-decoration-color: #80a9a1;
   text-decoration-thickness: 1px;
   text-underline-offset: .2em;
 }
 .judu-concept-term {
-  background: transparent;
+  background: linear-gradient(transparent 42%, #fff0a8 42%, #fff0a8 92%, transparent 92%);
   color: inherit;
   font: inherit;
   cursor: help;
-  text-decoration-line: underline;
-  text-decoration-style: dotted;
-  text-decoration-color: #4f8b88;
-  text-decoration-thickness: 1px;
+  text-decoration: none;
   text-underline-offset: .2em;
 }
 .judu-history-anchor {
   display: inline-block;
   position: relative;
-  width: 0;
-  height: 0;
+  width: 20px;
+  height: 1.15em;
   padding: 0;
   margin: 0;
   border: 0;
   line-height: 0;
-  vertical-align: baseline;
+  vertical-align: text-bottom;
+  margin-left: 3px;
   user-select: none;
 }
 .judu-history-marker {
   position: absolute;
-  left: .12em;
-  bottom: .04em;
+  left: 0;
+  bottom: .02em;
   display: grid;
   place-items: center;
   width: 18px;
