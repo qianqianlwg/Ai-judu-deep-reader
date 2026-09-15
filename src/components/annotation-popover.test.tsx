@@ -105,12 +105,14 @@ describe("AnnotationPopover DOM 交互与重定位", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     expect(close).toHaveBeenCalledWith(false);
   });
-  it("慢速鼠标经过右侧留白通道超过关闭延时，卡片仍能进入", async () => {
+  it("鼠标在通道中移动不会反复延长关闭时间", async () => {
     show(); act(() => anchor.dispatchEvent(new MouseEvent("mouseleave")));
-    act(() => document.body.dispatchEvent(new MouseEvent("mousemove", { clientX: 530, clientY: 210, bubbles: true })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(800); }); expect(close).not.toHaveBeenCalled();
-    act(() => card().dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    for (const point of [{ clientX: 510, clientY: 210 }, { clientX: 530, clientY: 210 }, { clientX: 550, clientY: 210 }]) {
+      act(() => document.body.dispatchEvent(new MouseEvent("mousemove", { ...point, bubbles: true })));
+      await act(async () => { await vi.advanceTimersByTimeAsync(40); });
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(40); });
+    expect(close).toHaveBeenCalledWith(false);
   });
   it("点击固定后离开不关闭，点外部或 Escape 可以关闭", async () => {
     show(true); act(() => anchor.dispatchEvent(new MouseEvent("mouseleave")));

@@ -8,6 +8,7 @@ type Bounds = { left: number; right: number; top: number; bottom: number };
 type Size = { width: number; height: number };
 export type PopoverGeometry = { anchor: Bounds; body: Bounds; reader: Bounds; viewport: Bounds; popover: Size };
 const GAP = 12;
+const CLOSE_DELAY_MS = 140;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, Math.max(min, max)));
 
 export function getPopoverBounds(viewport: Bounds, reader: Bounds): Bounds {
@@ -80,11 +81,12 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     closeTimer.current = null;
   };
   const scheduleClose = () => {
-    cancelClose();
+    // WHY：关闭计时器只允许启动一次，避免 document mousemove 持续续期导致浮层悬停数秒不消失。
+    if (closeTimer.current !== null) return;
     closeTimer.current = setTimeout(() => {
       const focused = anchor.ownerDocument.activeElement;
       if (!pinnedRef.current && !pointerInside.current && !anchor.contains(focused) && !cardRef.current?.contains(focused)) onCloseRef.current(false);
-    }, 250);
+    }, CLOSE_DELAY_MS);
   };
 
   useLayoutEffect(() => {
@@ -146,9 +148,8 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
       if (!card || pinnedRef.current) return;
       if (event.target instanceof Node && (anchor.contains(event.target) || card.contains(event.target))) { enter(); return; }
       pointerInside.current = false;
-      // WHY：仅靠短延时会让鼠标在较宽留白中途失去卡片；真实几何通道允许慢速移入。
-      if (isInPopoverBridge({ x: event.clientX, y: event.clientY }, anchor.getBoundingClientRect(), card.getBoundingClientRect())) cancelClose();
-      else scheduleClose();
+      // WHY：几何通道只用于短暂过渡，真正进入卡片后再取消关闭，避免留白移动无限续期。
+      if (!isInPopoverBridge({ x: event.clientX, y: event.clientY }, anchor.getBoundingClientRect(), card.getBoundingClientRect())) scheduleClose();
     };
     const blur = (event: FocusEvent) => {
       if (event.relatedTarget instanceof Node && (anchor.contains(event.relatedTarget) || card?.contains(event.relatedTarget))) return;
