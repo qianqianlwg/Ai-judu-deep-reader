@@ -3,12 +3,40 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { PDFParse } from "pdf-parse";
+import { createRequire } from "node:module";
 import { getDb } from "@/lib/db";
 import { hashText } from "@/lib/hash";
 import { parseEpubFile, splitParagraphs } from "@/lib/epub-parser";
 
+const nodeRequire = createRequire(import.meta.url);
+// WHY：Turbopack 会错误改写 PDF.js 的 worker 路径，因此通过 Node 运行时加载并显式注册 fake worker。
+const loadNodeModule = (specifier: string): unknown => Reflect.apply(nodeRequire, undefined, [specifier]);
+type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+type PdfJsWorkerGlobal = { WorkerMessageHandler: unknown };
+const pdfjs = loadNodeModule(["pdfjs-dist", "legacy", "build", "pdf.mjs"].join("/")) as PdfJsModule;
+const pdfjsRuntime = globalThis as typeof globalThis & { pdfjsWorker?: PdfJsWorkerGlobal };
+pdfjsRuntime.pdfjsWorker = loadNodeModule(["pdfjs-dist", "legacy", "build", "pdf.worker.mjs"].join("/")) as PdfJsWorkerGlobal;
+
 export const runtime = "nodejs";
+
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  const document = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  try {
+    const pageTexts: string[] = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      try {
+        const content = await page.getTextContent();
+        pageTexts.push(content.items.map((item) => ("str" in item ? item.str : "")).join(" "));
+      } finally {
+        page.cleanup();
+      }
+    }
+    return pageTexts.join("\n\n");
+  } finally {
+    await document.destroy();
+  }
+}
 
 export async function POST(request: NextRequest) {
   const db = getDb();
@@ -28,7 +56,7 @@ export async function POST(request: NextRequest) {
     if (extension === ".epub") {
       const result = await parseEpubFile(tempPath); title = result.title; author = result.author; chapterData = result.chapters;
     } else if (extension === ".pdf") {
-      const parser = new PDFParse({ data: buffer }); const parsed = await parser.getText(); chapterData = [{ title: "正文", paragraphs: splitParagraphs(parsed.text) }]; await parser.destroy();
+      const text = await extractPdfText(buffer); chapterData = [{ title: "正文", paragraphs: splitParagraphs(text) }];
     } else {
       chapterData = [{ title: "正文", paragraphs: splitParagraphs(buffer.toString("utf8")) }];
     }
@@ -65,5 +93,11 @@ export async function POST(request: NextRequest) {
       console.error("书籍持久化失败", error);
       throw error;
     }    return NextResponse.json({ id: bookId, editionId, title, author, fileName: file.name, chapters });
+  } catch (error: unknown) {
+    console.error("书籍导入失败", error);
+    const message = extension === ".pdf"
+      ? "PDF 解析失败，请确认这是文字型 PDF 且文件未损坏"
+      : "书籍解析失败，请重试";
+    return NextResponse.json({ error: message }, { status: 422 });
   } finally { await fs.rm(tempPath, { force: true }); }
 }

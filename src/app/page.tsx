@@ -300,8 +300,12 @@ export default function Home() {
     try {
       const form = new FormData(); form.append("file", file);
       const response = await fetch("/api/import", { method: "POST", body: form });
-      const data = await response.json() as Book & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "导入失败");
+      const contentType = response.headers.get("content-type") ?? "";
+      const data = contentType.includes("application/json")
+        ? await response.json() as Book & { error?: string }
+        : undefined;
+      if (!response.ok) throw new Error(data?.error ?? ("导入失败（HTTP " + response.status + "）"));
+      if (!data || !Array.isArray(data.chapters)) throw new Error("导入结果无效，请重试");
       setBooks((previous) => [data, ...previous.filter((item) => item.id !== data.id)]);
       await loadBook(data.id, data.editionId);
       setNotice("书籍已导入");
