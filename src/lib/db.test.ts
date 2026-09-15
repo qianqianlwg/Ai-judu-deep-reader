@@ -24,6 +24,9 @@ describe("getDb", () => {
     const first = getDb(); expect(first).toBe(getDb());
     expect(first.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='books'").get()).toBeTruthy();
     expect(first.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_tool_runs'").get()).toBeTruthy();
+    expect(first.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='reading_marks'").get()).toBeTruthy();
+    expect(first.prepare("PRAGMA table_info(reading_marks)").all()).toEqual(expect.arrayContaining([expect.objectContaining({ name: "edition_id" }), expect.objectContaining({ name: "kind" }), expect.objectContaining({ name: "anchors_json" }), expect.objectContaining({ name: "updated_at" })]));
+    // WHY：独立表迁移只新增对象；已有会话和历史表不能被标注初始化改写。
     expect(first.prepare("PRAGMA table_info(chat_messages)").all()).toEqual(expect.arrayContaining([expect.objectContaining({ name: "usage_json" })]));
   });
   it("组合根启动时迁移旧空ID而不删除原会话", () => {

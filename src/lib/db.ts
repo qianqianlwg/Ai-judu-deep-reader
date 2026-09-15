@@ -15,6 +15,21 @@ type SqliteDatabase = {
 };
 type SqliteRuntime = { DatabaseSync: new (file: string) => SqliteDatabase };
 
+// WHY：手动标亮、笔记和收藏独立于 AI annotations；增量建表不迁移或覆盖任何句读历史。
+export const READING_MARKS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS reading_marks (
+    id TEXT PRIMARY KEY,
+    edition_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('highlight', 'note', 'favorite')),
+    color TEXT NOT NULL DEFAULT 'yellow' CHECK (color IN ('yellow', 'green', 'blue', 'pink', 'orange')),
+    note TEXT NOT NULL DEFAULT '',
+    anchors_json TEXT NOT NULL CHECK (json_valid(anchors_json) AND json_type(anchors_json) = 'array' AND json_array_length(anchors_json) > 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_reading_marks_edition_updated ON reading_marks (edition_id, updated_at, id);
+`;
+
 let database: SqliteDatabase | undefined;
 
 function createDatabase() {
@@ -43,6 +58,7 @@ function createDatabase() {
     CREATE INDEX IF NOT EXISTS idx_paragraphs_chapter_order ON paragraphs (chapter_id, order_index);
   `);
   // WHY：兼容已有本地书架，以增量迁移保存概念定义及每次句读的消息锚点。
+  db.exec(READING_MARKS_SCHEMA);
   const columns = db.prepare("PRAGMA table_info(annotations)").all() as { name: string }[];
   if (!columns.some((column) => column.name === "concept_details")) db.exec("ALTER TABLE annotations ADD COLUMN concept_details TEXT NOT NULL DEFAULT '[]'");
   if (!columns.some((column) => column.name === "message_id")) db.exec("ALTER TABLE annotations ADD COLUMN message_id TEXT");

@@ -12,7 +12,7 @@ import { captureReadingContext, type ReadingContextSnapshot, applyReadingRequest
 const runtime = (process as unknown as { getBuiltinModule(name: string): { DatabaseSync: new (file: string) => TestDb } }).getBuiltinModule("node:sqlite");
 const encoder = new TextEncoder();
 const fetcher = vi.fn<typeof fetch>();
-const payload = { threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", mode: "chat", question: "测试", selectedText: "原文", selectionStart: 2, selectionEnd: 4 };
+const payload = { threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", mode: "chat", question: "测试", selectedText: "这是十字原文用来句读", selectionStart: 2, selectionEnd: 12 };
 const analysis = { readingText: "原文啊", summary: "解释", breakdown: [], concepts: [], context: "上下文", uncertainty: "", citations: [] };
 const block = (data: unknown, event?: string) => (event ? "event: " + event + "\n" : "") + "data: " + (typeof data === "string" ? data : JSON.stringify(data)) + "\n\n";
 const delta = (content: string) => block({ id: "text-step", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
@@ -39,7 +39,7 @@ beforeEach(() => {
     CREATE TABLE chapters (id TEXT PRIMARY KEY, edition_id TEXT, title TEXT, order_index INTEGER);
     CREATE TABLE paragraphs (id TEXT PRIMARY KEY, chapter_id TEXT, text TEXT, order_index INTEGER);
     INSERT INTO chapters VALUES ('chapter-1', 'edition-1', '导论', 0), ('chapter-2', 'edition-2', '另一版', 0);
-    INSERT INTO paragraphs VALUES ('p1', 'chapter-1', '前言原文后文', 0), ('p2', 'chapter-2', '前言原文后文', 0);
+    INSERT INTO paragraphs VALUES ('p1', 'chapter-1', '前言这是十字原文用来句读后文', 0), ('p2', 'chapter-2', '前言这是十字原文用来句读后文', 0);
   `);
   fetcher.mockReset().mockImplementation(async () => upstream(delta("你好"), delta("，世界"), done()));
   vi.stubGlobal("fetch", fetcher);
@@ -204,7 +204,7 @@ describe("服务端失败重试的原消息幂等闭环", () => {
   });
   it("客户端状态机到路由到 SQLite：首条失败重试 UI 和数据库均只有原两条消息", async () => {
     const ids = ["thread-1", "user-1", "assistant-1"];
-    const initial = createReadingRequest({ mode: "analyze", question: "请句读这一段", selectedText: "原文", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", selectionStart: 2, selectionEnd: 4 }, () => ids.shift()!);
+    const initial = createReadingRequest({ mode: "analyze", question: "请句读这一段", selectedText: "这是十字原文用来句读", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", selectionStart: 2, selectionEnd: 12 }, () => ids.shift()!);
     const transport: typeof fetch = async (_url, init) => POST(new NextRequest("http://localhost/api/analyze/stream", { ...init, signal: init?.signal ?? undefined }));
     fetcher.mockResolvedValueOnce(upstream(delta("部分生成")));
     const started = beginReadingRequest(initial, []);
@@ -218,7 +218,7 @@ describe("服务端失败重试的原消息幂等闭环", () => {
     const completed = await executeReadingRequest(retried.state, { fetcher: transport });
     const finalMessages = applyReadingRequest(retried.messages, completed);
     expect(completed.status).toBe("completed");
-    expect(completed.analysis?.anchor).toMatchObject({ paragraphId: "p1", startOffset: 2, endOffset: 4 });
+    expect(completed.analysis?.anchor).toMatchObject({ paragraphId: "p1", startOffset: 2, endOffset: 12 });
     expect(finalMessages).toHaveLength(2);
     expect(finalMessages[0]).toBe(started.messages[0]);
     expect(finalMessages.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
@@ -273,7 +273,7 @@ describe("成功 Analysis 的服务端合法锚点", () => {
     fetcher.mockResolvedValueOnce(toolResponse());
     const result = await call({ mode: "analyze" });
     expect(result.text).toContain('"messageId":"assistant-1"');
-    expect(stored()).toMatchObject({ ...analysis, anchor: { paragraphId: "p1", startOffset: 2, endOffset: 4, selectedText: "原文" } });
+    expect(stored()).toMatchObject({ ...analysis, anchor: { paragraphId: "p1", startOffset: 2, endOffset: 12, selectedText: "这是十字原文用来句读" } });
     const replay = await call({ mode: "analyze" });
     expect(replay.text).toContain('"anchor":{"paragraphId":"p1"');
     expect(replay.text).not.toContain("_request");
@@ -282,7 +282,7 @@ describe("成功 Analysis 的服务端合法锚点", () => {
   it.each([
     { selectionStart: undefined, selectionEnd: undefined }, { selectionStart: -1 }, { selectionStart: 2.5 },
     { selectionEnd: 100 }, { selectionEnd: 3 }, { paragraphId: "p2" }, { chapterId: "chapter-2" },
-    { selectedText: "不存在" }, { selectedText: " 原文 " },
+    { selectedText: "这里十个字找不到位置" }, { selectedText: " 这是十字原文用来句读 " },
   ])("缺失或非法选区不猜锚点，工具只提交分析字段 %j", async (overrides) => {
     fetcher.mockResolvedValueOnce(toolResponse());
     await call({ mode: "analyze", ...overrides });
@@ -294,7 +294,7 @@ describe("成功 Analysis 的服务端合法锚点", () => {
     await call({ mode: "analyze" });
     expect(row().status).toBe("error");
     expect(stored().anchor).toBeUndefined();
-    expect(stored()._request).toMatchObject({ input: { paragraphId: "p1", selectionStart: 2, selectionEnd: 4, selectedText: "原文" } });
+    expect(stored()._request).toMatchObject({ input: { paragraphId: "p1", selectionStart: 2, selectionEnd: 12, selectedText: "这是十字原文用来句读" } });
   });
 });
 
@@ -409,7 +409,7 @@ describe("完整SDK的旧工具迟到与新attempt交错",()=>{
     const held=new Promise<void>(resolve=>{release=resolve;}), called=new Promise<void>(resolve=>{entered=resolve;}), ended=new Promise<void>(resolve=>{settled=resolve;});
     let first=true;
     vi.spyOn(bookSourceModule,"createBookSources").mockImplementation((db,edition)=>{const repository=original(db,edition);if(!first)return repository;first=false;return {...repository,search:async input=>{entered();await held;try{return await repository.search(input);}finally{settled();}}};});
-    fetcher.mockResolvedValueOnce(toolResponse({query:"原文"},"search_book"));
+    fetcher.mockResolvedValueOnce(toolResponse({query:"这是十字原文用来句读"},"search_book"));
     const abort=new AbortController();const pending=await POST(request({},abort.signal));await called;abort.abort();expect(await pending.text()).toContain("cancelled");
     const oldAttempt=stored()._request.attemptId;expect((await call()).text).toContain("event: done");expect(stored()._request.attemptId).not.toBe(oldAttempt);
     release();await ended;await new Promise(resolve=>setTimeout(resolve,10));

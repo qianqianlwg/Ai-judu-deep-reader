@@ -1,5 +1,5 @@
 import {expect,it} from "vitest";
-import {hydrateChatHistory} from "./chat-history";
+import {hydrateChatHistory, readHistoricalRequestMetadata} from "./chat-history";
 it("失败元数据不会冒充句读结果，保留原user/assistant的选文锚点",()=>{
  const saved=[{id:"u",role:"user" as const,content:"请句读这一段"},{id:"a",role:"assistant" as const,content:"",status:"error" as const,structuredOutput:JSON.stringify({_request:{clientUserMessageId:"u",input:{paragraphId:"p",selectedText:"承认",selectionStart:20,selectionEnd:22}}})}];
  const messages=hydrateChatHistory(saved);expect(messages[1].analysis).toBeUndefined();expect(messages[0].anchor).toEqual(messages[1].anchor);expect(messages[0].anchor?.startOffset).toBe(20);
@@ -27,3 +27,10 @@ it("旧 attempt 和归属未知工具只恢复到历史分区，不替换当前�
  expect(result[1].content).toBe("本轮普通正文");
  expect(result[1].analysis).toBeUndefined();
 });
+
+
+it("保留可供回溯编辑使用的原始请求快照和编辑身份",()=>{
+ const saved={id:"a",role:"assistant" as const,content:"回答",structuredOutput:JSON.stringify({_request:{version:1,clientUserMessageId:"u",clientAssistantMessageId:"a",input:{mode:"chat",question:"原始问题",selectedText:"原文",paragraphId:"p1",selectionStart:1,selectionEnd:3},contextSnapshot:{version:1,chatHistory:[{role:"user",content:"之前"}],bookSearch:[],contextSettings:{maxInputTokens:4096,maxOutputTokens:1024,compressionStrategy:"balanced"}}}})};
+ expect(readHistoricalRequestMetadata(saved)).toMatchObject({version:1,clientUserMessageId:"u",clientAssistantMessageId:"a",input:{question:"原始问题",paragraphId:"p1"},contextSnapshot:{version:1}});
+});
+it("快照 JSON 损坏时显式抛错，不静默生成编辑请求",()=>expect(()=>readHistoricalRequestMetadata({id:"a",role:"assistant",structuredOutput:"{"})).toThrow(/合法 JSON/));

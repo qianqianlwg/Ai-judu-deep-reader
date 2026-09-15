@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { withRetryContextSettings, captureReadingContext, readReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, reduceReadingRequest, restoreReadingRequest } from "./reading-request";
+import { withRetryContextSettings, captureReadingContext, readReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, reduceReadingRequest, restoreReadingRequest, prepareReadingEdit } from "./reading-request";
 import type { ChatMessage } from "./chat-stream";
 
 function request() {
@@ -173,3 +173,34 @@ it("Agent工具、用量、警告贯通状态机，重试清空上次运行数�
 it("生成失败后工具不再保持执行中",()=>{let s=beginReadingRequest(request(),[]).state;s=reduceReadingRequest(s,{type:"tool",tool:{id:"running",name:"search_book",status:"running"}});s=reduceReadingRequest(s,{type:"error",message:"已停止"});expect(s.tools?.[0].status).toBe("error");});
 
 it("预算覆盖只改变执行配置，不替换原问题、选文或消息ID",()=>{const initial=request();const failed={...initial,status:"error" as const};const updated=withRetryContextSettings(failed,{maxInputTokens:8192,maxOutputTokens:2048});expect(updated.payload.retryContextSettings).toEqual({maxInputTokens:8192,maxOutputTokens:2048});expect(updated.payload.question).toBe(initial.payload.question);expect(updated.payload.selectedText).toBe(initial.payload.selectedText);expect(updated.payload.clientUserMessageId).toBe(initial.payload.clientUserMessageId);expect(updated.payload.clientAssistantMessageId).toBe(initial.payload.clientAssistantMessageId);expect(updated.payload.contextSettings).toEqual(initial.payload.contextSettings);});
+
+
+describe("原始问题回溯编辑计划", () => {
+  it("保留原请求锚点和预算，只携带编辑点之前的上下文", () => {
+    const original = createReadingRequest({ mode: "analyze", question: "旧问题", selectedText: "原文", paragraphId: "p1", selectionStart: 3, selectionEnd: 5, contextSettings: { maxInputTokens: 4096, maxOutputTokens: 1024, compressionStrategy: "balanced" }, chatHistory: [{ role: "user", content: "快照中的旧问题" }] }, () => "unused");
+    const messages: ChatMessage[] = [
+      { id: "before-user", role: "user", content: "前一个问题", status: "completed" },
+      { id: "before-assistant", role: "assistant", content: "前一个回答", status: "completed" },
+      { id: "user-1", role: "user", content: "旧问题", status: "completed", anchor: { paragraphId: "p1", startOffset: 3, endOffset: 5, selectedText: "原文" } },
+      { id: "assistant-1", role: "assistant", content: "旧回答", status: "completed" },
+      { id: "after-user", role: "user", content: "后续问题", status: "completed" },
+    ];
+    const plan = prepareReadingEdit({ ...original, payload: { ...original.payload, clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1" } }, messages, "user-1", "新问题");
+    expect(plan.input.question).toBe("新问题"); expect(plan.input.threadId).toBeUndefined();
+    expect(plan.input.selectedText).toBe("原文"); expect(plan.input.selectionStart).toBe(3); expect(plan.input.selectionEnd).toBe(5);
+    expect(plan.contextMessages.map(item => item.content)).toEqual(["前一个问题", "前一个回答"]);
+    expect(plan.input.chatHistory?.map(item => item.content)).toEqual(["前一个问题", "前一个回答"]);
+    expect(plan.originalPayload.clientAssistantMessageId).toBe("assistant-1");
+  });
+  it("编辑不删除旧消息，运行中拒绝，空问题拒绝", () => {
+    const original = { ...request(), status: "completed" as const };
+    const messages: ChatMessage[] = [{ id: "user-1", role: "user", content: "请句读这一段", status: "completed" }];
+    expect(() => prepareReadingEdit(original, messages, "user-1", "   ")).toThrow(/不能为空/);
+    expect(() => prepareReadingEdit({ ...original, status: "streaming" }, messages, "user-1", "新问题")).toThrow(/生成中/);
+    expect(messages).toHaveLength(1); expect(messages[0].content).toBe("请句读这一段");
+  });
+  it("用户 ID 不匹配时不允许把别的消息当作原始请求", () => {
+    const original = { ...request(), status: "completed" as const };
+    expect(() => prepareReadingEdit(original, [{ id: "other", role: "user", content: "问题" }], "other", "新问题")).toThrow(/不匹配/);
+  });
+});

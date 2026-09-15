@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createReadingTools, type ReadingToolDependencies } from "./tools";
-const source = { sourceId: "book:e:paragraph:p", paragraphId: "p", chapterId: "c", chapterTitle: "导论", text: "认识使对象改变" };
+const source = { sourceId: "book:e:paragraph:p", paragraphId: "p", chapterId: "c", chapterTitle: "导论", text: "认识使对象改变并使我们得到经过工具影响的对象" };
 function fixture() {
   const deps: ReadingToolDependencies = { messageId: "m", selectedText: source.text, detail: "standard", sources: new Map(), search: vi.fn(async () => [source]), read: vi.fn(async () => [source]), save: vi.fn(async () => undefined), anchor: { paragraphId: "p", startOffset: 0, endOffset: source.text.length, selectedText: source.text } };
   return { deps, tools: createReadingTools(deps) };

@@ -7,6 +7,8 @@ import { createReadingModel } from "./model";
 import { readingToolSchemaText } from "./schemas";
 import { createReadingTools, type ReadingToolDependencies } from "./tools";
 import { logAgentEvent } from "./logger";
+import { diagnoseToolException } from "./diagnostics";
+import { countReadingCharacters } from "../reading-detail";
 
 export class ReadingAgentError extends Error { constructor(readonly code: string, message: string) { super(message); this.name = "ReadingAgentError"; } }
 export function readingAgentFailure(error: unknown): { code: string; message: string } | undefined {
@@ -23,6 +25,7 @@ export type ReadingAgentOptions = {
   config: ProviderConfig; systemPrompt: string; messages: ProviderMessage[];
   maxOutputTokens: number; contextWindow: number; signal: AbortSignal;
   initialUsage?: TokenUsage;
+  maxAnswerCharacters?: number;
   tools: ReadingToolDependencies;
   emit: (event: ChatEvent) => void;
   audit: (run: ToolRun) => Promise<void>;
@@ -82,15 +85,16 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       try { result = await handler(request); }
       catch (error: unknown) {
         signal.throwIfAborted();
-        logAgentEvent("error", "tool_exception", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : String(error) });
-        result = new ToolMessage({ tool_call_id: id, status: "error", content: JSON.stringify({ ok: false, error: "工具执行失败", detail: error instanceof Error ? error.message.slice(0, 500) : "未知错误" }) });
+        const diagnostic = diagnoseToolException(name, request.toolCall.args);
+        logAgentEvent("error", "tool_exception", { messageId: options.tools.messageId, id, name, ...diagnostic, errorName: error instanceof Error ? error.name : "UnknownError" });
+        result = new ToolMessage({ tool_call_id: id, status: "error", content: JSON.stringify(diagnostic) });
       }
       signal.throwIfAborted();
       const output = toolResult(result);
       const status = isRecord(output) && output.ok === false ? "error" : "completed";
-      logAgentEvent(status === "error" ? "warn" : "info", "tool_finished", { id, name, status, error: isRecord(output) && typeof output.error === "string" ? output.error : undefined });
+      logAgentEvent(status === "error" ? "warn" : "info", "tool_finished", { id, name, messageId: options.tools.messageId, status, code: isRecord(output) && typeof output.code === "string" ? output.code : undefined });
       // WHY：审计失败不能伪装为工具成功，交给上层请求保存失败状态。
-      try { await options.audit({ id, name, input: request.toolCall.args, output, status }); } catch (error: unknown) { logAgentEvent("error", "tool_audit_failed", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : String(error) }); throw error; }
+      try { await options.audit({ id, name, input: request.toolCall.args, output, status }); } catch (error: unknown) { logAgentEvent("error", "tool_audit_failed", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", code: "tool_audit_failed" }); throw error; }
       const activity: ToolActivity = { id, name, status, result: output };
       emit({ type: "tool", tool: activity });
       return result;
@@ -128,6 +132,11 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       if (delta) {
         // WHY：Agent 多步说明不能把后一步 Markdown 标题粘到前一步句末，原始文字不做去重或改写。
         if (!stepHasText && text && !text.endsWith("\n\n")) { text += "\n\n"; emit({ type: "raw_delta", text: "\n\n" }); }
+        if (options.maxAnswerCharacters !== undefined && countReadingCharacters(text + delta) > options.maxAnswerCharacters) {
+          logAgentEvent("warn", "answer_length_limit", { messageId: options.tools.messageId, actualCharacters: countReadingCharacters(text + delta), maxCharacters: options.maxAnswerCharacters });
+          // WHY：阻止整篇答案继续失控，不把截断后的半篇伪装成完整成功；保留已收到文字供原位重试。
+          throw new ReadingAgentError("answer_length_limit", "本次释读超过所选详细程度的字数上限，已停止生成，请重试。不会把过长答案标为完成。");
+        }
         stepHasText = true; text += delta; stepOutput += delta; emit({ type: "raw_delta", text: delta }); if (Date.now() - lastPreview > 250) { publishEstimate(); lastPreview = Date.now(); } }
     } else if (event.event === "on_chat_model_end") {
       const output: unknown = event.data.output;

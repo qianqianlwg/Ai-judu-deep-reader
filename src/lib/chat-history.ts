@@ -37,3 +37,23 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
  });
  return result.map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??"")}:message);
 }
+
+export type HistoricalRequestMetadata = {
+  version: 1; clientUserMessageId: string; clientAssistantMessageId: string;
+  input: Record<string, unknown>; contextSnapshot?: unknown;
+};
+export function readHistoricalRequestMetadata(message: Pick<StoredChatMessage, "id" | "role" | "structuredOutput">): HistoricalRequestMetadata | undefined {
+  if (message.role !== "assistant" || !message.structuredOutput) return undefined;
+  let saved: unknown;
+  try { saved = JSON.parse(message.structuredOutput); }
+  catch (error: unknown) { console.error("读取历史请求快照失败", error); throw new Error("历史请求快照不是合法 JSON", { cause: error }); }
+  if (!isRecord(saved) || !isRecord(saved._request)) return undefined;
+  const meta = saved._request;
+  if (meta.version !== 1 || typeof meta.clientUserMessageId !== "string" || meta.clientAssistantMessageId !== message.id || !isRecord(meta.input)) {
+    throw new Error("历史请求快照身份不完整，拒绝编辑错误消息");
+  }
+  return {
+    version: 1, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: meta.clientAssistantMessageId,
+    input: { ...meta.input }, ...(meta.contextSnapshot === undefined ? {} : { contextSnapshot: meta.contextSnapshot }),
+  };
+}

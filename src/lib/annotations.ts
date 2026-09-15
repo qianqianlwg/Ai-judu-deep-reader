@@ -10,6 +10,8 @@ export type TextAnnotation = {
   textHash: string;
   threadId: string;
   messageId?: string;
+  kind?: "analysis" | "highlight" | "note" | "favorite";
+  markColor?: "yellow" | "green" | "blue" | "pink" | "orange";
   summary: string;
   concepts: string[];
   conceptDetails?: ConceptDetail[];
@@ -248,7 +250,7 @@ export function segmentAnnotatedText(input: AnnotationSlice): AnnotationSegment[
       text: text.slice(from - start, to - start), startOffset: from, endOffset: to,
       annotations: ranges.filter((item) => item.startOffset < to && from < item.endOffset),
       // WHY：图标只属于真实结束点，跨页裁剪的“假末尾”不能伪装成选段结束。
-      endingAnnotations: ranges.filter((item) => item.endOffset === to).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      endingAnnotations: ranges.filter((item) => item.endOffset === to && item.kind !== "highlight").sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       concept: concepts.find((item) => item.start <= from && to <= item.end)?.concept,
     };
   });

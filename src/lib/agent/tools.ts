@@ -1,7 +1,7 @@
 import { tool } from "langchain";
 import type { Analysis } from "../chat-stream";
 import type { ReadingAnchor } from "../reading-request";
-import { isReadingTextLengthValid, normalizeReadingDetail, readingDetailSpec, type ReadingDetail } from "../reading-detail";
+import { countReadingCharacters, readingAnswerBudget, normalizeReadingDetail, type ReadingDetail } from "../reading-detail";
 import { readSourceSchema, saveAnalysisSchema, searchBookSchema, type ReadSourceInput, type SearchBookInput } from "./schemas";
 
 export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; excerpts?: string[] };
@@ -30,19 +30,23 @@ export function createReadingTools(deps: ReadingToolDependencies) {
     tool(async (input) => register(await deps.search(input)), { name: "search_book", description: "在当前书籍版本内检索关键词，返回可引用且可跳转的原文来源。空结果不表示全书不存在概念，可改关键词。", schema: searchBookSchema }),
     tool(async (input) => {
       // WHY：只允许扩展本轮已经真实提供的来源，不准用模型猜出的 ID 读取其他版本。
-      if (!deps.sources.has(input.sourceId)) return { ok: false, error: "来源未在本轮检索中出现，请先调用 search_book" };
+      if (!deps.sources.has(input.sourceId)) return { ok: false, code: "unknown_source", error: "来源未在本轮检索中出现，请先调用 search_book" };
       return register(await deps.read(input));
     }, { name: "read_source", description: "读取已检索来源及相邻段落，理解前后文。不能读取其他书籍或任意 ID。", schema: readSourceSchema }),
     tool(async (input) => {
-      if (!deps.selectedText.trim()) return { ok: false, error: "本轮没有选文，不能保存句读。请自然回答用户。" };
-      const detail = normalizeReadingDetail(deps.detail);
-      if (!isReadingTextLengthValid(deps.selectedText, input.readingText, detail)) return { ok: false, error: "句读文本长度不符合" + readingDetailSpec(detail).label + "模式，请按约定比例重新生成", expected: readingDetailSpec(detail).instruction };
+      if (!deps.selectedText.trim()) return { ok: false, code: "missing_selection", error: "本轮没有选文，不能保存句读。请自然回答用户。" };
+      const budget = readingAnswerBudget(deps.selectedText, normalizeReadingDetail(deps.detail));
+      // WHY：工具预算覆盖所有解释字段，防止短 readingText 通过后在其它字段塞入长篇模板。
+      const textFields = [input.readingText, input.summary, input.context, input.uncertainty,
+        ...input.breakdown.flatMap(item => [item.label, item.text]), ...input.concepts.flatMap(item => [item.name, item.text])];
+      const actualCharacters = textFields.reduce((sum, value) => sum + countReadingCharacters(value), 0);
+      if (actualCharacters > budget.maxCharacters) return { ok: false, code: "analysis_length_limit", error: "保存内容超过本次句读字数预算，请删除重复解释和非必要栏目，只保留完整释读。", actualCharacters, ...budget };
       const invalidConcepts = input.concepts.filter(c => !deps.selectedText.includes(c.name));
-      if (invalidConcepts.length) return { ok: false, error: "以下概念未逐字出现在选文中，请修正", invalidConcepts: invalidConcepts.map(c => c.name) };
+      if (invalidConcepts.length) return { ok: false, code: "invalid_concepts", error: "以下概念未逐字出现在选文中，请修正", invalidConcepts: invalidConcepts.map(c => c.name) };
       const citations: NonNullable<Analysis["citations"]> = [];
       for (const citation of input.citations) {
         const source = deps.sources.get(citation.sourceId);
-        if (!source || !(source.excerpts ?? [source.text]).some(excerpt => excerpt.includes(citation.quote))) return { ok: false, error: "引用不是本轮真实来源中的逐字原文，请检索或修正", sourceId: citation.sourceId };
+        if (!source || !(source.excerpts ?? [source.text]).some(excerpt => excerpt.includes(citation.quote))) return { ok: false, code: "invalid_citation", error: "引用不是本轮真实来源中的逐字原文，请检索或修正", sourceId: citation.sourceId };
         if (!citations.some(c => c.sourceId === citation.sourceId && c.quote === citation.quote)) citations.push({ ...citation, paragraphId: source.paragraphId, messageId: deps.messageId });
       }
       const analysis = { ...input, citations, ...(deps.anchor ? { anchor: deps.anchor } : {}) };

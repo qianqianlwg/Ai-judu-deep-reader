@@ -139,6 +139,45 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   };
 }
 
+export type ReadingEditPlan = {
+  sourceUserMessageId: string;
+  sourceAssistantMessageId: string;
+  originalPayload: ReadingRequestPayload;
+  input: ReadingRequestInput;
+  contextMessages: ContextMessage[];
+};
+function contextBeforeMessage(messages: ChatMessage[], index: number): ContextMessage[] {
+  return messages.slice(0, index).flatMap((message) => {
+    if ((message.status === "error" || message.status === "streaming") || !message.content.trim()) return [];
+    return [{ role: message.role, content: message.content, ...(message.id ? { id: message.id } : {}) }];
+  });
+}
+export function prepareReadingEdit(state: ReadingRequestState, messages: ChatMessage[], userMessageId: string, newPrompt: string): ReadingEditPlan {
+  if (state.status === "streaming") throw new Error("生成中不能编辑原始问题，请先停止生成");
+  const prompt = newPrompt.trim();
+  if (!prompt) throw new Error("编辑后的问题不能为空");
+  if (state.payload.clientUserMessageId !== userMessageId) throw new Error("编辑请求与原始用户消息不匹配");
+  const index = messages.findIndex((message) => message.id === userMessageId && message.role === "user");
+  if (index < 0) throw new Error("找不到要编辑的原始用户消息");
+  // WHY：编辑只生成新请求计划，不删除旧消息、不复用旧 assistant 身份；父任务负责创建新分支和新 attempt。
+  const originalInput: ReadingRequestInput = {
+    mode: state.payload.mode, detail: state.payload.detail, question: state.payload.question, selectedText: state.payload.selectedText,
+    bookId: state.payload.bookId, editionId: state.payload.editionId, chapterId: state.payload.chapterId, paragraphId: state.payload.paragraphId,
+    bookTitle: state.payload.bookTitle, chapterTitle: state.payload.chapterTitle, context: state.payload.context, selectionStart: state.payload.selectionStart,
+    selectionEnd: state.payload.selectionEnd, textHash: state.payload.textHash, contextSettings: state.payload.contextSettings,
+    chatHistory: state.payload.chatHistory, bookSearch: state.payload.bookSearch,
+  };
+  const contextMessages = contextBeforeMessage(messages, index);
+  const preservedContext = contextMessages.length > 0 ? contextMessages : (state.payload.chatHistory ? structuredClone(state.payload.chatHistory) : []);
+  return {
+    sourceUserMessageId: userMessageId,
+    sourceAssistantMessageId: state.payload.clientAssistantMessageId,
+    originalPayload: structuredClone(state.payload),
+    input: { ...originalInput, question: prompt, chatHistory: preservedContext },
+    contextMessages: preservedContext,
+  };
+}
+
 export function beginReadingRequest(state: ReadingRequestState, messages: ChatMessage[]): { state: ReadingRequestState; messages: ChatMessage[] } {
   if (state.status === "streaming" || state.status === "completed") throw new Error("当前请求不能重试");
   const next: ReadingRequestState = { ...state, status: "streaming", attempt: state.attempt + 1, content: "", analysis: undefined, usage: undefined, tools: [], warnings: [], outputFormat: "text", error: undefined };

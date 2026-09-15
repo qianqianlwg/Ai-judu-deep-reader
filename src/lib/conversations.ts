@@ -1,3 +1,4 @@
+import { publicToolFailure } from "./agent/diagnostics";
 import type { HistoricalToolActivity, ToolActivity } from "./chat-stream";
 
 export type ConversationSummary = {
@@ -132,7 +133,7 @@ export function conversationToolFromRow(value: unknown, editionId: string): { me
   catch (error: unknown) { console.warn("读取历史工具结果失败", { id: value.id, reason: error instanceof Error ? error.name : "unknown" }); return finish({ message: "历史工具输出损坏，无法展示。" }); }
   if (!record(output)) return finish({ message: "工具未提供可安全展示的结构化结果。" });
   // WHY：错误文本可能包含内部异常或请求内容，历史只展示通用说明；绝不把审计输入/密钥/原始异常下发。
-  if (output.ok === false || value.status === "error") return finish({ ok: false, message: "此工具执行未成功；请查看原回复中的提示或重试。" });
+  if (output.ok === false || value.status === "error") return finish(publicToolFailure(output) ?? { ok: false, message: "此工具执行未成功；请查看原回复中的提示或重试。" });
   let limited = false;
   const clean = (item: unknown, depth = 0): ToolDisplayJson | undefined => {
     if (depth > 7) { limited = true; return; }
