@@ -18,6 +18,7 @@ import { createConversationClient, isConversationId, type ConversationSummary } 
 import { type PaginatedParagraph } from "@/lib/pagination";
 import { readReadingSelection, type ReadingSelection } from "@/lib/reader-selection";
 import { useConceptPreference, setConceptPreference } from "@/hooks/use-concept-preference";
+import { DEFAULT_CONTEXT_SETTINGS, normalizeContextInputTokens } from "@/lib/context-compaction";
 import { useReaderPages } from "@/hooks/use-reader-pages";
 import "@/components/reader-workspace.css";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
@@ -352,7 +353,7 @@ export default function Home() {
     const strategy = localStorage.getItem("judu:compressionStrategy");
     const savedOutput = Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096);
     const maxOutputTokens = Number.isSafeInteger(savedOutput) && savedOutput >= 1024 && savedOutput <= 16384 ? savedOutput : 4096;
-    const request = createReadingRequest({ mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, context:paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), contextSettings:{maxInputTokens:Number(localStorage.getItem("judu:maxInputTokens")??32768),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
+    const request = createReadingRequest({ mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, context:paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
     await runRequest(request);
   }
 
@@ -360,7 +361,7 @@ export default function Home() {
     const request = lastRequestRef.current;
     if (!request || (request.status !== "error" && request.status !== "cancelled")) return;
     try {
-      const retry = withRetryContextSettings(request, { maxInputTokens: Number(localStorage.getItem("judu:maxInputTokens") ?? 32768), maxOutputTokens: Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096) });
+      const retry = withRetryContextSettings(request, { maxInputTokens: Number(localStorage.getItem("judu:maxInputTokens") ?? DEFAULT_CONTEXT_SETTINGS.maxInputTokens), maxOutputTokens: Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096) });
       await runRequest(retry);
     } catch (cause: unknown) {
       console.error("重试预算无效", cause); setError(cause instanceof Error ? cause.message : "无法应用重试预算，请检查设置。");

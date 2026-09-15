@@ -143,10 +143,10 @@ length、缺工具结果和坏参数等失败也会结算供应商已返回的 u
 正常重试固定原问题、选文、版本、历史快照与两个消息 ID。用户修改预算后可显式提交：
 
 ~~~json
-{"retryContextSettings":{"maxInputTokens":131072,"maxOutputTokens":4096}}
+{"retryContextSettings":{"maxInputTokens":1000000,"maxOutputTokens":4096}}
 ~~~
 
-它只改变当前执行预算，原 contextSnapshot 不覆盖；执行预算另记在 _request.executionSettings。输入范围为 4096–131072，输出范围为 1024–16384，均须整数。
+它只改变当前执行预算，原 contextSnapshot 不覆盖；执行预算另记在 _request.executionSettings。设置页提供 200000、400000、1000000 三档输入预算；服务端兼容 4096–1000000 的旧/内部整数预算，输出范围为 1024–16384，均须整数。
 
 agent_tool_runs.attempt_id 区分重试尝试。当前工具卡只显示当前尝试；旧尝试和无法判定归属的 NULL 记录保留在独立历史折叠区，不删除、不冒充当前成功。成功请求幂等回放会恢复当前尝试工具事件。
 

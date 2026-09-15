@@ -1,12 +1,12 @@
 import { decodeChatEvent, isAnalysis, isRecord, type Analysis, type ChatEvent, type ChatMessage, type ToolActivity, type TokenUsage } from "./chat-stream";
-import { DEFAULT_CONTEXT_SETTINGS, type ContextMessage, type ContextSettings } from "./context-compaction";
+import { DEFAULT_CONTEXT_SETTINGS, MAX_CONTEXT_INPUT_TOKENS, type ContextMessage, type ContextSettings } from "./context-compaction";
 import { SseDecoder } from "./sse";
 
 export type ReadingAnchor = { paragraphId: string; startOffset: number; endOffset: number; selectedText: string };
 
 export type RetryContextSettings = Pick<ContextSettings, "maxInputTokens" | "maxOutputTokens">;
 export function readRetryContextSettings(value: unknown): RetryContextSettings {
-  if (!isRecord(value) || !Number.isSafeInteger(value.maxInputTokens) || !Number.isSafeInteger(value.maxOutputTokens) || (value.maxInputTokens as number) < 4096 || (value.maxInputTokens as number) > 131072 || (value.maxOutputTokens as number) < 1024 || (value.maxOutputTokens as number) > 16384) throw new Error("重试预算须为有效的输入/输出 Token 整数上限");
+  if (!isRecord(value) || !Number.isSafeInteger(value.maxInputTokens) || !Number.isSafeInteger(value.maxOutputTokens) || (value.maxInputTokens as number) < 4096 || (value.maxInputTokens as number) > MAX_CONTEXT_INPUT_TOKENS || (value.maxOutputTokens as number) < 1024 || (value.maxOutputTokens as number) > 16384) throw new Error("重试预算须为有效的输入/输出 Token 整数上限");
   return { maxInputTokens: value.maxInputTokens as number, maxOutputTokens: value.maxOutputTokens as number };
 }
 export function withRetryContextSettings(state: ReadingRequestState, value: RetryContextSettings): ReadingRequestState {
@@ -71,7 +71,7 @@ export function captureReadingContext(value: unknown, excludedMessageIds: readon
   const optionalString = (item: unknown) => typeof item === "string" ? item : undefined;
   const bounded = (item: unknown, min: number, max: number, fallback: number) => typeof item === "number" && Number.isFinite(item) ? Math.max(min, Math.min(max, item)) : fallback;
   const contextSettings: ContextSettings = {
-    maxInputTokens: bounded(settings.maxInputTokens, 4096, 131072, DEFAULT_CONTEXT_SETTINGS.maxInputTokens),
+    maxInputTokens: bounded(settings.maxInputTokens, 4096, MAX_CONTEXT_INPUT_TOKENS, DEFAULT_CONTEXT_SETTINGS.maxInputTokens),
     maxOutputTokens: bounded(settings.maxOutputTokens, 1024, 16384, DEFAULT_CONTEXT_SETTINGS.maxOutputTokens),
     compressionStrategy: settings.compressionStrategy === "conservative" || settings.compressionStrategy === "aggressive" ? settings.compressionStrategy : "balanced",
   };

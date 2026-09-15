@@ -1,11 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { CONTEXT_INPUT_TOKEN_OPTIONS, DEFAULT_CONTEXT_SETTINGS, normalizeContextInputTokens } from "@/lib/context-compaction";
 
 export default function SettingsPage() {
   const [fontSize, setFontSize] = useState("1");
   const [theme, setTheme] = useState("light");
-  const [contextTokens, setContextTokens] = useState("32768");
+  const [contextTokens, setContextTokens] = useState(String(DEFAULT_CONTEXT_SETTINGS.maxInputTokens));
   const [outputTokens, setOutputTokens] = useState("4096");
 
   const [compression, setCompression] = useState("balanced");
@@ -14,7 +15,7 @@ export default function SettingsPage() {
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [aiNotice, setAiNotice] = useState("");
-  useEffect(() => { window.requestAnimationFrame(() => { setFontSize(localStorage.getItem("judu:fontScale") ?? "1"); setTheme(localStorage.getItem("judu:theme") ?? "light"); setContextTokens(localStorage.getItem("judu:maxInputTokens") ?? "32768"); setOutputTokens(localStorage.getItem("judu:maxOutputTokens") ?? "4096"); setCompression(localStorage.getItem("judu:compressionStrategy") ?? "balanced"); }); }, []);
+  useEffect(() => { window.requestAnimationFrame(() => { setFontSize(localStorage.getItem("judu:fontScale") ?? "1"); setTheme(localStorage.getItem("judu:theme") ?? "light"); setContextTokens(String(normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")))); setOutputTokens(localStorage.getItem("judu:maxOutputTokens") ?? "4096"); setCompression(localStorage.getItem("judu:compressionStrategy") ?? "balanced"); }); }, []);
   const saveFont = (value: string) => { setFontSize(value); localStorage.setItem("judu:fontScale", value); };
   const saveTheme = (value: string) => { setTheme(value); localStorage.setItem("judu:theme", value); };
   const saveContext = (value: string) => { setContextTokens(value); localStorage.setItem("judu:maxInputTokens", value); };
@@ -25,6 +26,6 @@ export default function SettingsPage() {
   async function testAi(): Promise<void> { setAiNotice("测试中…"); const response = await fetch("/api/settings/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, baseUrl, model, apiKey: apiKey || undefined }) }); const data = await response.json() as { error?: string; message?: string }; setAiNotice(response.ok ? data.message ?? "连接成功" : data.error ?? "连接失败"); }
   return <main className="settings-page"><header className="settings-header"><Link href="/" className="back-link">← 返回阅读器</Link><div><span className="panel-kicker">JUDU SETTINGS</span><h1>设置</h1></div></header>
     <section className="settings-card"><h2>阅读体验</h2><label>正文大小<select value={fontSize} onChange={event => saveFont(event.target.value)}><option value="0.85">小</option><option value="1">中</option><option value="1.15">大</option></select></label><label>主题<select value={theme} onChange={event => saveTheme(event.target.value)}><option value="light">浅色</option><option value="paper">纸张</option><option value="dark">深色</option></select></label><p className="settings-hint">设置会保存在当前浏览器，返回阅读器后生效。</p></section>
-    <section className="settings-card"><h2>上下文</h2><label>最大输入 Token<select aria-label="最大输入 Token" value={contextTokens} onChange={event => saveContext(event.target.value)}><option value="4096">4K</option><option value="8192">8K</option><option value="16384">16K</option><option value="32768">32K</option><option value="65536">64K</option><option value="131072">128K</option></select></label><label>最大输出 Token<select aria-label="最大输出 Token" value={outputTokens} onChange={event => saveOutput(event.target.value)}><option value="1024">1K</option><option value="2048">2K</option><option value="4096">4K</option><option value="8192">8K</option><option value="16384">16K</option></select></label><label>压缩触发<select value={compression} onChange={event => saveCompression(event.target.value)}><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">激进</option></select></label><p className="settings-hint">接近预算时将已有对话整理成阅读记忆，保留关键约定、概念和未解问题；不按最近条数截取。新消息追加在检查点之后。调整预算后，可在原消息上重试；选文和原问题不会改变。</p></section>
+    <section className="settings-card"><h2>上下文</h2><label>最大输入 Token<select aria-label="最大输入 Token" value={contextTokens} onChange={event => saveContext(event.target.value)}>{CONTEXT_INPUT_TOKEN_OPTIONS.map((value) => <option key={value} value={value}>{value === 1000000 ? "1M" : `${value / 1000}K`}</option>)}</select></label><label>最大输出 Token<select aria-label="最大输出 Token" value={outputTokens} onChange={event => saveOutput(event.target.value)}><option value="1024">1K</option><option value="2048">2K</option><option value="4096">4K</option><option value="8192">8K</option><option value="16384">16K</option></select></label><label>压缩触发<select value={compression} onChange={event => saveCompression(event.target.value)}><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">激进</option></select></label><p className="settings-hint">接近预算时将已有对话整理成阅读记忆，保留关键约定、概念和未解问题；不按最近条数截取。新消息追加在检查点之后。调整预算后，可在原消息上重试；选文和原问题不会改变。</p></section>
     <section className="settings-card"><h2>AI 句读</h2><label>协议<select value={provider} onChange={event => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="claude">Claude</option></select></label><label>API URL<input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label><label>模型<input value={model} onChange={event => setModel(event.target.value)} placeholder="模型名称" /></label><label>API Key<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="留空则保留已保存 Key" /></label><div className="settings-actions"><button onClick={() => void testAi()}>测试连接</button><button onClick={() => void saveAi()}>保存</button></div>{aiNotice && <p className="settings-hint">{aiNotice}</p>}</section></main>;
 }

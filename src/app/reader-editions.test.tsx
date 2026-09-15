@@ -171,14 +171,14 @@ describe("修改预算后原位重试页面接线", () => {
     failFirst = true; await mount(); await selectSource("edition-old"); await click(button("句读一下"));
     expect(requests).toHaveLength(1);
     const first = structuredClone(requests[0]);
-    expect(first.contextSettings).toMatchObject({ maxInputTokens: 32768, maxOutputTokens: 4096 });
+    expect(first.contextSettings).toMatchObject({ maxInputTokens: 200000, maxOutputTokens: 4096 });
     const userIds = [...host.querySelectorAll(".chat-message.user")].map(item => item.getAttribute("data-message-id"));
     // WHY：重试前故意换选区并调大预算，验证只改执行预算，不从当前UI重建请求。
     await selectSource("edition-old", 1, 3);
-    localStorage.setItem("judu:maxInputTokens", "65536"); localStorage.setItem("judu:maxOutputTokens", "8192");
+    localStorage.setItem("judu:maxInputTokens", "400000"); localStorage.setItem("judu:maxOutputTokens", "8192");
     await click(button("重新句读"));
     expect(requests).toHaveLength(2);
-    expect(requests[1]).toEqual({ ...first, retryContextSettings: { maxInputTokens: 65536, maxOutputTokens: 8192 } });
+    expect(requests[1]).toEqual({ ...first, retryContextSettings: { maxInputTokens: 400000, maxOutputTokens: 8192 } });
     expect([...host.querySelectorAll(".chat-message.user")].map(item => item.getAttribute("data-message-id"))).toEqual(userIds);
     expect(host.querySelectorAll('[data-message-id="' + first.clientAssistantMessageId + '"]')).toHaveLength(1);
     expect(element('[data-message-id="' + first.clientAssistantMessageId + '"]').textContent).toContain("正常回答");

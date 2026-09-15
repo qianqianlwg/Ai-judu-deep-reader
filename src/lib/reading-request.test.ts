@@ -118,7 +118,7 @@ describe("reading request 流式执行", () => {
 describe("阅读请求的首次上下文快照", () => {
   const context = () => ({
     bookTitle: "精神现象学", chapterTitle: "自我意识", context: "原段落前后文", textHash: "original-hash",
-    contextSettings: { maxInputTokens: 65536, maxOutputTokens: 8192, compressionStrategy: "aggressive" as const },
+    contextSettings: { maxInputTokens: 400000, maxOutputTokens: 8192, compressionStrategy: "aggressive" as const },
     chatHistory: [{ id: "old-question", role: "user" as const, content: "如何理解承认？" }, { id: "old-answer", role: "assistant" as const, content: "先考察两个自我意识。" }],
     bookSearch: [{ sourceId: "book:p1", paragraphId: "p1", excerpt: "原检索片段", context: { before: [{ id: "p0", chapterId: "c1", text: "检索前文" }], after: [] }, retrieval: { backend: "sqlite", vectorUsed: false, keywordScore: 2 } }],
   });

@@ -5,7 +5,13 @@ export type ContextSettings = { maxInputTokens: number; maxOutputTokens: number;
 export type StructuredCompressionState = { task: string; decisions: string[]; conclusions: string[]; openQuestions: string[]; constraints: string[]; evidence: string[] };
 export type CompactionSnapshot = { version: number; previousVersion: number | null; sourceMessageIds: string[]; summary: string; state: StructuredCompressionState; sourceChecksum?: string; checksum: string; createdAt: string };
 export type CompactedContext = { summary: string; messages: ContextMessage[]; estimatedTokens: number; compacted: boolean; trigger: "none" | "threshold"; snapshot?: CompactionSnapshot; version: number; previousVersion: number | null; sourceMessageIds: string[]; state: StructuredCompressionState; checksum: string };
-export const DEFAULT_CONTEXT_SETTINGS: ContextSettings = { maxInputTokens: 32768, maxOutputTokens: 4096, compressionStrategy: "balanced" };
+export const CONTEXT_INPUT_TOKEN_OPTIONS = [200_000, 400_000, 1_000_000] as const;
+export const MAX_CONTEXT_INPUT_TOKENS = 1_000_000;
+export const DEFAULT_CONTEXT_SETTINGS: ContextSettings = { maxInputTokens: CONTEXT_INPUT_TOKEN_OPTIONS[0], maxOutputTokens: 4096, compressionStrategy: "balanced" };
+export function normalizeContextInputTokens(value: unknown): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return CONTEXT_INPUT_TOKEN_OPTIONS.includes(parsed as (typeof CONTEXT_INPUT_TOKEN_OPTIONS)[number]) ? parsed : DEFAULT_CONTEXT_SETTINGS.maxInputTokens;
+}
 export function estimateTokens(value: string): number { return Math.max(1,estimateTextTokens(value)); }
 export async function compactContext(messages:ContextMessage[],settings:ContextSettings=DEFAULT_CONTEXT_SETTINGS,fixedContext="",previous?:CompactionSnapshot,deps?:MemoryDependencies):Promise<CompactedContext>{
   return compactMemory(messages,settings,fixedContext,previous,deps??{summarize:async()=>{throw new Error("未配置阅读记忆整理模型");}});
