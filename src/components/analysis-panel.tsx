@@ -9,6 +9,8 @@ import { ConversationControls, type ConversationControlsProps } from "./conversa
 import { isAnalysis, isRecord, streamingPreview, type Analysis, type ChatMessage, type Citation, type MessageAnchor, type ToolActivity } from "@/lib/chat-stream";
 import { useChatFollow } from "./use-chat-follow";
 import styles from "./analysis-panel.module.css";
+import { MessageActions } from "./message-actions";
+import { ComposerOptions, type ReasoningEffort } from "./composer-options";
 
 export type { Analysis, ChatMessage } from "@/lib/chat-stream";
 export type PanelMessage = ChatMessage;
@@ -16,6 +18,10 @@ type Props = {
   className?: string; selected: string; analysis: Analysis | null; loading: boolean; error?: string;
   messages?: PanelMessage[];
   onClose: () => void; onBack: () => void; onSend?: (question: string) => void; onRetry?: () => void; onStop?: () => void;
+  onEditMessage?: (userMessageId: string, newPrompt: string) => void;
+  modelOptions?: readonly string[]; selectedModel?: string; reasoningEffort?: ReasoningEffort;
+  onModelChange?: (model: string) => void; onReasoningChange?: (effort: ReasoningEffort) => void;
+  onPluginSelect?: (pluginId: "knowledge-base") => void; onCitationSelect?: () => void;
   conversations?: ConversationSummary[]; activeThreadId?: string | null; editionId?: string;
   conversationsLoading?: boolean; conversationError?: string;
   onNewConversation?: ConversationControlsProps["onNewConversation"];
@@ -75,7 +81,7 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
   const citations = Array.isArray(analysis.citations) ? analysis.citations.filter(validCitation) : [];
   return <div className="message-content assistant-readable">
     {analysis.readingText && <section><h4>句读文本</h4><p className="reading-text-result">{analysis.readingText}</p></section>}
-    <p className="assistant-summary">{analysis.summary}</p>
+    {analysis.summary && <p className="assistant-summary">{analysis.summary}</p>}
     {analysis.breakdown.length > 0 && <section><h4>句子拆解</h4>{analysis.breakdown.map((item, index) => <div className="answer-row" key={index}><b>{item.label}</b><span>{item.text}</span></div>)}</section>}
     {analysis.concepts.length > 0 && <section><h4>关键概念</h4>{analysis.concepts.map((item, index) => <div className="answer-row" key={index}><b>{item.name}</b><span>{item.text}</span></div>)}</section>}
     {analysis.context && <section><h4>上下文</h4><p>{analysis.context}</p></section>}
@@ -150,17 +156,20 @@ function AssistantMessage({ message, onOpenCitation }: { message: PanelMessage; 
   const legacy = message.outputFormat === "legacy-json";
   // WHY：只有显式标记的旧 v4/v5 记录允许 JSON 兼容显示；新消息一直展示普通 content，工具不能替换回复。
   if (legacy) {
-    if (message.status !== "streaming" && message.status !== "error" && isAnalysis(message.analysis)) return <><StructuredAnswer analysis={message.analysis} rawContent={message.content} messageId={message.id} onOpenCitation={onOpenCitation} /><ToolRecords message={message} onOpenCitation={onOpenCitation} includeAnalysis={false} /></>;
-    return <div data-streaming-format="friendly-preview"><ReadableText content={message.content ? streamingPreview(message.content, message.kind) : "正在生成句读…"} />
-      {message.status === "error" && <p className={styles.failedMessage} role="status">生成未完成，可在原消息上重试。</p>}
-      <ToolRecords message={message} onOpenCitation={onOpenCitation} includeAnalysis={false} />
-    </div>;
+    const content = message.status !== "streaming" && message.status !== "error" && isAnalysis(message.analysis)
+      ? <><StructuredAnswer analysis={message.analysis} rawContent={message.content} messageId={message.id} onOpenCitation={onOpenCitation} /><ToolRecords message={message} onOpenCitation={onOpenCitation} includeAnalysis={false} /></>
+      : <><div data-streaming-format="friendly-preview"><ReadableText content={message.content ? streamingPreview(message.content, message.kind) : "正在生成句读…"} />
+        {message.status === "error" && <p className={styles.failedMessage} role="status">生成未完成，可在原消息上重试。</p>}
+        <ToolRecords message={message} onOpenCitation={onOpenCitation} includeAnalysis={false} />
+      </div></>;
+    return <>{content}<MessageActions message={message} /></>;
   }
   return <>
     <div className={message.status === "streaming" ? "streaming-cursor" : undefined} data-streaming-format="markdown">
       <MarkdownText content={message.content || (message.status === "streaming" ? "正在生成回答…" : "")} />
     </div>
     <ToolRecords message={message} onOpenCitation={onOpenCitation} />
+    <MessageActions message={message} />
     {message.status === "error" && <p className={styles.failedMessage} role="status">生成未完成，可在原消息上重试。</p>}
   </>;
 }
@@ -188,7 +197,7 @@ function UsageFooter({ modelName, usage }: { modelName?: string; usage?: TokenUs
   </div>;
 }
 
-export function AnalysisPanel({ className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage }: Props) {
+export function AnalysisPanel({ className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const generating = loading || messages.some((message) => message.status === "streaming");
   const interactionLocked = generating || conversationsLoading;
@@ -212,7 +221,7 @@ export function AnalysisPanel({ className = "analysis-panel", selected, analysis
             const anchor = messageAnchor(message);
             return <article data-message-id={message.id} className={"chat-message " + message.role} key={message.id ?? message.role + "-" + index}>
               <div className="message-role">{message.role === "user" ? "你" : "句读"}</div>
-              {message.role === "user" ? <ReadableText content={message.content} /> : <AssistantMessage message={message} onOpenCitation={onOpenCitation} />}
+              {message.role === "user" ? <><ReadableText content={message.content} /><MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage} /></> : <AssistantMessage message={message} onOpenCitation={onOpenCitation} />}
               {anchor && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
             </article>;
           })}
@@ -228,7 +237,7 @@ export function AnalysisPanel({ className = "analysis-panel", selected, analysis
       <textarea key={activeThreadId ?? editionId ?? "unbound"} ref={textareaRef} disabled={interactionLocked} onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
       }} placeholder="继续追问…" aria-label="继续追问" />
-      <div className="composer-footer"><button type="button" onClick={onBack}>回到原文</button><button type="button" className={"send-button " + (generating ? styles.stopButton : "")} disabled={generating ? !onStop : interactionLocked || !onSend} onClick={() => { if (generating) onStop?.(); else submit(); }} aria-label={generating ? "停止生成" : "发送追问"} title={generating ? "停止生成，保留已收到的内容" : "发送追问"}><span aria-hidden="true">{generating ? "■" : "↑"}</span></button></div>
+      <div className="composer-footer"><div className={styles.composerFooterStart}><ComposerOptions disabled={interactionLocked} modelName={modelName} modelOptions={modelOptions} selectedModel={selectedModel} reasoningEffort={reasoningEffort} onModelChange={onModelChange} onReasoningChange={onReasoningChange} onPluginSelect={onPluginSelect} onCitationSelect={onCitationSelect} /><button type="button" className={styles.backButton} onClick={onBack}>回到原文</button></div><button type="button" className={"send-button " + (generating ? styles.stopButton : "")} disabled={generating ? !onStop : interactionLocked || !onSend} onClick={() => { if (generating) onStop?.(); else submit(); }} aria-label={generating ? "停止生成" : "发送追问"} title={generating ? "停止生成，保留已收到的内容" : "发送追问"}><span aria-hidden="true">{generating ? "■" : "↑"}</span></button></div>
     </div>
   </aside>;
 }

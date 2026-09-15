@@ -10,9 +10,13 @@
   text-underline-offset: .2em;
 }
 .judu-concept-term {
-  background: linear-gradient(transparent 42%, #fff0a8 42%, #fff0a8 92%, transparent 92%);
+  background: transparent;
   color: inherit;
-  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  font-weight: 650;
   cursor: help;
   text-decoration: none;
   text-underline-offset: .2em;
@@ -20,20 +24,20 @@
 .judu-history-anchor {
   display: inline-block;
   position: relative;
-  width: 20px;
-  height: 1.15em;
+  width: 0;
+  height: 0;
   padding: 0;
   margin: 0;
   border: 0;
   line-height: 0;
-  vertical-align: text-bottom;
-  margin-left: 3px;
+  vertical-align: baseline;
+  margin-left: 0;
   user-select: none;
 }
 .judu-history-marker {
   position: absolute;
-  left: 0;
-  bottom: .02em;
+  left: 3px;
+  bottom: .05em;
   display: grid;
   place-items: center;
   width: 18px;
@@ -88,3 +92,9 @@
 .judu-annotation-summary, .judu-concept-definition { white-space: pre-wrap; }
 .judu-concept-definition > div + div { margin-top: 10px; }
 .judu-annotation-history button { border: 0; background: transparent; padding: 8px 0 0; text-decoration: underline; text-underline-offset: 3px; }
+
+/* WHY：句读用虚线表示可交互，悬停确认位置时转实线；用户彩色标注与概念加粗互不冒充。 */
+.judu-annotation-text:hover { text-decoration-style: solid; }
+
+.judu-highlight-text { background: color-mix(in srgb, var(--mark-color, yellow) 42%, transparent); border-radius: 2px; }
+.judu-annotation-text:hover { text-decoration-style: solid; }

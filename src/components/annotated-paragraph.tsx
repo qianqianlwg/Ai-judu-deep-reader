@@ -60,7 +60,8 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
       const historyOpen = (anchor: HTMLElement, pinned: boolean, isFocus = false) => open({ kind: "history", annotations: segment.endingAnnotations, anchor, pinned, key: historyKey, sliceKey }, isFocus);
       return <Fragment key={segment.startOffset}>
         <span data-reader-text="" data-source-start={segment.startOffset} data-source-end={segment.endOffset}
-          className={segment.annotations.length ? "judu-annotation-text" : undefined}>
+          style={segment.annotations.some(annotation => annotation.kind === "highlight") ? ({ "--mark-color": segment.annotations.find(annotation => annotation.kind === "highlight")?.markColor ?? "yellow" } as React.CSSProperties) : undefined}
+          className={[segment.annotations.some(annotation => annotation.kind !== "highlight") ? "judu-annotation-text" : "", segment.annotations.some(annotation => annotation.kind === "highlight") ? "judu-highlight-text" : ""].filter(Boolean).join(" ") || undefined}>
           {concept ? <span className="judu-concept-term" role="button" tabIndex={0} data-concept-word={concept.name}
             aria-label={"查看概念：" + concept.name} aria-haspopup="dialog" aria-expanded={visible?.key === termKey}
             aria-controls={visible?.key === termKey ? id : undefined}

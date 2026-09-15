@@ -166,6 +166,7 @@ beforeEach(() => {
       return Response.json({ threadId: id, thread, messages: id === "thread-A" ? savedMessages : [] });
     }
     if (url.pathname === "/api/annotations") return Response.json(init?.method === "POST" ? { saved: true } : { annotations: [] });
+    if (url.pathname === "/api/reading-marks") return Response.json({ marks: [] });
     if (url.pathname === "/api/knowledge") {
       const editionId = url.searchParams.get("editionId");
       return Response.json(editionId === "edition-A" ? bookKnowledge : { editionId, records: [], concepts: [] });
@@ -401,7 +402,7 @@ describe("工作台切换后请求身份回归", () => {
     await act(async () => {
       const text = element('[data-paragraph-id="paragraph-A"] [data-reader-text]').firstChild;
       if (!text) throw new Error("没有可选择的原文节点");
-      const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 4);
+      const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 10);
       const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
       element('[data-paragraph-id="paragraph-A"]').dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
     }); await settle();
@@ -471,14 +472,14 @@ describe("可访问选文与输出设置", () => {
     localStorage.setItem("judu:maxOutputTokens", "8192"); await loadA();
     await act(async () => {
       const node = element('[data-paragraph-id="paragraph-A"] [data-reader-text]').firstChild!;
-      const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 4);
+      const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 10);
       const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
     }); await settle();
-    expect(element(".selection-actions").textContent).toContain("已选择 4 个字");
+    expect(element(".selection-actions").textContent).toContain(String.fromCodePoint(0x5df2, 0x9009, 0x62e9) + " 10 " + String.fromCodePoint(0x4e2a, 0x5b57));
     await act(async () => { document.getSelection()?.removeAllRanges(); document.dispatchEvent(new Event("selectionchange")); }); await settle();
     await click(button("句读一下"));
-    expect(pendingStreams[0].payload.selectedText).toBe("自我意识");
+    expect(pendingStreams[0].payload.selectedText).toBe(bodyText.slice(0, 10));
     expect(pendingStreams[0].payload.contextSettings?.maxOutputTokens).toBe(8192);
     await complete(pendingStreams[0]);
   });

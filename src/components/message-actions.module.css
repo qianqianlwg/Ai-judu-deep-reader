@@ -1,0 +1,11 @@
+.actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #7c8985; }
+.actions button, .editorActions button { border: 0; border-radius: 5px; padding: 4px 7px; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 11px; }
+.actions button:hover, .editorActions button:hover { background: #e6eeea; color: #345c55; }
+.actions button:disabled, .editorActions button:disabled { opacity: .5; cursor: not-allowed; }
+.editor { display: grid; gap: 7px; margin-top: 8px; }
+.editor textarea { min-height: 72px; width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid #b9cec7; border-radius: 7px; padding: 8px; background: #fff; color: #33453e; font: inherit; line-height: 1.6; }
+.editor textarea:focus { outline: 2px solid #7aa697; outline-offset: 1px; }
+.editorActions { display: flex; justify-content: flex-end; gap: 6px; }
+.editorActions button:last-child { background: #e0eee8; color: #315e52; }
+.feedback { color: #5d7b6c; font-size: 11px; }
+.editor .feedback { margin: 0; color: #946951; font-size: 11px; }

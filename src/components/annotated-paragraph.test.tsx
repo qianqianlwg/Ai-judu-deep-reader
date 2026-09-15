@@ -139,11 +139,11 @@ describe("AnnotatedParagraph 实测组件交互", () => {
       render();
       const marker = getComputedStyle(element(".judu-history-marker"));
       const anchor = getComputedStyle(element(".judu-history-anchor"));
-      expect(marker.position).toBe("absolute"); expect(anchor.width).toBe("20px"); expect(anchor.height).not.toBe("0px");
+      expect(marker.position).toBe("absolute"); expect(anchor.width).toBe("0px"); expect(anchor.height).toBe("0px");
       expect(element(".judu-history-anchor").textContent).toBe("");
-      expect(getComputedStyle(element(".judu-concept-term")).fontWeight).not.toMatch(/bold|[6-9]00/);
+      expect(getComputedStyle(element(".judu-concept-term")).fontWeight).toBe("650");
       expect(getComputedStyle(element(".judu-annotation-text")).backgroundColor).toBe("rgba(0, 0, 0, 0)");
-      expect(css).toContain("text-decoration-style: dashed"); expect(css).toContain("#fff0a8"); expect(css).not.toMatch(/.judu-annotated-paragraphs*{/);
+      expect(css).toContain("text-decoration-style: dashed"); expect(css).toContain("font-weight: 650"); expect(css).not.toMatch(/.judu-annotated-paragraphs*{/);
     } finally { style.remove(); }
   });
 });

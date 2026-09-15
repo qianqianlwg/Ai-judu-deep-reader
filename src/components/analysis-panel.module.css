@@ -144,3 +144,7 @@
 
 .stopButton { cursor: pointer; font-size: 12px; }
 .stopButton:focus-visible { outline: 2px solid #769a88; outline-offset: 3px; }
+
+
+.composerFooterStart { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.backButton { border: 0; background: transparent; color: #748384; font-size: 10px; }

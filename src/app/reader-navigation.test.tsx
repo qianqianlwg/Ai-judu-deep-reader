@@ -27,7 +27,8 @@ let result: SearchSelectionTarget & { chapterId: string; chapterTitle: string };
 let badCreate: boolean;
 let requests: Record<string, unknown>[];
 const sourceA = "甲段提供最初的认识。";
-const sourceB = "前😀乙段用于论证，后文继续。";
+const searchTerm = String.fromCodePoint(0x627f, 0x8ba4);
+const sourceB = 'prefix😀承认 used for argument and later text';
 const book = { id: "book", editionId: "edition", title: "导航验收书", author: "测试作者", chapters: [
   { id: "chapter-a", title: "甲章", paragraphs: [{ id: "a", text: sourceA }] },
   { id: "chapter-b", title: "乙章", paragraphs: [{ id: "b", text: sourceB }] },
@@ -66,13 +67,14 @@ beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; });
   vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   localStorage.clear(); localStorage.setItem("judu:thread:book:edition", "good");
-  result = { paragraphId: "b", chapterId: "chapter-b", chapterTitle: "乙章", matchedText: "乙段", startOffset: 3, excerpt: "前😀乙段用于论证，后文继续。" };
+  result = { paragraphId: "b", chapterId: "chapter-b", chapterTitle: "chapter-b", matchedText: sourceB.slice(sourceB.indexOf(searchTerm), sourceB.indexOf(searchTerm) + 10), startOffset: sourceB.indexOf(searchTerm), excerpt: sourceB };
   fetcher.mockImplementation(async (input, init) => {
     const url = endpoint(input);
     if (url.pathname === "/api/settings/ai") return Response.json({ model: "test-model" });
     if (url.pathname === "/api/library") return Response.json([book]);
     if (url.pathname === "/api/books/book") return Response.json(book);
     if (url.pathname === "/api/annotations") return Response.json({ annotations: [] });
+    if (url.pathname === "/api/reading-marks") return Response.json({ marks: [] });
     if (url.pathname === "/api/knowledge") return Response.json({ editionId: url.searchParams.get("editionId"), records: [], concepts: [] });
     if (url.pathname === "/api/search/status") return Response.json({ backend: "sqlite", editionId: "edition", paragraphCount: 2, indexedCount: 0, vectorIndexed: false, note: "测试" });
     if (url.pathname === "/api/search") return Response.json({ results: [result] });
@@ -124,8 +126,8 @@ describe("A选区→搜索B→真实句读请求", () => {
   it("B文本、B段落、B章节和UTF16偏移在同一请求里一致", async () => {
     await mount(); await selectA(); await searchB(); await click(button("句读一下"));
     expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatchObject({ selectedText: "乙段", paragraphId: "b", chapterId: "chapter-b", selectionStart: 3, selectionEnd: 5, context: sourceB, mode: "analyze" });
-    expect(boundary.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "b", offset: 3 });
+    expect(requests[0]).toMatchObject({ selectedText: sourceB.slice(sourceB.indexOf(searchTerm), sourceB.indexOf(searchTerm) + 10), paragraphId: "b", chapterId: "chapter-b", selectionStart: sourceB.indexOf(searchTerm), selectionEnd: sourceB.indexOf(searchTerm) + 10, context: sourceB, mode: "analyze" });
+    expect(boundary.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "b", offset: sourceB.indexOf(searchTerm) });
   });
   it("概括excerpt不精确时清除A旧选区且不提交请求", async () => {
     result = { paragraphId: "b", chapterId: "chapter-b", chapterTitle: "乙章", excerpt: "乙段…后文" };

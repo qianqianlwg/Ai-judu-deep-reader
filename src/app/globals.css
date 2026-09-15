@@ -373,3 +373,12 @@ body { background: var(--ui-bg); color: var(--ui-text); }
 .settings-card { background: var(--paper); border-color: var(--ui-border); }
 .settings-card h1, .settings-header h1 { color: var(--ui-text); }
 .settings-card h2 { color: #466b69; }
+
+/* 阅读外观角色变量：中间正文由主题系统控制，左右工作区保留独立层级。 */
+.app-shell { background: var(--reading-sidebar-background, var(--ui-bg)); color: var(--reading-text, var(--ui-text)); color-scheme: var(--reading-color-scheme, light); }
+.app-shell .sidebar { background: var(--reading-sidebar-background, var(--ui-panel)); border-color: var(--reading-border, var(--ui-border)); }
+.app-shell .reading-pane, .app-shell .page-nav, .app-shell .selection-bar { background: var(--reading-paper, var(--paper)); color: var(--reading-text, var(--ui-text)); border-color: var(--reading-border, var(--ui-border)); }
+.app-shell .analysis-panel, .app-shell .chat-messages { background: var(--reading-assistant-background, var(--ui-bg)); }
+.app-shell .chat-composer { background: color-mix(in srgb, var(--reading-assistant-background, #edf4f1) 85%, var(--reading-surface, #fff) 15%); border-color: var(--reading-border, var(--ui-border)); }
+.app-shell .reader-sheet { color: var(--reading-text, #39464a); }
+.app-shell .reading-toolbar { background: var(--reading-paper, var(--paper)); border-color: var(--reading-border, var(--ui-border)); }

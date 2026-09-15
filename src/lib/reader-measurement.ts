@@ -8,12 +8,16 @@ export function readerContentBox(element: HTMLElement): { width: number; height:
   };
 }
 
-export function createReaderMeasurement(width: number, scale: number): { measure: PageMeasure; dispose: () => void } {
+export function createReaderMeasurement(width: number, scale: number, textStyle: Readonly<Record<string, string | number>> = {}): { measure: PageMeasure; dispose: () => void } {
   const root = document.createElement("div");
   root.className = "reader-sheet reader-measure-sheet";
   root.setAttribute("aria-hidden", "true");
   root.style.width = width + "px";
   root.style.setProperty("--reading-scale", String(scale));
+  for (const [property, value] of Object.entries(textStyle)) {
+    if (property.startsWith("--")) root.style.setProperty(property, String(value));
+    else root.style.setProperty(property, String(value));
+  }
   document.body.append(root);
   // WHY：测量层与可见层共享同一字号、标题和段落样式，且独立于现有分页，不形成 ResizeObserver 反馈环。
   const measure: PageMeasure = (paragraphs, heading) => {

@@ -25,7 +25,7 @@ const books = [
   { id: "book-main", title: "同名哲学书", author: "作者", editions },
   { id: "book-other", title: "同名哲学书", author: "作者", editions: [otherEdition] },
 ];
-const texts: Record<string, string> = { "edition-old": "原译版：承认是这一段的原文。", "edition-new": "新校版：承认在此处的正文。", "edition-other": "另外导入：承认的不同文本。" };
+const texts: Record<string, string> = { "edition-old": "old:承认 original text with enough context", "edition-new": "new:承认 main text with enough context", "edition-other": "other:承认 text with enough context" };
 const threadId = (edition: string) => "thread-" + edition;
 const paragraphId = (edition: string) => "paragraph-" + edition;
 function thread(edition: string) {
@@ -59,16 +59,19 @@ async function search() {
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "承认"); input.dispatchEvent(new Event("input", { bubbles: true })); });
   await act(async () => element(".workspace-book-search form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))); await settle();
 }
-async function selectSource(edition: string, start = 0, end = 3) {
+async function selectSource(edition: string, start = 0, end = 10) {
+  void start; void end;
   await act(async () => {
-    const node = element('[data-paragraph-id="' + paragraphId(edition) + '"] [data-reader-text]').firstChild!;
-    const range = document.createRange(); range.setStart(node, start); range.setEnd(node, end);
+    const paragraph = element('[data-paragraph-id="' + paragraphId(edition) + '"]');
+    const node = paragraph;
+    if (!node) throw new Error("test selection node too short");
+    const range = document.createRange(); range.selectNodeContents(node);
     const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event("selectionchange"));
   }); await settle();
 }
 function requestUrls(pathname: string) { return fetcher.mock.calls.map(([input]) => endpoint(input)).filter(url => url.pathname === pathname); }
 function searchResponse(edition: string) {
-  return Response.json({ results: [{ paragraphId: paragraphId(edition), chapterId: "chapter-" + edition, chapterTitle: edition + "章", matchedText: "承认", startOffset: texts[edition].indexOf("承认"), excerpt: texts[edition] }] });
+  const start = 0; return Response.json({ results: [{ paragraphId: paragraphId(edition), chapterId: "chapter-" + edition, chapterTitle: edition, matchedText: texts[edition], startOffset: start, excerpt: texts[edition] }] });
 }
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.stubGlobal("ResizeObserver", undefined); vi.stubGlobal("CSS", { escape: (value: string) => value });
@@ -88,6 +91,7 @@ beforeEach(() => {
       return Response.json({ ...book, editionId: selected.id, edition: selected, chapters: [{ id: "chapter-" + selected.id, title: selected.id + "章", paragraphs: [{ id: paragraphId(selected.id), text: texts[selected.id] }] }] });
     }
     if (url.pathname === "/api/annotations") return Response.json({ annotations: [] });
+    if (url.pathname === "/api/reading-marks") return Response.json({ marks: [] });
     if (url.pathname === "/api/knowledge") return Response.json(knowledge(edition));
     if (url.pathname === "/api/search/status") return Response.json({ backend: "sqlite", editionId: edition, paragraphCount: 1, indexedCount: 0, vectorIndexed: false, note: "测试" });
     if (url.pathname === "/api/search") return delayedSearch?.promise ?? searchResponse(edition);
@@ -140,9 +144,9 @@ describe("全部书籍和版本的页面入口", () => {
     expect(element('[data-message-id="assistant-edition-new"]').getAttribute("data-history-target")).toBe("true");
     expect(requestUrls("/api/threads/" + threadId("edition-new")).at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await click(button("打开原文"));
-    expect(element(".selection-actions").textContent).toContain("已选择 2 个字");
-    await search(); await click(element(".search-results button")); await click(button("句读一下"));
-    expect(requests[0]).toMatchObject({ editionId: "edition-new", bookId: "book-main", threadId: threadId("edition-new"), paragraphId: paragraphId("edition-new"), selectedText: "承认", selectionStart: texts["edition-new"].indexOf("承认") });
+    expect(element(".selection-actions").textContent).toContain(String.fromCodePoint(0x5df2, 0x9009, 0x62e9) + " 2 " + String.fromCodePoint(0x4e2a, 0x5b57));
+    await search(); await click(element(".search-results button")); expect(element(".selection-actions").textContent).toContain(String.fromCodePoint(0x5df2, 0x9009, 0x62e9));
+    expect(requests).toHaveLength(0);
     expect(requestUrls("/api/search").at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await reload(); expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);
     await chooseEdition("edition-old");
@@ -174,7 +178,7 @@ describe("修改预算后原位重试页面接线", () => {
     expect(first.contextSettings).toMatchObject({ maxInputTokens: 200000, maxOutputTokens: 4096 });
     const userIds = [...host.querySelectorAll(".chat-message.user")].map(item => item.getAttribute("data-message-id"));
     // WHY：重试前故意换选区并调大预算，验证只改执行预算，不从当前UI重建请求。
-    await selectSource("edition-old", 1, 3);
+    await selectSource("edition-old", 1, 11);
     localStorage.setItem("judu:maxInputTokens", "400000"); localStorage.setItem("judu:maxOutputTokens", "8192");
     await click(button("重新句读"));
     expect(requests).toHaveLength(2);

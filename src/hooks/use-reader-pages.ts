@@ -5,7 +5,8 @@ import { paginateMeasuredParagraphs } from "@/lib/measured-pagination";
 import { createReaderMeasurement, readerContentBox } from "@/lib/reader-measurement";
 
 type Layout = { source: readonly PaginatedParagraph[]; width: number; height: number; scale: number; pages: ReadingPage[] };
-export function useReaderPages(source: readonly PaginatedParagraph[], viewport: RefObject<HTMLDivElement | null>, scale: number) {
+type ReaderLayoutStyle = Readonly<Record<string, string | number>>;
+export function useReaderPages(source: readonly PaginatedParagraph[], viewport: RefObject<HTMLDivElement | null>, scale: number, textStyle: ReaderLayoutStyle = {}) {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [anchor, setAnchor] = useState<ReadingAnchor | null>(null);
   const [busy, setBusy] = useState(true);
@@ -19,7 +20,7 @@ export function useReaderPages(source: readonly PaginatedParagraph[], viewport: 
     let lastKey = "";
     const update = () => {
       const box = readerContentBox(element);
-      const key = [box.width, box.height, scale].join(":");
+      const key = [box.width, box.height, scale, JSON.stringify(textStyle)].join(":");
       if (key === lastKey) return;
       lastKey = key;
       task?.abort(); clearTimeout(timer); setBusy(true);
@@ -28,7 +29,7 @@ export function useReaderPages(source: readonly PaginatedParagraph[], viewport: 
         void (async () => {
           await document.fonts?.ready;
           if (cancelled || controller.signal.aborted) return;
-          const measurement = createReaderMeasurement(box.width, scale);
+          const measurement = createReaderMeasurement(box.width, scale, textStyle);
           try {
             const pages = await paginateMeasuredParagraphs(source, { height: box.height, measure: measurement.measure, signal: controller.signal, yieldControl: () => new Promise((resolve) => setTimeout(resolve, 0)) });
             if (!cancelled && !controller.signal.aborted) { setLayout({ source, ...box, scale, pages }); setError(""); setBusy(false); }
@@ -43,7 +44,7 @@ export function useReaderPages(source: readonly PaginatedParagraph[], viewport: 
     const fontLoaded = () => { lastKey = ""; update(); };
     document.fonts?.addEventListener("loadingdone", fontLoaded);
     return () => { cancelled = true; clearTimeout(timer); task?.abort(); observer.disconnect(); document.fonts?.removeEventListener("loadingdone", fontLoaded); };
-  }, [source, scale, viewport]);
+  }, [source, scale, textStyle, viewport]);
   const pages = useMemo(() => layout?.source === source ? layout.pages : [], [layout, source]);
   const pageIndex = anchor ? Math.max(0, findPageIndexForAnchor(pages, anchor)) : 0;
   const setPageIndex = useCallback((index: number) => {
