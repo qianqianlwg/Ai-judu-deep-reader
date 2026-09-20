@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { lstat } from "node:fs/promises";
+import {readMobiPreparedLayout, type MobiPreparedLayout} from './mobi-prepared-layout';
 import { readMobiLayoutSnapshot, type MobiLayoutSnapshot } from "./mobi-layout-snapshot";
 import type { MobiContainerKind } from "./mobi-format";
 
@@ -70,7 +71,10 @@ export async function runMobiWorker(input: MobiWorkerInput, options: MobiWorkerO
 export async function runMobiLayoutWorker(input: MobiWorkerInput, options: MobiWorkerOptions = {}): Promise<MobiLayoutSnapshot> {
   return startMobiWorker(input, options, "layout", readMobiLayoutSnapshot);
 }
-async function startMobiWorker<T>(input: MobiWorkerInput, options: MobiWorkerOptions, mode: "text" | "layout", decode: (value: unknown) => T): Promise<T> {
+export async function runMobiPreparedLayoutWorker(input:MobiWorkerInput, options:MobiWorkerOptions={}):Promise<MobiPreparedLayout> {
+  return startMobiWorker(input, options, 'prepared-layout', readMobiPreparedLayout);
+}
+async function startMobiWorker<T>(input: MobiWorkerInput, options: MobiWorkerOptions, mode: "text" | "layout" | "prepared-layout", decode: (value: unknown) => T): Promise<T> {
   if (options.signal?.aborted) throw new Error("MOBI解析已取消");
   if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 60_000)) throw new Error("MOBI解析超时配置无效");
   if (input.bytes.byteLength > 100 * 1024 * 1024) throw new Error("MOBI输入超限");

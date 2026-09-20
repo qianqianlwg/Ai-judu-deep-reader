@@ -1,6 +1,7 @@
 import {expect, it} from 'vitest';
 import {
   createMobiResourceGraph,
+  isMobiResourceRoleAllowed,
   resolveMobiResourceReference,
 } from './mobi-resource-graph.mjs';
 
@@ -202,4 +203,10 @@ it('深度边界仍允许十六条边的有效链', async () => {
   );
   expect(result.resources).toHaveLength(17);
   expect(result.edges).toHaveLength(16);
+});
+
+it('资源角色辅助函数对未知角色失败关闭，完整token也受长度上限',()=>{
+ expect(isMobiResourceRoleAllowed('image/png','css')).toBe(true);
+ expect(isMobiResourceRoleAllowed('image/png','script' as 'css')).toBe(false);
+ expect(resolveMobiResourceReference('mobi-resource-v1/'+'a'.repeat(600)+'.png')).toHaveProperty('blocked');
 });

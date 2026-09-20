@@ -15,7 +15,7 @@ const hash=(/** @type {Uint8Array} */ bytes)=>createHash('sha256').update(bytes)
 /** @param {unknown} value @returns {value is string} */
 function id(value){return typeof value==='string'&&value.length<=512&&ID.exec(value)?.[0]===value;}
 /** @param {string} type @param {Role} role */
-function permitted(type,role){return role==='style'?type==='text/css':role==='image'?IMAGES.has(type):role==='media'?MEDIA.has(type):IMAGES.has(type)||FONTS.has(type);}
+export function isMobiResourceRoleAllowed(type,role){return role==='style'?type==='text/css':role==='image'?IMAGES.has(type):role==='media'?MEDIA.has(type):role==='css'&&(IMAGES.has(type)||FONTS.has(type));}
 /**
  * 只解析包内受控命名，不使用网络URL或文件系统路径解析器；结果不是资源安全证明。
  * @param {string} value @param {string|null} base @returns {Reference}
@@ -29,7 +29,7 @@ export function resolveMobiResourceReference(value,base=null){
  const suffix=fragment?'#'+encodeURIComponent(fragment):'';
  if(!path)return suffix?{id:'',fragment:suffix}:{blocked:'empty-reference'};
  if(/[\u0000-\u0020\u007f\\?:%]/u.test(decoded)||decoded.startsWith('/'))return {blocked:'external-or-unsafe-path'};
- if(ID.exec(decoded)?.[0]===decoded)return {id:decoded,fragment:suffix};
+ if(decoded.length<=512&&ID.exec(decoded)?.[0]===decoded)return {id:decoded,fragment:suffix};
  if(!base||!id(base))return {blocked:'relative-without-origin'};
  const local=decoded.startsWith('./')?decoded.slice(2):decoded;
  if(local.includes('/')||local==='.'||local==='..')return {blocked:'path-traversal'};
@@ -90,7 +90,7 @@ export function createMobiResourceGraph(resources){
     if('blocked' in reference){diagnostics.push({base,value:typeof value==='string'?value.slice(0,4096):'',reason:reference.blocked});return null;}
     if(!reference.id){if(role==='style'||role==='media'){diagnostics.push({base,value,reason:'fragment-role-mismatch'});return null;}return reference.fragment;}
     const resource=inputs.get(reference.id);if(!resource)throw new Error('MOBI资源图缺少本地资源：'+reference.id);
-    if(!permitted(resource.mediaType,role))throw new Error('MOBI资源图角色与类型不符：'+reference.id);
+    if(!isMobiResourceRoleAllowed(resource.mediaType,role))throw new Error('MOBI资源图角色与类型不符：'+reference.id);
     if(depth>MAX_DEPTH)throw new Error('MOBI资源图深度超限');
     if(base)edge(base,reference.id);else propagateDepth(reference.id,0);
     let job=jobs.get(reference.id);
