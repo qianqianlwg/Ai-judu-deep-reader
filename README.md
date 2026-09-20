@@ -63,3 +63,9 @@ npm run build
 - 生产运行不从 `src` 或开发依赖目录动态加载 MOBI parser；部署需携带生成的 worker、清单和第三方许可。Next 导入路由的文件追踪已显式包含这三项。仅安装生产依赖时，应使用先前构建生成的运行时，而不是在启动时临时安装解析开发包。
 - `node --test scripts/build-mobi-worker.test.mjs` 验证可复现构建和许可，`src/lib/mobi-worker-deployment.test.ts` 验证独立目录真实子进程运行。直接调用 Vitest 前需先构建运行时，常规 `npm test` 会自动完成。
 - 这只是 MOBI/KF8 候选的部署前置条件；MOBI/AZW/AZW3 API 仍然返回 415，完整格式及 UMD 转换尚未交付。
+
+### UMD候选转换
+
+- 新增严格文字型UMD解析、受限独立进程和EPUB转换候选；精读正文直接来自同一UMD解码快照，原件与派生EPUB分别计算哈希。
+- `npm run build:umd-worker`生成私有`runtime/umd`；常规开发/测试/构建前置脚本会同时生成MOBI和UMD运行时。
+- `.umd`仍不开放上传：还缺真实文件兼容性、漫画/混合型、原件与转换版本双份持久化和浏览器验收，不能以候选转换通过当作完整支持。

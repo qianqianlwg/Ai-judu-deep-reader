@@ -9,9 +9,10 @@
         "lint": "eslint",
         "test": "vitest run --exclude \".verify-*/**\"",
         "build:mobi-worker": "node scripts/build-mobi-worker.mjs",
-        "predev": "npm run build:mobi-worker",
-        "prebuild": "npm run build:mobi-worker",
-        "pretest": "npm run build:mobi-worker"
+        "predev": "npm run build:mobi-worker && npm run build:umd-worker",
+        "prebuild": "npm run build:mobi-worker && npm run build:umd-worker",
+        "pretest": "npm run build:mobi-worker && npm run build:umd-worker",
+        "build:umd-worker": "node scripts/build-umd-worker.mjs"
     },
     "dependencies": {
         "@langchain/anthropic": "^1.5.10",
@@ -20,6 +21,7 @@
         "@types/pg": "^8.23.1",
         "epub": "^2.1.1",
         "fast-xml-parser": "5.11.1",
+        "jszip": "3.10.2",
         "langchain": "^1.5.11",
         "next": "16.3.5",
         "pdf-parse": "^2.4.5",
@@ -35,6 +37,7 @@
     "devDependencies": {
         "@lingo-reader/mobi-parser": "0.4.6",
         "@tailwindcss/postcss": "^4",
+        "@types/jsdom": "30.0.0",
         "@types/node": "^20",
         "@types/react": "^19",
         "@types/react-dom": "^19",

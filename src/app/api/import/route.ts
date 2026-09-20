@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
     const adapter = documentAdapterFor(file.name.toLowerCase().endsWith(".fb2.zip")?".fbz":path.extname(file.name).toLowerCase());
     // WHY：候选解析器尚未通过格式/资源/来源验收，不能把研发中的扩展名当作已交付能力。
     if (!adapter && [".mobi", ".azw", ".azw3"].includes(path.extname(file.name).toLowerCase())) throw new ImportError(415, "MOBI/AZW/AZW3 正在验收，尚未开放导入；请使用无 DRM 的 EPUB 或已支持格式。");
+    if (!adapter && path.extname(file.name).toLowerCase() === ".umd") throw new ImportError(415, "UMD 转换正在验收，尚未开放导入；请先使用 EPUB 或已支持格式。");
     if (!adapter) throw new ImportError(415, "当前支持 EPUB、PDF、FB2/FBZ、CBZ、TXT 和 Markdown");
     if (!file.size) throw new ImportError(422, "文件为空，未导入任何内容");
     if (file.size > MAX_UPLOAD_BYTES) throw new ImportError(413, "文件过大，最大支持 100 MiB");

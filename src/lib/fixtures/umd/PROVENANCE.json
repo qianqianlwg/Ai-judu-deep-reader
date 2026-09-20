@@ -1,0 +1,12 @@
+{
+  "repository": "flyfish-dev/file-viewer",
+  "commit": "2335490caa812c5a340263c3cf7954ba6dfe9db4",
+  "sourcePath": "apps/viewer-demo/public/example/book.umd",
+  "sample": "flyfish-book.umd",
+  "sha256": "472dd236088ed386c72234d6aa469f24973a4e8972380ff50429be6fc6f16052",
+  "bytes": 627,
+  "license": "Apache-2.0",
+  "attribution": "Flyfish / file-viewer contributors; self-created minimal UMD fixture declared in apps/viewer-demo/public/example/README.md",
+  "modified": false,
+  "scope": "One upstream self-created text sample, not proof of all UMD variants"
+}

@@ -15,5 +15,5 @@ it("原文件响应覆盖全局 CSP，禁止直接激活或嵌入", async () => 
 });
 
 it("导入路由显式跟踪私有解析产物而不通过public发布", () => {
-  expect(config.outputFileTracingIncludes).toEqual({ "/api/import": ["./runtime/mobi/**/*"] });
+  expect(config.outputFileTracingIncludes).toEqual({ "/api/import": ["./runtime/mobi/**/*", "./runtime/umd/**/*"] });
 });
