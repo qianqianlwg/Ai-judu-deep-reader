@@ -2,6 +2,9 @@ export type Kf8FdstMode = "none" | "stream";
 export type Kf8FixtureOptions = {
   fdst?: Kf8FdstMode;
   title?: string;
+  fragment?: string;
+  css?: string;
+  resources?: readonly Buffer[];
 };
 
 type TagDescriptor = readonly [tag: number, valuesCount: number, mask: number, end: number];
@@ -168,11 +171,12 @@ function makePdb(records: readonly Buffer[]): Buffer {
  */
 export function makeKf8Fixture(options: Kf8FixtureOptions = {}): Buffer {
   const fdstMode = options.fdst ?? "stream";
+  if (options.css !== undefined && fdstMode !== "stream") throw new Error("CSS fixture需要独立FDST流");
   const title = options.title ?? "自造 KF8 结构样本";
-  const skeleton = Buffer.from("<html><head><title>KF8 结构</title></head><body></body></html>", "utf8");
+  const skeleton = Buffer.from(`<html><head><title>KF8 结构</title>${options.css === undefined ? "" : '<link rel="stylesheet" href="kindle:flow:0001?mime=text/css"/>'}</head><body></body></html>`, "utf8");
   const insertOffset = skeleton.indexOf("</body>");
-  const fragment = Buffer.from("<section id=\"chapter-one\"><h1>第一章：星河 🐉</h1><p>这是自造的中文正文。</p></section>", "utf8");
-  const rawText = Buffer.concat([skeleton, fragment]);
+  const fragment = Buffer.from(options.fragment ?? "<section id=\"chapter-one\"><h1>第一章：星河 🐉</h1><p>这是自造的中文正文。</p></section>", "utf8");
+  const rawText = Buffer.concat([skeleton, fragment, ...(options.css === undefined ? [] : [Buffer.from(options.css, "utf8")])]);
   const skelPrimary = makeIndexPrimary([[1, 1, 1, 0], [6, 2, 2, 0], [0, 0, 0, 1]], 0);
   const skelSecondary = makeIndexEntries([{ name: "SKEL0000000000", control: 3, values: [1, 0, skeleton.length] }]);
   const fragPrimary = makeIndexPrimary([
@@ -182,7 +186,9 @@ export function makeKf8Fixture(options: Kf8FixtureOptions = {}): Buffer {
   const cncX = makeCncx("[data-kf8-fragment=\"chapter-one\"]");
   const records: Buffer[] = [Buffer.alloc(0), rawText, skelPrimary, skelSecondary, fragPrimary, fragSecondary, cncX];
   const fdstIndex = fdstMode === "stream" ? records.length : NO_RECORD;
-  if (fdstMode === "stream") records.push(makeFdst([[0, skeleton.length], [skeleton.length, rawText.length]]));
+  if (fdstMode === "stream") records.push(makeFdst(options.css === undefined ? [[0, skeleton.length], [skeleton.length, rawText.length]] : [[0, skeleton.length + fragment.length], [skeleton.length + fragment.length, rawText.length]]));
   records[0] = makeHeader(title, rawText.length, fdstIndex, fdstMode === "stream" ? 2 : 1, 4, 2, NO_RECORD);
+  records[0].writeUInt32BE(records.length, 108);
+  records.push(...(options.resources ?? []));
   return makePdb(records);
 }

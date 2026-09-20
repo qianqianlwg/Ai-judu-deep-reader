@@ -2,14 +2,17 @@
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { mobiHtmlBlocks } from "./mobi-html.mjs";
+import { buildMobiLayout } from "./mobi-layout-worker.mjs";
+import { readMobiLayoutSnapshot } from "./mobi-layout-snapshot";
 
-/** @param {unknown} value @returns {asserts value is {bytes: Uint8Array, kind: 'mobi'|'kf8', resourceDir: string}} */
+/** @param {unknown} value @returns {asserts value is {bytes: Uint8Array, kind: 'mobi'|'kf8', resourceDir: string, mode?: 'text'|'layout'}} */
 function validateInput(value) {
   if (!value || typeof value !== "object" || !("bytes" in value) || !(value.bytes instanceof Uint8Array)
     || value.bytes.byteLength > 100 * 1024 * 1024 || !("kind" in value) || !["mobi", "kf8"].includes(String(value.kind))
     || !("resourceDir" in value) || typeof value.resourceDir !== "string") {
     throw new Error("MOBI worker输入无效");
   }
+  if ("mode" in value && value.mode !== "text" && value.mode !== "layout") throw new Error("MOBI worker模式无效");
 }
 
 /** @param {unknown} value @param {number} limit */
@@ -36,6 +39,7 @@ async function run(input) {
   const { initMobiFile, initKf8File } = await import("../../vendor/mobi/index.mjs");
   // WHY：候选库包含同步解压和文件写入；只在可被父进程终止的独立进程中调用，不阻塞Web主线程。
   const parser = await (input.kind === "kf8" ? initKf8File : initMobiFile)(input.bytes, input.resourceDir);
+  if (input.mode === "layout") return readMobiLayoutSnapshot(await buildMobiLayout(parser, input));
   const metadata = parser.getMetadata();
   const title = boundedString(metadata.title ?? "", 4096);
   if (!Array.isArray(metadata.author) || metadata.author.length > 256) throw new Error("MOBI作者列表无效");
@@ -89,7 +93,13 @@ process.once("message", async input => {
     const result = await run(input);
     process.send?.({ ok: true, result }, error => process.exit(error ? 1 : 0));
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message.slice(0, 500) : "未知解析错误";
+    // WHY：临时磁盘路径只属于worker，文件冲突/读取失败不能通过IPC暴露调用方目录。
+    let message = cause instanceof Error ? cause.message : "未知解析错误";
+    if (cause instanceof Error && "code" in cause && typeof cause.code === "string" && /^[A-Z0-9_]+$/u.test(cause.code)) message = "MOBI资源IO失败（" + cause.code + "）";
+    if (input && typeof input === "object" && "resourceDir" in input && typeof input.resourceDir === "string" && input.resourceDir) {
+      for (const directory of new Set([input.resourceDir,input.resourceDir.replaceAll("\\","/"),input.resourceDir.replaceAll("/","\\")])) message=message.split(directory).join("[内部资源]");
+    }
+    message = message.slice(0,500);
     process.send?.({ ok: false, error: message }, error => process.exit(error ? 1 : 0));
   }
 });

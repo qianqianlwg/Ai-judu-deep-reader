@@ -54,5 +54,25 @@ export function applyMobiPatches(input) {
   // WHY：合法HTML可有body属性/大写标签；缺失结束标签不能slice(0,-1)吞掉最后一个字符。
   source = once(source, 'chapters[chapters.length - 1].text = lastChapterText.slice(0, lastChapterText.indexOf("</body>"));', 'const bodyEnd = lastChapterText.search(/<\\/body\\s*>/i);\n    chapters[chapters.length - 1].text = bodyEnd < 0 ? lastChapterText : lastChapterText.slice(0, bodyEnd);');
   source = once(source, 'const bodyOpenTagIndex = firstChapterText.indexOf("<body>");\n    chapters[0].text = firstChapterText.slice(bodyOpenTagIndex + "<body>".length);', 'const bodyOpen = /<body\\b[^>]*>/i.exec(firstChapterText);\n    const bodyOpenTagIndex = bodyOpen?.index ?? 0;\n    chapters[0].text = bodyOpen ? firstChapterText.slice(bodyOpen.index + bodyOpen[0].length) : firstChapterText;');
+  // WHY：资源快照不可接受同名覆盖；上游同步写仍只在可终止且限权worker内执行。
+  source = once(source, 'writeFileSync(url, data);', 'writeFileSync(url, data, { flag: "wx" });');
+  // WHY：封面offset=0是首个资源，不能因数值为假而丢失合法封面。
+  source = once(source, '    if (offset) {\n      return this.loadResource(offset);', '    if (offset !== undefined) {\n      return this.loadResource(offset);');
+  // WHY：纯外链/无recindex图片应保留为不可信HTML待统一净化，而非崩溃；绝不下载外部URL。
+  source = once(source, 'const recindex = matched.match(this.recindexReg)[1];', 'const recindex = matched.match(this.recindexReg)?.[1];\n        if (!recindex) return matched;');
+  // WHY：布局快照保留head中的样式/元数据而不是仅保留正文；它仍是不可信内容，不能直接执行。
+  source = once(source, '    const referenceStr = firstChapterText.slice(0, bodyOpenTagIndex);', '    const referenceStr = firstChapterText.slice(0, bodyOpenTagIndex);\n    this.layoutHead = referenceStr;');
+  source = once(source, '      html,\n      css: []', '      html,\n      head: this.layoutHead ?? "",\n      css: []');
+  source = once(source, '      html: bodyReplaced,\n      css: cssUrls', '      html: bodyReplaced,\n      head: this.replaceResources(head),\n      css: cssUrls');
+  // WHY：捕获后的预算不足以阻止解析器先写满磁盘；在每次上游写入之前按本次目录累计限额。
+  source = once(source, 'function saveResource(data, type, filename, imageSaveDir) {', 'const resourceWriteBudgets = new Map();\nfunction saveResource(data, type, filename, imageSaveDir) {');
+  source = once(source, '    const url = resolve(imageSaveDir, fileName);\n    writeFileSync(url, data, { flag: "wx" });', '    const url = resolve(imageSaveDir, fileName);\n    const size = typeof data === "string" ? Buffer.byteLength(data, "utf8") : data?.byteLength;\n    const usage = resourceWriteBudgets.get(imageSaveDir) ?? { bytes: 0, files: 0 };\n    if (!Number.isSafeInteger(size) || size < 1 || size > 104857600 || usage.bytes + size > 104857600 || usage.files >= 5000) throw new Error("MOBI resource write exceeds budget");\n    writeFileSync(url, data, { flag: "wx" });\n    resourceWriteBudgets.set(imageSaveDir, { bytes: usage.bytes + size, files: usage.files + 1 });');
+  // WHY：磁盘路径不是书籍资源地址；候选统一返回包内ID，不能将Windows路径注入HTML/CSS或正文。
+  source = once(source, '    resourceWriteBudgets.set(imageSaveDir, { bytes: usage.bytes + size, files: usage.files + 1 });\n    return url;', '    resourceWriteBudgets.set(imageSaveDir, { bytes: usage.bytes + size, files: usage.files + 1 });\n    return "mobi-resource-v1/" + fileName;');
+  // WHY：仅在属性/CSS URL语义位置改写引用，普通正文、标题、SVG文本和content字符串逐字保留。
+  source = 'import { rewriteMobiResourceMarkup, rewriteMobiResourceCss } from "../../src/lib/mobi-layout-rewrite.mjs";\n' + source;
+  source = once(source, 'const textReplaced = this.replaceResources(text);', 'const textReplaced = type === MIME.CSS ? rewriteMobiResourceCss(text, value => this.replaceResources(value)) : rewriteMobiResourceMarkup(text, value => this.replaceResources(value));');
+  source = once(source, 'const bodyReplaced = this.replaceResources(body);', 'const bodyReplaced = rewriteMobiResourceMarkup(body, value => this.replaceResources(value));');
+  source = once(source, 'head: this.replaceResources(head),', 'head: rewriteMobiResourceMarkup(head, value => this.replaceResources(value)),');
   return source;
 }

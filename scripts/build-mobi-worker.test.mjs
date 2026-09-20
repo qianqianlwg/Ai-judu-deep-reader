@@ -16,9 +16,11 @@ test('MOBI私有运行时可复现，携带实际打包依赖许可且不带机�
       assert.deepEqual(await readFile(path.join(first.directory, name)), await readFile(path.join(second.directory, name)));
     }
     const names = first.manifest.packages.map(item => item.name);
-    for (const name of ['@lingo-reader/mobi-parser', '@lingo-reader/shared', 'fflate', 'parse5', 'entities']) assert.ok(names.includes(name));
+    for (const name of ['@lingo-reader/mobi-parser', '@lingo-reader/shared', 'fflate', 'parse5', 'entities', 'css-tree']) assert.ok(names.includes(name));
     for (const input of first.manifest.inputs) assert.equal(path.isAbsolute(input.path), false);
     assert.equal(first.manifest.entry, 'worker.cjs');
+    assert.ok(first.manifest.inputs.some(input=>input.path==='public/vendor/foliate/vendor/csstree.esm.js'));
+    assert.match(await readFile(path.join(first.directory,'THIRD_PARTY_NOTICES.txt'),'utf8'), /Roman Dvornov/);
     assert.match(first.manifest.sha256, /^[a-f0-9]{64}$/);
     assert.equal(first.manifest.inputs.some(input => input.path === 'vendor/mobi/index.mjs'), true);
     assert.equal(first.manifest.inputs.some(input => input.path.includes('@lingo-reader/mobi-parser/')), false);

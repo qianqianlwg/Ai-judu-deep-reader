@@ -19,3 +19,7 @@ describe("无版权内容的MOBI binary fixture", () => {
     expect(noExth.readUInt32BE(noExth.readUInt32BE(78) + 128)).toBe(0);
   });
 });
+it("封面0与资源记录使用真实偏移，不改扩展名冒充新格式",()=>{
+ const resource=Buffer.from([0x89,0x50,0x4e,0x47]),bytes=makeMobiFixture({resources:[resource],coverIndex:0});const first=bytes.readUInt32BE(78);
+ expect(bytes.readUInt16BE(76)).toBe(3);expect(bytes.readUInt32BE(first+108)).toBe(2);expect(bytes.subarray(bytes.readUInt32BE(94))).toEqual(resource);expect(bytes.readUInt32BE(first+268)).toBe(0);
+});

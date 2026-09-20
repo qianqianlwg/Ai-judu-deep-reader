@@ -4,13 +4,20 @@
   "license": "MIT",
   "sourceSha256": "37ceb6f781bb0b83024c86c0baa782d154dd3e8c5c72234fcb44dfe2f5d3682a",
   "licenseSha256": "995c6c256b13ced9b14de5bbc2b03d1d1648576c84cd2e96f995d7094c83d08e",
-  "patchedSha256": "bcff1c4f1b5efcddf8925282f0095ead9073ee521ff8c27b6fc17e304ef2b535",
+  "patchedSha256": "07ea37cc1e8d3c186145f8ccf028df936bbae192f3b941f04585bd807fb5d467",
   "patches": [
     "absent-EXTH",
     "single-flow-KF8-FDST",
     "bounded-raw-flow",
     "last-MOBI-byte-range",
-    "body-tag-attributes"
+    "body-tag-attributes",
+    "exclusive-resource-write",
+    "zero-cover-offset",
+    "optional-image-recindex",
+    "preserve-layout-head",
+    "bounded-resource-write",
+    "stable-resource-ids",
+    "semantic-resource-rewrite"
   ],
   "generator": "scripts/vendor-mobi.mjs"
 }

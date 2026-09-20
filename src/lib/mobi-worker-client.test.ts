@@ -1,3 +1,4 @@
+import { collectMobiLayoutWorker } from "./mobi-worker-client";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as childProcesses from "node:child_process";
 import { once } from "node:events";
@@ -237,4 +238,11 @@ describe("独立验收回归：HTML后处理不能逃离CPU隔离", () => {
       expect(maximumDelay, `父进程最长心跳间隔 ${Math.round(maximumDelay)}ms`).toBeLessThan(500);
     } finally { clearInterval(heartbeat); }
   }, 10000);
+});
+describe("布局IPC单独验证而不误用旧文字协议",()=>{
+ const snapshot={schema:'mobi-layout-untrusted-v1',kind:'mobi',sourceHash:'a'.repeat(64),title:'书',authors:[],cover:null,resources:[],chapters:[{id:'0',title:'章',head:'',html:'<p>文</p>',paragraphs:['文'],css:[]}],toc:[],links:[]};
+ it('等正常退出后才返回严格布局结果',async()=>{const child=processWith(`process.send({ok:true,result:${JSON.stringify(snapshot)}},()=>process.exit(0))`);expect(await collectMobiLayoutWorker(child,{timeoutMs:5000})).toEqual(snapshot);expect(child.exitCode).toBe(0);});
+ it('文字协议结果不能冒充布局协议',async()=>{await expect(collectMobiLayoutWorker(processWith(`process.send({ok:true,result:${JSON.stringify(result)}},()=>setInterval(()=>{},100))`),{timeoutMs:5000})).rejects.toThrow('布局快照');});
+ it('已收到布局但未退出仍超时终止',async()=>{const child=processWith(`process.send({ok:true,result:${JSON.stringify(snapshot)}},()=>{while(true){}})`);await expect(collectMobiLayoutWorker(child,{timeoutMs:300})).rejects.toThrow('超时');expect(child.exitCode!==null||child.signalCode!==null).toBe(true);});
+ it('取消布局进程并等待close',async()=>{const controller=new AbortController(),child=processWith('setInterval(()=>{},100)');const pending=collectMobiLayoutWorker(child,{timeoutMs:5000,signal:controller.signal});controller.abort();await expect(pending).rejects.toThrow('取消');expect(child.exitCode!==null||child.signalCode!==null).toBe(true);});
 });

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { lstat } from "node:fs/promises";
+import { readMobiLayoutSnapshot, type MobiLayoutSnapshot } from "./mobi-layout-snapshot";
 import type { MobiContainerKind } from "./mobi-format";
 
 export type MobiWorkerResult = { title: string; authors: string[]; chapters: { id: string; title: string; paragraphs: string[] }[] };
@@ -31,8 +32,14 @@ export function readMobiWorkerResult(value: unknown): MobiWorkerResult {
 
 /** 内部装配边界；调用方不得把书籍内容或上传文件名作为脚本/命令传入。 */
 export function collectMobiWorker(child: ChildProcess, options: MobiWorkerOptions): Promise<MobiWorkerResult> {
+  return collectMessage(child, options, readMobiWorkerResult);
+}
+export function collectMobiLayoutWorker(child: ChildProcess, options: MobiWorkerOptions): Promise<MobiLayoutSnapshot> {
+  return collectMessage(child, options, readMobiLayoutSnapshot);
+}
+function collectMessage<T>(child: ChildProcess, options: MobiWorkerOptions, decode: (value: unknown) => T): Promise<T> {
   return new Promise((resolve, reject) => {
-    let result: MobiWorkerResult | undefined, failure: Error | undefined, received = false;
+    let result: T | undefined, failure: Error | undefined, received = false;
     const terminate = (error: Error) => { failure ??= error; if (child.exitCode === null && child.signalCode === null) child.kill(); };
     const aborted = () => terminate(new Error("MOBI解析已取消"));
     const timer = setTimeout(() => terminate(new Error("MOBI解析超时，解析进程已终止")), options.timeoutMs ?? 15_000);
@@ -42,7 +49,7 @@ export function collectMobiWorker(child: ChildProcess, options: MobiWorkerOption
       received = true;
       try {
         if (!object(message) || message.ok !== true) throw new Error("MOBI候选解析器失败：" + (object(message) && typeof message.error === "string" ? message.error.slice(0, 500) : "无效响应"));
-        result = readMobiWorkerResult(message.result);
+        result = decode(message.result);
       } catch (cause: unknown) { terminate(cause instanceof Error ? cause : new Error("MOBI解析响应无效")); }
     });
     child.once("close", (code, signal) => {
@@ -58,6 +65,12 @@ export function collectMobiWorker(child: ChildProcess, options: MobiWorkerOption
 }
 
 export async function runMobiWorker(input: MobiWorkerInput, options: MobiWorkerOptions = {}): Promise<MobiWorkerResult> {
+  return startMobiWorker(input, options, "text", readMobiWorkerResult);
+}
+export async function runMobiLayoutWorker(input: MobiWorkerInput, options: MobiWorkerOptions = {}): Promise<MobiLayoutSnapshot> {
+  return startMobiWorker(input, options, "layout", readMobiLayoutSnapshot);
+}
+async function startMobiWorker<T>(input: MobiWorkerInput, options: MobiWorkerOptions, mode: "text" | "layout", decode: (value: unknown) => T): Promise<T> {
   if (options.signal?.aborted) throw new Error("MOBI解析已取消");
   if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 60_000)) throw new Error("MOBI解析超时配置无效");
   if (input.bytes.byteLength > 100 * 1024 * 1024) throw new Error("MOBI输入超限");
@@ -76,8 +89,8 @@ export async function runMobiWorker(input: MobiWorkerInput, options: MobiWorkerO
     `--allow-fs-read=${input.resourceDir}`, `--allow-fs-write=${input.resourceDir}`, worker], {
     cwd: input.resourceDir, env, windowsHide: true, serialization: "advanced", stdio: ["ignore", "ignore", "ignore", "ipc"],
   });
-  const pending = collectMobiWorker(child, options);
-  try { child.send(input, error => { if (error) child.emit("error", error); }); }
+  const pending = collectMessage(child, options, decode);
+  try { child.send({ ...input, mode }, error => { if (error) child.emit("error", error); }); }
   catch (cause: unknown) { child.emit("error", cause instanceof Error ? cause : new Error("MOBI进程通信失败")); }
   return pending;
 }

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeKf8Fixture } from "./kf8-fixture";
 import { makeMobiFixture } from "./mobi-fixture";
-import { runMobiWorker } from "./mobi-worker-client";
+import { runMobiWorker, runMobiLayoutWorker } from "./mobi-worker-client";
 
 const runtime = path.resolve("runtime/mobi");
 afterEach(() => vi.restoreAllMocks());
@@ -40,3 +40,11 @@ describe("MOBI运行时部署闭环：私有文件而非源码树或开发依赖
     }
   }, 20000);
 });
+it('仅私有bundle部署也能捕获MOBI图片布局，包内引用不依赖开发目录',async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'judu-mobi-deploy-')),resources=await mkdtemp(path.join(os.tmpdir(),'judu-mobi-deploy-'));
+ try{
+  await cp(runtime,path.join(root,'runtime/mobi'),{recursive:true});vi.spyOn(process,'cwd').mockReturnValue(root);
+  const image=Buffer.from([0x89,0x50,0x4e,0x47,1,2,3,4]);const bytes=makeMobiFixture({resources:[image],text:'<html><body><p>图文</p><img recindex="1"/></body></html>'});
+  const result=await runMobiLayoutWorker({bytes,kind:'mobi',resourceDir:resources});expect(result.resources[0].id).toBe('mobi-resource-v1/1.png');expect(Buffer.from(result.resources[0].bytes)).toEqual(image);expect(result.chapters[0].html).toContain('mobi-resource-v1/1.png');expect(result.chapters[0].paragraphs).toEqual(['图文']);
+ }finally{vi.restoreAllMocks();for(const directory of [root,resources]){const resolved=path.resolve(directory);if(path.dirname(resolved)!==path.resolve(os.tmpdir())||!path.basename(resolved).startsWith('judu-mobi-deploy-'))throw new Error('测试清理越界');await rm(resolved,{recursive:true,force:true});}}
+},20000);

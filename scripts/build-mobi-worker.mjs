@@ -20,6 +20,11 @@ export async function buildMobiWorker(options = {}) {
   const provenance = JSON.parse(await readFile(path.join(root, 'vendor/mobi/PROVENANCE.json'), 'utf8'));
   const vendor = await readFile(path.join(root, 'vendor/mobi/index.mjs'));
   if (sha256(vendor) !== provenance.patchedSha256) throw new Error('MOBI vendor与已审查哈希不一致');
+  const cssProvenance = JSON.parse(await readFile(path.join(root, 'public/vendor/foliate/PROVENANCE.json'), 'utf8'));
+  for (const name of ['vendor/csstree.esm.js','vendor/LICENSE-css-tree']) {
+    const entry = cssProvenance.files.find((/** @type {{path:string}} */ item)=>item.path===name);
+    if (!entry || sha256(await readFile(path.join(root,'public/vendor/foliate',name)))!==entry.sha256) throw new Error('固定CSS Tree源码或许可哈希不一致');
+  }
   // WHY：CJS允许Node内置require；所有第三方依赖均打进worker，运行时不授权整个node_modules。
   const result = await build({
     absWorkingDir: root, entryPoints: ['src/lib/mobi-worker.mjs'], bundle: true,
@@ -54,6 +59,7 @@ export async function buildMobiWorker(options = {}) {
   }
   licenses.unshift({ name: provenance.package, version: provenance.version, license: provenance.license,
     text: await readFile(path.join(root, 'vendor/mobi/LICENSE'), 'utf8') });
+  licenses.unshift({ name: 'css-tree', version: cssProvenance.cssTree.version, license: cssProvenance.cssTree.license, text: await readFile(path.join(root,'public/vendor/foliate/vendor/LICENSE-css-tree'),'utf8') });
   const notice = licenses.map(item => `## ${item.name}@${item.version} (${item.license})\n\n${item.text.trim()}\n`).join('\n');
   const manifest = { schemaVersion: 1, entry: 'worker.cjs', sha256: sha256(output.contents),
     licenseSha256: sha256(notice), packages: licenses.map(({ name, version, license }) => ({ name, version, license })), inputs,

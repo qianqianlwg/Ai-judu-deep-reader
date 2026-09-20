@@ -22,3 +22,9 @@
 升级或替换解析器时，必须重新执行真实容器、坏文件、原件往返、来源定位、资源安全、lint、严格类型、全量回归和生产构建；未经验证不直接更新白名单。
 
 补丁生成器：`scripts/vendor-mobi.mjs`；固定来源与补丁列表见 `vendor/mobi/PROVENANCE.json`。
+
+## 2026-09-20 布局捕获后续
+
+新增布局worker模式保留不可信head/HTML/CSS/资源，仍未作为浏览器输入或生产上传能力。新增可复现补丁：资源写入预算与wx、封面offset0、可选recindex图片、保留head、稳定包内资源ID和按HTML/CSS语义改写引用。补丁与固定源码/许可记录在PROVENANCE；没有改变上游版本，也没有把图片、字体扩展名当内容安全证明。
+
+私有worker新增打包既有CSS Tree 3.2.1（MIT，Roman Dvornov），源码与许可对照 `public/vendor/foliate/PROVENANCE.json` 核验；完整许可进入私有THIRD_PARTY_NOTICES，不依赖生产机器安装开发包。原text模式、仅runtime部署及四个固定样本继续回归。资源和定位的已验证范围/未完成边界见 `reader-mobi-verification.md` 最新批次。

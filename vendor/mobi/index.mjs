@@ -1,4 +1,5 @@
 // Vendored from @lingo-reader/mobi-parser@0.4.6 (MIT); see LICENSE and PROVENANCE.json.
+import { rewriteMobiResourceMarkup, rewriteMobiResourceCss } from "../../src/lib/mobi-layout-rewrite.mjs";
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlink } from 'node:fs';
 import path, { resolve } from 'node:path';
 import { unzlibSync } from 'fflate';
@@ -92,12 +93,17 @@ function getFileMimeType(fileBuffer) {
   }
   return "unknown";
 }
+const resourceWriteBudgets = new Map();
 function saveResource(data, type, filename, imageSaveDir) {
   {
     const fileName = `${filename}.${MimeToExt[type]}`;
     const url = resolve(imageSaveDir, fileName);
-    writeFileSync(url, data);
-    return url;
+    const size = typeof data === "string" ? Buffer.byteLength(data, "utf8") : data?.byteLength;
+    const usage = resourceWriteBudgets.get(imageSaveDir) ?? { bytes: 0, files: 0 };
+    if (!Number.isSafeInteger(size) || size < 1 || size > 104857600 || usage.bytes + size > 104857600 || usage.files >= 5000) throw new Error("MOBI resource write exceeds budget");
+    writeFileSync(url, data, { flag: "wx" });
+    resourceWriteBudgets.set(imageSaveDir, { bytes: usage.bytes + size, files: usage.files + 1 });
+    return "mobi-resource-v1/" + fileName;
   }
 }
 const mobiEncoding = {
@@ -789,7 +795,7 @@ class MobiFile {
     const coverOffset = Number(exth.coverOffset ?? 4294967295);
     const thumbnailOffset = Number(exth.thumbnailOffset ?? 4294967295);
     const offset = coverOffset < 4294967295 ? coverOffset : thumbnailOffset < 4294967295 ? thumbnailOffset : void 0;
-    if (offset) {
+    if (offset !== undefined) {
       return this.loadResource(offset);
     }
     return void 0;
@@ -1124,7 +1130,7 @@ class Kf8 {
         let blobData = "";
         if (type === MIME.CSS || type === MIME.SVG) {
           const text = this.mobiFile.decode(raw?.buffer);
-          const textReplaced = this.replaceResources(text);
+          const textReplaced = type === MIME.CSS ? rewriteMobiResourceCss(text, value => this.replaceResources(value)) : rewriteMobiResourceMarkup(text, value => this.replaceResources(value));
           blobData = textReplaced;
         } else {
           blobData = raw;
@@ -1149,9 +1155,10 @@ class Kf8 {
       });
     }
     const body = str.match(/<body[^>]*>([\s\S]*)<\/body>/i)[1];
-    const bodyReplaced = this.replaceResources(body);
+    const bodyReplaced = rewriteMobiResourceMarkup(body, value => this.replaceResources(value));
     return {
       html: bodyReplaced,
+      head: rewriteMobiResourceMarkup(head, value => this.replaceResources(value)),
       css: cssUrls
     };
   }
@@ -1290,6 +1297,7 @@ class Mobi {
     this.chapters = chapters;
     this.idToChapter = idToChapter;
     const referenceStr = firstChapterText.slice(0, bodyOpenTagIndex);
+    this.layoutHead = referenceStr;
     const tocChapterStr = this.findTocChapter(referenceStr);
     if (tocChapterStr) {
       const wrappedChapterStr = `<wrapper>${tocChapterStr.text.replace(/filepos=(\d+)/gi, 'filepos="$1"')}</wrapper>`;
@@ -1359,7 +1367,8 @@ class Mobi {
     html = html.replace(
       /<img[^>]*>/g,
       (matched) => {
-        const recindex = matched.match(this.recindexReg)[1];
+        const recindex = matched.match(this.recindexReg)?.[1];
+        if (!recindex) return matched;
         const url = this.loadResource(Number.parseInt(recindex));
         return matched.replace(this.recindexReg, `src="${url}"`);
       }
@@ -1391,6 +1400,7 @@ class Mobi {
     );
     return {
       html,
+      head: this.layoutHead ?? "",
       css: []
     };
   }
