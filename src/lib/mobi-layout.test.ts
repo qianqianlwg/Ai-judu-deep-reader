@@ -1,5 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { JSDOM } from "jsdom";
+import type { MobiLayoutSnapshot, MobiLayoutTarget } from "./mobi-layout-snapshot";
 import { parseMobiLayout } from "./mobi-layout";
 import { makeMobiFixture } from "./mobi-fixture";
 import { makeKf8Fixture } from "./kf8-fixture";
@@ -33,4 +35,35 @@ it('真实资源冲突错误只返回稳定错误码，不透传私有磁盘路�
 it('KF8 CSS字符串import捕获被导入样式而非当普通content忽略',async()=>{
  const result=await parseMobiLayout(makeKf8Fixture({css:'@import "kindle:embed:0002?mime=text/css";p{background:url("kindle:embed:0001?mime=image/png")}',resources:[png,Buffer.from('p{color:red}')],fragment:'<p>正文</p>'}));
  expect(result.resources.map(r=>r.id)).toEqual(['mobi-resource-v1/0001.css','mobi-resource-v1/0001.png','mobi-resource-v1/0002.css']);expect(new TextDecoder().decode(result.resources[0].bytes)).toContain('url(mobi-resource-v1/0002.css)');
+});
+function textAtTarget(snapshot:MobiLayoutSnapshot,target:MobiLayoutTarget|null):string{
+ expect(target).not.toBeNull();if(!target)throw new Error('未解析来源');
+ const html=snapshot.chapters.find(chapter=>chapter.id===target.chapterId)?.html;
+ expect(html).toBeDefined();const dom=new JSDOM(html);
+ try{
+  let node:Node=dom.window.document.body;
+  for(const index of target.point.path){const child:ChildNode|undefined=node.childNodes[index];expect(child).toBeDefined();if(!child)throw new Error('DOM来源路径不存在');node=child;}
+  if(target.point.kind==='element'){expect(node.nodeType).toBe(1);expect((node as Element).localName).toBe(target.point.tag);return node.textContent??'';}
+  expect(node.nodeType).toBe(3);const text=node.textContent??'';expect(text.length).toBe(target.point.textLength);expect(createHash('sha256').update(text).digest('hex')).toBe(target.point.textHash);return text.slice(target.point.offset);
+ }finally{dom.window.close();}
+}
+it.each([1,2] as const)('MOBI压缩%s跨pagebreak重复正文无ID，原始字节准确到第二段并经DOM复核',async compression=>{
+ const prefix='<HTML><HEAD><title>头😀</title></HEAD><BODY class="原书">',separator='<MBP:PAGEBREAK class="页"/>',second='<p data-x="重复">前😀 &amp; 相同</p><p data-x="重复">前😀 &amp; 相同</p>';
+ let html=prefix+'<p>首章</p>'+['重复正文','元素','间隙','半实体','半字节','属性'].map((name,i)=>`<a filepos="${String(i).padStart(10,'0')}">${name}</a>`).join('')+separator+second+'</BODY></HTML>';
+ const offsets=[html.lastIndexOf('相同'),html.lastIndexOf('<p '),html.indexOf(separator)+2,html.lastIndexOf('&amp;')+2,html.lastIndexOf('😀'),html.lastIndexOf('data-x')];
+ offsets.forEach((offset,i)=>{const byte=Buffer.byteLength(html.slice(0,offset))+(i===4?1:0);html=html.replace(`filepos="${String(i).padStart(10,'0')}"`,`filepos="${String(byte).padStart(10,'0')}"`);});
+ const snapshot=await parseMobiLayout(makeMobiFixture({compression,text:html}));expect(snapshot.chapters).toHaveLength(2);expect(snapshot.links).toHaveLength(6);
+ expect(snapshot.links[0]).toMatchObject({reason:'exact-source',target:{chapterId:'1',htmlOffset:second.lastIndexOf('相同'),point:{kind:'text',path:[1,0],offset:6}}});
+ expect(textAtTarget(snapshot,snapshot.links[0].target)).toBe('相同');expect(textAtTarget(snapshot,snapshot.links[1].target)).toBe('前😀 & 相同');
+ expect(snapshot.links.slice(2).map(link=>({reason:link.reason,target:link.target}))).toEqual(Array.from({length:4},()=>({reason:'unresolved',target:null})));
+});
+it('KF8真实worker按照fid/off字节落到实体解码后的正文，拒绝半字符与半实体',async()=>{
+ const text='<p>前😀 &amp; 相同</p><p>前😀 &amp; 相同</p>';
+ let fragment=text+['元素','重复正文','半实体','半字节','越界'].map((name,i)=>`<a href="kindle:pos:fid:0000:off:${String(i).padStart(8,'0')}">${name}</a>`).join('');
+ const offsets=[0,Buffer.byteLength(text.slice(0,text.lastIndexOf('相同'))),Buffer.byteLength(text.slice(0,text.lastIndexOf('&amp;')+2)),Buffer.byteLength(text.slice(0,text.lastIndexOf('😀')))+1,Buffer.byteLength(fragment)+1];
+ offsets.forEach((offset,i)=>{fragment=fragment.replace(`off:${String(i).padStart(8,'0')}`,`off:${offset.toString(32).padStart(8,'0')}`);});
+ const snapshot=await parseMobiLayout(makeKf8Fixture({fragment}));expect(snapshot.links).toHaveLength(5);
+ expect(snapshot.links[0].reason).toBe('exact-source');expect(textAtTarget(snapshot,snapshot.links[0].target)).toBe('前😀 & 相同');
+ expect(snapshot.links[1]).toMatchObject({reason:'exact-source',target:{point:{kind:'text',path:[1,0],offset:6}}});expect(textAtTarget(snapshot,snapshot.links[1].target)).toBe('相同');
+ expect(snapshot.links.slice(2).every(link=>link.reason==='unresolved'&&link.target===null)).toBe(true);
 });

@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { mobiHtmlBlocks } from './mobi-html.mjs';
 import { captureMobiResources } from './mobi-layout-resources.mjs';
+import { buildMobiSourceIndex } from './mobi-source-map.mjs';
 import { indexMobiLayout } from './mobi-layout-html.mjs';
 /** @typedef {import('./mobi-layout-snapshot').MobiLayoutSnapshot} Snapshot */
 /** @param {import('../../vendor/mobi/index.mjs').MobiCandidate} parser @param {{bytes:Uint8Array,kind:'mobi'|'kf8',resourceDir:string}} input @returns {Promise<Snapshot>} */
@@ -25,13 +26,9 @@ export async function buildMobiLayout(parser, input) {
   const resourceId = (/** @type {string} */ value) => captured.resources.some(resource=>resource.id===value) ? value : captured.idFor(value);
   const chapters = rawChapters.map(chapter=>({...chapter,html:captured.rewrite(chapter.html),head:captured.rewrite(chapter.head),css:chapter.css.map(href=>resourceId(href))}));
   const indices = new Map(chapters.map(chapter=>[chapter.id,indexMobiLayout(chapter.html)]));
-  /** @param {string} href @returns {import('./mobi-layout-snapshot').MobiLayoutTarget|null} */
-  const target = href => {
-    // WHY：只把严格的本格式locator交给候选；外链、非法数字及相对网页链接绝不进入解析器宽松匹配。
-    if (!(input.kind === 'mobi' ? /^filepos:\d+$/u : /^kindle:pos:fid:[0-9A-V]+:off:[0-9A-V]+$/iu).test(href)) return null;
-    const resolved = parser.resolveHref(href); if (!resolved) return null;
-    const anchor = indices.get(resolved.id)?.resolve(resolved.selector); return anchor ? {chapterId:resolved.id,...anchor} : null;
-  };
+  const sources=chapters.map(chapter=>{const source=parser.getSourceChapter(chapter.id);if(!source)throw new Error('MOBI原始章节来源缺失');return source;});
+  const sourceIndex=buildMobiSourceIndex(input.kind,sources,chapters);
+  const target=sourceIndex.resolve;
   /** @type {Snapshot['toc']} */ const toc = [];
   const stack = parser.getToc().map(item=>({item,depth:0})).reverse();
   while (stack.length) {
@@ -47,7 +44,7 @@ export async function buildMobiLayout(parser, input) {
     if (links.length >= 20000 || href.length > 4096) throw new Error('MOBI布局链接超限');
     const resolved = target(href);
     const external = /^(?!filepos:|kindle:)[a-z][\w+.-]*:/iu.test(href) || href.startsWith('//');
-    links.push({chapterId:chapter.id,href,target:resolved,reason:resolved?'verified-element':external?'external':'unresolved'});
+    links.push({chapterId:chapter.id,href,target:resolved,reason:resolved?'exact-source':external?'external':'unresolved'});
   }
-  return {schema:'mobi-layout-untrusted-v1',kind:input.kind,sourceHash:createHash('sha256').update(input.bytes).digest('hex'),title:metadata.title??'',authors:metadata.author,cover:coverPath?resourceId(coverPath):null,chapters,resources:captured.resources,toc,links};
+  return {schema:'mobi-layout-untrusted-v2',kind:input.kind,sourceHash:createHash('sha256').update(input.bytes).digest('hex'),title:metadata.title??'',authors:metadata.author,cover:coverPath?resourceId(coverPath):null,chapters,resources:captured.resources,toc,links};
 }

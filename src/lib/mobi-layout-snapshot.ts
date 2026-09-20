@@ -1,9 +1,11 @@
+import {parseMobiSourceLocator} from "./mobi-source-bytes.mjs";
 /** 尚未净化的包内布局快照：不得直接插入DOM、建立blob或作为可执行资源公开。 */
 export type MobiLayoutResource = { id: string; mediaType: string; bytes: Uint8Array };
-export type MobiLayoutTarget = { chapterId: string; attribute: "id" | "name" | "aid"; value: string };
-export type MobiLayoutLink = { chapterId: string; href: string; target: MobiLayoutTarget | null; reason: "verified-element" | "external" | "unresolved" };
+export type MobiLayoutPoint = {kind:'element';path:number[];tag:string;offset:0}|{kind:'text';path:number[];offset:number;textLength:number;textHash:string};
+export type MobiLayoutTarget = {chapterId:string;locator:string;byteOffset:number;htmlOffset:number;point:MobiLayoutPoint};
+export type MobiLayoutLink = { chapterId: string; href: string; target: MobiLayoutTarget | null; reason: "exact-source" | "external" | "unresolved" };
 export type MobiLayoutSnapshot = {
-  schema: "mobi-layout-untrusted-v1"; kind: "mobi" | "kf8"; sourceHash: string;
+  schema: "mobi-layout-untrusted-v2"; kind: "mobi" | "kf8"; sourceHash: string;
   title: string; authors: string[]; cover: string | null;
   chapters: { id: string; title: string; html: string; head: string; css: string[]; paragraphs: string[] }[];
   resources: MobiLayoutResource[];
@@ -20,7 +22,7 @@ function record(value: unknown, fields: readonly string[]): Record<string, unkno
 /** WHY：IPC数据并非可信HTML；父进程逐字段复核归属与预算，不把解析成功升级成安全渲染证明。 */
 export function readMobiLayoutSnapshot(value: unknown): MobiLayoutSnapshot {
   const input = record(value, ["schema", "kind", "sourceHash", "title", "authors", "cover", "chapters", "resources", "toc", "links"]);
-  if (input.schema !== "mobi-layout-untrusted-v1" || (input.kind !== "mobi" && input.kind !== "kf8") || typeof input.sourceHash !== "string" || input.sourceHash.length !== 64 || !/^[0-9a-f]{64}$/u.test(input.sourceHash)) fail();
+  if (input.schema !== "mobi-layout-untrusted-v2" || (input.kind !== "mobi" && input.kind !== "kf8") || typeof input.sourceHash !== "string" || input.sourceHash.length !== 64 || !/^[0-9a-f]{64}$/u.test(input.sourceHash)) fail();
   let chars = 0, paragraphs = 0, resourceBytes = 0;
   const string = (text: unknown, limit = 4096): string => { if (typeof text !== "string" || text.length > limit) fail(); chars += text.length; if (chars > 40_000_000) fail(); return text; };
   const array = (items: unknown, max: number): unknown[] => { if (!Array.isArray(items) || items.length > max || Object.keys(items).length !== items.length || Object.keys(items).some((key,index)=>key !== String(index))) fail(); return items; };
@@ -47,21 +49,30 @@ export function readMobiLayoutSnapshot(value: unknown): MobiLayoutSnapshot {
     return { id, title: string(c.title), html: string(c.html, 20_000_000), head: string(c.head, 20_000_000), css, paragraphs: texts };
   });
   if (!chapters.length) fail();
-  const target = (value: unknown): MobiLayoutTarget | null => {
-    if (value === null) return null;
-    const t = record(value, ["chapterId", "attribute", "value"]);
-    if (typeof t.chapterId !== "string" || !ids.has(t.chapterId) || !["id", "name", "aid"].includes(String(t.attribute))) fail();
-    const text = string(t.value); if (!text) fail();
-    return { chapterId: t.chapterId, attribute: t.attribute as MobiLayoutTarget["attribute"], value: text };
+  const target = (value: unknown, href:string): MobiLayoutTarget | null => {
+    if(value===null)return null;
+    const t=record(value,['chapterId','locator','byteOffset','htmlOffset','point']);
+    if(typeof t.chapterId!=='string'||!ids.has(t.chapterId)||typeof t.locator!=='string'||t.locator.length>256
+      ||!Number.isSafeInteger(t.byteOffset)||Number(t.byteOffset)<0||Number(t.byteOffset)>20_000_000
+      ||!Number.isSafeInteger(t.htmlOffset)||Number(t.htmlOffset)<0||Number(t.htmlOffset)>20_000_000)fail();
+    if(t.locator!==href||parseMobiSourceLocator(t.locator)?.kind!==input.kind)fail();
+    if(!object(t.point))fail();
+    const p=record(t.point,t.point.kind==='element'?['kind','path','tag','offset']:['kind','path','offset','textLength','textHash']);
+    const path=array(p.path,128).map(value=>{if(typeof value!=='number'||!Number.isSafeInteger(value)||value<0||value>400000)fail();return value;});
+    if(!path.length)fail();
+    let point:MobiLayoutPoint;
+    if(p.kind==='element'){if(typeof p.tag!=='string'||!/^[a-z][a-z0-9:-]*$/u.test(p.tag)||p.tag.length>128||p.offset!==0)fail();point={kind:'element',path,tag:p.tag,offset:0};}
+    else{if(p.kind!=='text'||typeof p.offset!=='number'||!Number.isSafeInteger(p.offset)||p.offset<0||typeof p.textLength!=='number'||!Number.isSafeInteger(p.textLength)||p.textLength>20_000_000||p.textLength<p.offset||typeof p.textHash!=='string'||p.textHash.length!==64||!/^[0-9a-f]{64}$/u.test(p.textHash))fail();point={kind:'text',path,offset:p.offset,textLength:p.textLength,textHash:p.textHash};}
+    return {chapterId:t.chapterId,locator:t.locator,byteOffset:Number(t.byteOffset),htmlOffset:Number(t.htmlOffset),point};
   };
   const toc = array(input.toc, 10_000).map(item => { const t = record(item, ["label", "href", "target", "depth"]);
     if (typeof t.depth !== "number" || !Number.isSafeInteger(t.depth) || t.depth < 0 || t.depth > 128) fail();
-    return { label: string(t.label), href: string(t.href), target: target(t.target), depth: t.depth };
+    return { label: string(t.label), href: string(t.href), target: target(t.target, String(t.href)), depth: t.depth };
   });
   const links = array(input.links, 20_000).map<MobiLayoutLink>(item => {
     const l = record(item, ["chapterId", "href", "target", "reason"]);
-    if (typeof l.chapterId !== "string" || !ids.has(l.chapterId) || (l.reason !== "verified-element" && l.reason !== "external" && l.reason !== "unresolved")) fail();
-    const dest = target(l.target); if ((l.reason === "verified-element") !== (dest !== null)) fail();
+    if (typeof l.chapterId !== "string" || !ids.has(l.chapterId) || (l.reason !== "exact-source" && l.reason !== "external" && l.reason !== "unresolved")) fail();
+    const dest = target(l.target,String(l.href)); if ((l.reason === "exact-source") !== (dest !== null)) fail();
     return { chapterId: l.chapterId, href: string(l.href), target: dest, reason: l.reason };
   });
   return { schema: input.schema, kind: input.kind, sourceHash: input.sourceHash, title, authors, cover, chapters, resources, toc, links };

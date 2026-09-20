@@ -6,6 +6,7 @@ export type MobiCandidate = {
   getMetadata(): Metadata;
   getCoverImage(): string;
   getSpine(): SpineChapter[];
+  getSourceChapter(id: string): import("../../src/lib/mobi-source-bytes.mjs").MobiSourceChapter | undefined;
   getToc(): TocItem[];
   loadChapter(id: string): { html: string; head: string; css: { id: string; href: string }[] } | undefined;
   resolveHref(href: string): { id: string; selector: string } | undefined;

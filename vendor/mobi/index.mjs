@@ -1,4 +1,5 @@
 // Vendored from @lingo-reader/mobi-parser@0.4.6 (MIT); see LICENSE and PROVENANCE.json.
+import { reconstructKf8Source } from "../../src/lib/mobi-source-bytes.mjs";
 import { rewriteMobiResourceMarkup, rewriteMobiResourceCss } from "../../src/lib/mobi-layout-rewrite.mjs";
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlink } from 'node:fs';
 import path, { resolve } from 'node:path';
@@ -1034,31 +1035,22 @@ class Kf8 {
     const rawTailStart = this.fullRawLength - this.rawTail.length;
     return this.rawTail.slice(start - rawTailStart, end - rawTailStart);
   }
-  loadText(chapter) {
+  getSourceChapter(id) {
+    const chapter = this.chapters.find(item => item.id === id);
+    if (!chapter) return undefined;
     const { skel, frags, length } = chapter;
     const raw = this.loadRaw(skel.offset, skel.offset + length);
-    let skeleton = raw.slice(0, skel.length);
-    for (const frag of frags) {
-      const insertOffset = frag.insertOffset - skel.offset;
-      const offset = skel.length + frag.offset;
-      const fragRaw = raw.slice(offset, offset + frag.length);
-      skeleton = concatTypedArrays([
-        skeleton.slice(0, insertOffset),
-        fragRaw,
-        skeleton.slice(insertOffset)
-      ]);
-      const offsets = this.fragmentOffsets.get(frag.index);
-      if (offsets) {
-        for (const offset2 of offsets) {
-          const str = this.mobiFile.decode(fragRaw.buffer).slice(offset2);
-          const selector = getFragmentSelector(str);
-          if (selector) {
-            this.cacheFragmentSelector(frag.index, offset2, selector);
-          }
-        }
-      }
-    }
-    return this.mobiFile.decode(skeleton.buffer);
+    if (skel.length > raw.length) throw new Error("KF8 skeleton source exceeds raw bytes");
+    const fragments = frags.map(frag => {
+      const from = skel.length + frag.offset, to = from + frag.length;
+      if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < skel.length || to < from || to > raw.length) throw new Error("KF8 fragment source exceeds raw bytes");
+      return { fid: frag.index, insertOffset: frag.insertOffset - skel.offset, bytes: raw.slice(from, to) };
+    });
+    const rebuilt = reconstructKf8Source(raw.slice(0, skel.length), fragments);
+    return { id, encoding: this.mobiFile.mobiHeader.encoding, ...rebuilt };
+  }
+  loadText(chapter) {
+    return this.mobiFile.decode(this.getSourceChapter(chapter.id).bytes.buffer);
   }
   loadChapter(id) {
     const numId = Number.parseInt(id);
@@ -1211,6 +1203,11 @@ class Mobi {
       fileName: this.fileName
     };
   }
+  getSourceChapter(id) {
+    const chapter = this.chapters.find(item => item.id === id);
+    if (!chapter) return undefined;
+    return { id, encoding: this.mobiFile.mobiHeader.encoding, bytes: chapter.sourceBytes.slice(), fileStart: chapter.fileStart };
+  }
   getSpine() {
     return this.chapters;
   }
@@ -1281,7 +1278,9 @@ class Mobi {
         text,
         start,
         end,
-        size: buffer.length
+        size: buffer.length,
+        sourceBytes: buffer,
+        fileStart: start + matched.length
       };
       chapters.push(chapter);
       idToChapter.set(id, chapter);

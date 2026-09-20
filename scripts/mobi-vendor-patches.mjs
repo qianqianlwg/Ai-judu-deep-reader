@@ -74,5 +74,38 @@ export function applyMobiPatches(input) {
   source = once(source, 'const textReplaced = this.replaceResources(text);', 'const textReplaced = type === MIME.CSS ? rewriteMobiResourceCss(text, value => this.replaceResources(value)) : rewriteMobiResourceMarkup(text, value => this.replaceResources(value));');
   source = once(source, 'const bodyReplaced = this.replaceResources(body);', 'const bodyReplaced = rewriteMobiResourceMarkup(body, value => this.replaceResources(value));');
   source = once(source, 'head: this.replaceResources(head),', 'head: rewriteMobiResourceMarkup(head, value => this.replaceResources(value)),');
+  // WHY：额外公开只读原始章节字节与片段来源，用于精确定位；不依赖猜测下一个id的resolveHref。
+  source = 'import { reconstructKf8Source } from "../../src/lib/mobi-source-bytes.mjs";\n' + source;
+  source = once(source, '        size: buffer.length', '        size: buffer.length,\n        sourceBytes: buffer,\n        fileStart: start + matched.length');
+  const mobiClass = source.indexOf('class Mobi {');
+  const methodAt = source.indexOf('  getSpine() {', mobiClass);
+  if (methodAt < 0) throw new Error("MOBI source method anchor drift");
+  source = source.slice(0, methodAt) + `  getSourceChapter(id) {
+    const chapter = this.chapters.find(item => item.id === id);
+    if (!chapter) return undefined;
+    return { id, encoding: this.mobiFile.mobiHeader.encoding, bytes: chapter.sourceBytes.slice(), fileStart: chapter.fileStart };
+  }
+` + source.slice(methodAt);
+  const loadStart = source.indexOf('  loadText(chapter) {');
+  const loadEnd = source.indexOf('  loadChapter(id) {', loadStart);
+  if (loadStart < 0 || loadEnd < 0) throw new Error("KF8 source method anchor drift");
+  source = source.slice(0, loadStart) + `  getSourceChapter(id) {
+    const chapter = this.chapters.find(item => item.id === id);
+    if (!chapter) return undefined;
+    const { skel, frags, length } = chapter;
+    const raw = this.loadRaw(skel.offset, skel.offset + length);
+    if (skel.length > raw.length) throw new Error("KF8 skeleton source exceeds raw bytes");
+    const fragments = frags.map(frag => {
+      const from = skel.length + frag.offset, to = from + frag.length;
+      if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < skel.length || to < from || to > raw.length) throw new Error("KF8 fragment source exceeds raw bytes");
+      return { fid: frag.index, insertOffset: frag.insertOffset - skel.offset, bytes: raw.slice(from, to) };
+    });
+    const rebuilt = reconstructKf8Source(raw.slice(0, skel.length), fragments);
+    return { id, encoding: this.mobiFile.mobiHeader.encoding, ...rebuilt };
+  }
+  loadText(chapter) {
+    return this.mobiFile.decode(this.getSourceChapter(chapter.id).bytes.buffer);
+  }
+` + source.slice(loadEnd);
   return source;
 }
