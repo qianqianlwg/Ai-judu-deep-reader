@@ -5,10 +5,10 @@ import type { SupportedDocumentExtension } from "./document-adapter";
 
 export type StoredOriginalExtension = SupportedDocumentExtension | ".umd";
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const ORIGINAL_PATH = /^originals[\\/]([A-Za-z0-9][A-Za-z0-9_-]{0,127})(\.(?:epub|pdf|txt|md|fb2|fbz|cbz|umd))$/u;
+const ORIGINAL_PATH = /^originals[\\/]([A-Za-z0-9][A-Za-z0-9_-]{0,127})(\.(?:epub|pdf|mobi|txt|md|fb2|fbz|cbz|umd))$/u;
 const DERIVED_PATH = /^derived[\\/]([A-Za-z0-9][A-Za-z0-9_-]{0,127})\.epub$/u;
 const RESERVED_ID = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu;
-const EXTENSIONS = new Set([".epub", ".pdf", ".txt", ".md", ".fb2", ".fbz", ".cbz", ".umd"]);
+const EXTENSIONS = new Set([".epub", ".pdf", ".mobi", ".txt", ".md", ".fb2", ".fbz", ".cbz", ".umd"]);
 export class OriginalFileError extends Error {
   constructor(readonly code: "UNSAFE_PATH" | "MISSING_FILE" | "CORRUPT_FILE", message: string) {
     super(message); this.name = "OriginalFileError";

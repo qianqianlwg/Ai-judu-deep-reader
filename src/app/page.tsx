@@ -459,7 +459,7 @@ export default function Home() {
   return <main className={`app-shell workspace-shell theme-${theme}`} style={getReadingAppearanceVariables(readingAppearance) as CSSProperties}>
     <header className="workspace-mobilebar"><button type="button" aria-label="打开导航" aria-expanded={mobileTocOpen} onClick={() => setMobileTocOpen(value => !value)}>☰</button><strong>句读</strong><button type="button" aria-label={mobileAnalysisOpen ? "收起对话" : "打开对话"} aria-expanded={mobileAnalysisOpen} onClick={() => setMobileAnalysisOpen(value => !value)}>对话</button></header>
     {notice && <div className="upload-toast" role="status"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={() => setNotice("")}>×</button></div>}
-    <input ref={importRef} id="book-file" hidden type="file" accept=".epub,.pdf,.fb2,.fbz,.fb2.zip,.cbz,.txt,.md" onChange={event => { void importBook(event); }} />
+    <input ref={importRef} id="book-file" hidden type="file" accept=".mobi,.epub,.pdf,.fb2,.fbz,.fb2.zip,.cbz,.txt,.md" onChange={event => { void importBook(event); }} />
     <section className="reader-layout" ref={layoutRef} style={{"--chat-panel-width":`${chatWidth}px`} as CSSProperties}>
       <WorkspaceNav view={workspaceView} onNavigate={navigateWorkspace} books={shelfBooks} currentBookId={book.id} currentEditionId={book.editionId} chapters={book.chapters} currentChapterId={imageChapters.chapter?.id??currentPage?.chapterId}
         busy={loading || conversationLoading || importing} importing={importing} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onOpenChapter={openChapter} onImport={requestImport} mobileOpen={mobileTocOpen} onDismiss={() => setMobileTocOpen(false)}>

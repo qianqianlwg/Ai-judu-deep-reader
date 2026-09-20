@@ -81,5 +81,5 @@ export async function buildMobiWorker(options = {}) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { manifest } = await buildMobiWorker();
-  console.log(`MOBI私有运行时已构建（${manifest.packages.length}份许可）；导入入口仍未开放`);
+  console.log(`MOBI私有运行时已构建（${manifest.packages.length}份许可）；MOBI文本导入已开放，原版布局导入仍在验收`);
 }

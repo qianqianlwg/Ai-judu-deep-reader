@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import { parseEpubFile, splitParagraphs } from "./epub-parser";
 import {pdfPageText,PDF_PAGE_PREFIX,MAX_PDF_PAGES,MAX_PDF_INDEX_CHARACTERS} from "./pdf-text";
-export type SupportedDocumentExtension = ".epub" | ".pdf" | ".txt" | ".md" | ".fb2" | ".fbz" | ".cbz";
+import { parseMobiFile } from "./mobi-parser";
+export type SupportedDocumentExtension = ".epub" | ".pdf" | ".mobi" | ".txt" | ".md" | ".fb2" | ".fbz" | ".cbz";
 export type DocumentChapter = { title: string; paragraphs: string[]; sourceHref?: string };
 export type ExtractedDocument = { title: string; author: string; chapters: DocumentChapter[] };
 export type DocumentInput = { fileName: string; extension: SupportedDocumentExtension; buffer: Buffer; tempPath: string };
@@ -53,6 +54,22 @@ class PdfDocumentAdapter implements DocumentAdapter {
     return { title: input.fileName.replace(/\.[^.]+$/, ""), author: "未知作者", chapters: await extractPdfText(input.buffer) };
   }
 }
+class MobiDocumentAdapter implements DocumentAdapter {
+  readonly extension = ".mobi" as const;
+  async extract(input: DocumentInput): Promise<ExtractedDocument> {
+    // WHY：MOBI 当前只公开经过独立 worker 校验的文本索引；未净化的布局快照不能直接进入浏览器原版通道。
+    const book = await parseMobiFile(input.buffer, input.fileName);
+    return {
+      title: book.title,
+      author: book.author,
+      chapters: book.chapters.map(chapter => ({
+        title: chapter.title,
+        sourceHref: chapter.sourceHref,
+        paragraphs: chapter.paragraphs,
+      })),
+    };
+  }
+}
 class Fb2DocumentAdapter implements DocumentAdapter {
  constructor(readonly extension:'.fb2'|'.fbz'){}
  async extract(input:DocumentInput):Promise<ExtractedDocument>{
@@ -75,9 +92,10 @@ export function documentAdapterFor(extension: string): DocumentAdapter | undefin
   if (extension === ".fb2" || extension === ".fbz") return new Fb2DocumentAdapter(extension);
   if (extension === ".epub") return new EpubDocumentAdapter();
   if (extension === ".pdf") return new PdfDocumentAdapter();
+  if (extension === ".mobi") return new MobiDocumentAdapter();
   if (extension === ".txt" || extension === ".md") return new PlainTextDocumentAdapter(extension);
   return undefined;
 }
 export function isSupportedDocumentExtension(value: string): value is SupportedDocumentExtension {
-  return [".epub", ".pdf", ".txt", ".md", ".fb2", ".fbz", ".cbz"].includes(value);
+  return [".epub", ".pdf", ".mobi", ".txt", ".md", ".fb2", ".fbz", ".cbz"].includes(value);
 }

@@ -20,6 +20,7 @@ import { GET as book } from "../books/[bookId]/route";
 import { GET as library } from "../library/route";
 import { GET as books } from "../books/route";
 import { EPUB_HREF, makeEpub, makePdf } from "./fixtures";
+import { makeMobiFixture } from "@/lib/mobi-fixture";
 let directory: string;
 const request = (bytes: Buffer, name: string) => {
   const form = new FormData(); form.set("file", new File([new Uint8Array(bytes)], name));
@@ -46,6 +47,7 @@ describe("import and original retrieval integration", () => {
   it.each([
     ["book.txt", Buffer.from("第一段。\n\n第二段。"), ["第一段。", "第二段。"]],
     ["book.md", Buffer.from("# Heading\n\nMarkdown paragraph."), ["# Heading", "Markdown paragraph."]],
+    ["book.mobi", makeMobiFixture(), ["第一段。", "第二段😀。"]],
     ["book.epub", makeEpub(), ["First paragraph important .", "第二段， 保持原文。"]],
     ["book.pdf", makePdf(), ["First page text.", "Second page text."]],
   ] as const)("imports %s with unchanged paragraphs, raw bytes, metadata and restart persistence", async (name, bytes, paragraphs) => {

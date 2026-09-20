@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { documentAdapterFor, isSupportedDocumentExtension } from "./document-adapter";
+import { makeMobiFixture } from "./mobi-fixture";
 
 describe("document adapter", () => {
   it("keeps text extraction formats behind one boundary", () => {
@@ -7,10 +8,20 @@ describe("document adapter", () => {
     expect(isSupportedDocumentExtension(".pdf")).toBe(true);
     expect(isSupportedDocumentExtension(".txt")).toBe(true);
     expect(isSupportedDocumentExtension(".md")).toBe(true);
-    expect(isSupportedDocumentExtension(".mobi")).toBe(false);
+    expect(isSupportedDocumentExtension(".mobi")).toBe(true);
     expect(documentAdapterFor(".azw3")).toBeUndefined();
+    expect(documentAdapterFor(".mobi")?.extension).toBe(".mobi");
     expect(documentAdapterFor(".pdf")?.extension).toBe(".pdf");
   });
+
+  it("extracts MOBI through the bounded worker and preserves source chapters", async () => {
+    const adapter = documentAdapterFor(".mobi");
+    expect(adapter).toBeDefined();
+    const result = await adapter!.extract({ fileName: "测试.mobi", extension: ".mobi", buffer: makeMobiFixture(), tempPath: "" });
+    expect(result.title).toBe("本地测试标题");
+    expect(result.chapters.map(chapter => chapter.sourceHref)).toEqual(["mobi-v1/mobi/0", "mobi-v1/mobi/1"]);
+    expect(result.chapters.flatMap(chapter => chapter.paragraphs)).toEqual(["第一段。", "第二段😀。"]);
+  }, 20000);
 
   it("extracts plain text without requiring a reader renderer", async () => {
     const adapter = documentAdapterFor(".txt");

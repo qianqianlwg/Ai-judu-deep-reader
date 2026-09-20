@@ -7,7 +7,7 @@ import { runMobiWorker, type MobiWorkerOptions } from "./mobi-worker-client";
 export type ParsedMobiChapter = { title: string; paragraphs: string[]; sourceHref: string };
 export type ParsedMobi = { title: string; author: string; chapters: ParsedMobiChapter[]; kind: MobiContainerKind };
 
-/** 候选解析器评估入口，未挂接DocumentAdapter或上传API；不能据此宣称格式已交付。 */
+/** 受控 MOBI 文本提取入口；原版布局快照仍不直接暴露给浏览器。 */
 export async function parseMobiFile(buffer: Buffer, fileName: string, options: MobiWorkerOptions = {}): Promise<ParsedMobi> {
   // WHY：在首个await前复制并预检同一快照，调用方随后改原Buffer不能绕过DRM/记录校验。
   if (buffer.byteLength > 100 * 1024 * 1024) throw new Error("MOBI输入超过100 MiB上限");

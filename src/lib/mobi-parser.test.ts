@@ -4,7 +4,7 @@ import { parseMobiFile } from "./mobi-parser";
 import { makeMobiFixture } from "./mobi-fixture";
 import * as worker from "./mobi-worker-client";
 
-describe("候选MOBI解析：未宣称KF8通过", () => {
+describe("MOBI文本解析", () => {
   it.each([1, 2] as const)("MOBI6 compression=%s真实候选库提取中文和emoji", async compression => {
     const bytes = makeMobiFixture({ compression });
     expect(inspectMobiContainer(bytes)).toMatchObject({ kind: "mobi", version: 6 });

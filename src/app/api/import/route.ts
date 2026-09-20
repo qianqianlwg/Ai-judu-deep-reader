@@ -28,7 +28,7 @@ async function extractDocument(adapter: DocumentAdapter, fileName: string, buffe
     try { return await adapter.extract({ fileName, extension: adapter.extension, buffer, tempPath }); }
     catch (error: unknown) {
       console.error("书籍解析失败", error);
-      throw new ImportError(422, adapter.extension === ".cbz"&&error instanceof Error ? "CBZ解析失败："+error.message : adapter.extension === ".pdf" ? "PDF 解析失败，请确认这是文字型 PDF 且文件未损坏" : [".fb2",".fbz"].includes(adapter.extension)&&error instanceof Error ? "FB2/FBZ解析失败："+error.message : "书籍解析失败，请确认文件未损坏后重试");
+      throw new ImportError(422, adapter.extension === ".cbz"&&error instanceof Error ? "CBZ解析失败："+error.message : adapter.extension === ".mobi"&&error instanceof Error ? "MOBI解析失败："+error.message : adapter.extension === ".pdf" ? "PDF 解析失败，请确认这是文字型 PDF 且文件未损坏" : [".fb2",".fbz"].includes(adapter.extension)&&error instanceof Error ? "FB2/FBZ解析失败："+error.message : "书籍解析失败，请确认文件未损坏后重试");
     }
   } finally {
     if (directory) {
@@ -48,13 +48,13 @@ export async function POST(request: NextRequest) {
     try { form = await request.formData(); }
     catch (error: unknown) { console.warn("上传表单无法解析", error); throw new ImportError(400, "上传表单不完整或已损坏"); }
     const file = form.get("file");
-    if (form.getAll("file").length !== 1 || !(file instanceof File)) throw new ImportError(400, "请上传一个 EPUB、PDF、FB2/FBZ、CBZ、TXT 或 Markdown 文件");
+    if (form.getAll("file").length !== 1 || !(file instanceof File)) throw new ImportError(400, "请上传一个 MOBI、EPUB、PDF、FB2/FBZ、CBZ、TXT 或 Markdown 文件");
     if (!file.name.trim() || /[\\/\u0000-\u001f\u007f]/u.test(file.name) || file.name.length > 255) throw new ImportError(400, "上传文件名不合法");
     const adapter = documentAdapterFor(file.name.toLowerCase().endsWith(".fb2.zip")?".fbz":path.extname(file.name).toLowerCase());
-    // WHY：候选解析器尚未通过格式/资源/来源验收，不能把研发中的扩展名当作已交付能力。
-    if (!adapter && [".mobi", ".azw", ".azw3"].includes(path.extname(file.name).toLowerCase())) throw new ImportError(415, "MOBI/AZW/AZW3 正在验收，尚未开放导入；请使用无 DRM 的 EPUB 或已支持格式。");
+    // WHY：AZW/AZW3 仍未完成公开资源/来源验收；MOBI 已通过独立文本 worker 接入统一导入契约。
+    if (!adapter && [".azw", ".azw3"].includes(path.extname(file.name).toLowerCase())) throw new ImportError(415, "AZW/AZW3 正在验收，尚未开放导入；请使用无 DRM 的 MOBI、EPUB 或已支持格式。");
     if (!adapter && path.extname(file.name).toLowerCase() === ".umd") throw new ImportError(415, "UMD 转换正在验收，尚未开放导入；请先使用 EPUB 或已支持格式。");
-    if (!adapter) throw new ImportError(415, "当前支持 EPUB、PDF、FB2/FBZ、CBZ、TXT 和 Markdown");
+    if (!adapter) throw new ImportError(415, "当前支持 MOBI、EPUB、PDF、FB2/FBZ、CBZ、TXT 和 Markdown");
     if (!file.size) throw new ImportError(422, "文件为空，未导入任何内容");
     if (file.size > MAX_UPLOAD_BYTES) throw new ImportError(413, "文件过大，最大支持 100 MiB");
     let buffer: Buffer;
