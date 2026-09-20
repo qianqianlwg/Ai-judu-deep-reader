@@ -15,6 +15,8 @@ const FRAGMENT = /^#[A-Za-z0-9._:%~-]+$/u;
 const SAFE_NAMESPACES = /** @type {Set<string>} */ (new Set([HTML, SVG, MATH, XML, XLINK, EPUB, XMLNS]));
 const RESOURCE_ATTRIBUTES = new Set(['href', 'src', 'poster']);
 const DANGEROUS_ELEMENTS = new Set(['script', 'iframe', 'object', 'embed', 'form']);
+// WHY：MOBI6常用font包裹实际正文；它是惰性格式元素，删除整棵子树会丢字。属性仍走同一严格净化。
+const MOBI_LEGACY_ELEMENTS = new Set(['font']);
 
 /** @typedef {'image'|'style'|'media'|'css'|'navigation'} MobiResourceRole */
 /** @typedef {(value: string, role: MobiResourceRole) => string|null|Promise<string|null>} MobiResourceResolver */
@@ -282,7 +284,7 @@ async function sanitizeTree(root, resolve, validate) {
     }
     const tag = tagName(node);
     const namespace = node.namespaceURI ?? '';
-    if (!SAFE_NAMESPACES.has(namespace) || !isAllowedDocumentElement(namespace, tag)) {
+    if (!SAFE_NAMESPACES.has(namespace) || !(isAllowedDocumentElement(namespace, tag) || (namespace === HTML && MOBI_LEGACY_ELEMENTS.has(tag)))) {
       countCharacters(budget, tag.length);
       for (const attribute of node.attrs) countCharacters(budget, attribute.name.length + attribute.value.length);
       detach(node);

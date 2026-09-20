@@ -7,10 +7,13 @@ import { EpubReader, appearanceCss, type EpubReaderProps } from "./epub-reader";
 import { DEFAULT_READING_APPEARANCE } from "@/lib/reading-appearance";
 import type { FoliateBook, FoliateView } from "@/lib/foliate-types";
 import { originalPositionKey, convertedPositionKey } from "@/lib/epub-position";
+import { capReadingSelection, selectionFromParts, selectionParts } from "@/lib/reader-selection";
 const loader=vi.hoisted(()=>({loadEpub:vi.fn(),createFoliateView:vi.fn()}));
 vi.mock("@/lib/epub-loader",()=>loader);
 const fb2loader=vi.hoisted(()=>({loadFb2:vi.fn()}));
 vi.mock("@/lib/fb2-loader",()=>fb2loader);
+const mobiloader=vi.hoisted(()=>({loadMobiPublication:vi.fn()}));
+vi.mock("@/lib/mobi-loader",()=>mobiloader);
 let root:Root,host:HTMLDivElement,frame:HTMLIFrameElement,doc:Document,view:FoliateView,original:FoliateBook,props:EpubReaderProps;
 async function render(next:Partial<EpubReaderProps>={}){props={...props,...next};await act(async()=>{root.render(<EpubReader {...props}/>);});}
 beforeEach(()=>{
@@ -34,7 +37,7 @@ beforeEach(()=>{
  }),next:vi.fn(),prev:vi.fn(),close:vi.fn(),getCFI:()=>"epubcfi(/6/2!/4)",resolveCFI:()=>({index:0}),lastLocation:{cfi:"epubcfi(/6/2!/4)"}});
  view=raw as unknown as FoliateView;
  original={sections:[{id:"OEBPS/ch.xhtml",createDocument:async()=>doc,load:async()=>null,unload:()=>{}}],destroy:vi.fn(),toc:[{label:"第一章",href:"OEBPS/ch.xhtml"}],resolveHref:()=>({index:0,anchor:doc=>doc.body})};
- loader.loadEpub.mockResolvedValue(original);loader.createFoliateView.mockResolvedValue(view);fb2loader.loadFb2.mockResolvedValue(original);
+ loader.loadEpub.mockResolvedValue(original);loader.createFoliateView.mockResolvedValue(view);fb2loader.loadFb2.mockResolvedValue(original);mobiloader.loadMobiPublication.mockResolvedValue({book:original,warnings:[]});
  props={book:{id:"b",title:"书",author:"作者",editionId:"e",edition:{id:"e",fileName:"书.epub",fileType:"epub",createdAt:"now",hasOriginalFile:true,originalHash:"a".repeat(64)},chapters:[{id:"c",title:"第一章",sourceHref:"OEBPS/ch.xhtml",paragraphs:[{id:"p",text:"世界😀原版文字"},{id:"p2",text:"第二段"}]}]},anchor:null,appearance:DEFAULT_READING_APPEARANCE,annotations:[],concepts:[],onSelect:vi.fn(),onPosition:vi.fn(),onNotice:vi.fn(),onFallback:vi.fn()};
 });
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();frame.remove();vi.restoreAllMocks();vi.unstubAllGlobals();vi.clearAllMocks();});
@@ -210,4 +213,150 @@ it("同版本派生hash改变会重开文件并关闭旧会话，不复用旧CFI
  await render({book:assembleUmd()});await settleConversion();const nextBytes=new TextEncoder().encode('new converted EPUB bytes').buffer;
  const next=assembleUmd(nextBytes);await render({book:next});await act(async()=>{await vi.waitFor(()=>expect(loader.loadEpub).toHaveBeenCalledTimes(2));});
  expect(fetch).toHaveBeenCalledTimes(2);expect(original.destroy).toHaveBeenCalledOnce();expect(view.close).toHaveBeenCalledOnce();
+});
+
+const mobiIdentity = `mobi-publication-v1:${"a".repeat(64)}:${"b".repeat(64)}`;
+function assembleMobi(): EpubReaderProps["book"] {
+ original.sections[0].id="mobi-v1/mobi/0";original.positionIdentity=mobiIdentity;
+ original.toc=[{label:"MOBI 第一章",href:original.sections[0].id}];
+ return {...props.book,editionId:"e-mobi",edition:{...props.book.edition!,id:"e-mobi",fileName:"书.mobi",fileType:".mobi"},
+  chapters:props.book.chapters.map(chapter=>({...chapter,sourceHref:original.sections[0].id}))};
+}
+function mockMobiSelection(range:Range) {
+ Object.defineProperty(range,"getBoundingClientRect",{value:()=>({left:10,top:60,width:30})});
+ vi.spyOn(doc.defaultView!,"getSelection").mockReturnValue({rangeCount:1,isCollapsed:false,getRangeAt:()=>range} as unknown as Selection);
+}
+it("MOBI加载各阶段标识正确，只将布局响应交给动态MOBI loader",async()=>{
+ const book=assembleMobi();book.id="书/一";book.editionId="版/一";book.edition!.id=book.editionId;
+ let finishFetch!:(response:Response)=>void,finishLoad!:(result:{book:FoliateBook;warnings:string[]})=>void;
+ vi.mocked(fetch).mockReturnValueOnce(new Promise<Response>(resolve=>{finishFetch=resolve;}));
+ mobiloader.loadMobiPublication.mockReturnValueOnce(new Promise<{book:FoliateBook;warnings:string[]}>(resolve=>{finishLoad=resolve;}));
+ await render({book});
+ expect(host.querySelector('[role="status"]')?.textContent).toBe("正在加载 MOBI 原版…");
+ expect(host.querySelector("section")?.getAttribute("aria-label")).toBe("MOBI 原版阅读器");
+ expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/books/%E4%B9%A6%2F%E4%B8%80/mobi-layout?editionId=%E7%89%88%2F%E4%B8%80",expect.objectContaining({cache:"no-store",signal:expect.any(AbortSignal)}));
+ expect(loader.loadEpub).not.toHaveBeenCalled();expect(mobiloader.loadMobiPublication).not.toHaveBeenCalled();
+ const response=new Response("{}",{headers:{"content-type":"application/json"}}),blob=vi.spyOn(response,"blob");
+ await act(async()=>finishFetch(response));
+ expect(host.querySelector('[role="status"]')?.textContent).toBe("正在校验并准备原版章节…");
+ expect(mobiloader.loadMobiPublication).toHaveBeenCalledExactlyOnceWith(response,book.edition!.originalHash);
+ expect(loader.loadEpub).not.toHaveBeenCalled();expect(blob).not.toHaveBeenCalled();
+ await act(async()=>finishLoad({book:original,warnings:[]}));
+ expect(view.open).toHaveBeenCalledWith(original);expect(view.getAttribute("aria-label")).toBe("MOBI 原版内容");
+ expect(host.querySelector('[role="status"]')).toBeNull();expect(host.textContent).toContain("MOBI 第一章");
+ expect(host.textContent).not.toContain("转换版");expect(host.textContent).not.toContain("EPUB");
+ expect(loader.loadEpub).not.toHaveBeenCalled();expect(fb2loader.loadFb2).not.toHaveBeenCalled();expect(fetch).toHaveBeenCalledOnce();
+});
+it("MOBI嵌套裸文本及后续标题走真实映射，跨段选区写入独立身份位置",async()=>{
+ const book=assembleMobi();doc.body.innerHTML='<h1>章名</h1><div>世界😀原版文字<h2>第二段</h2></div>';
+ const legacy="保留EPUB位置",converted="保留UMD位置";
+ localStorage.setItem(originalPositionKey("e-mobi"),legacy);localStorage.setItem(convertedPositionKey("e-mobi"),converted);
+ const before=doc.body.innerHTML,onClearSelection=vi.fn();await render({book,onClearSelection});
+ const range=doc.createRange();range.setStart(doc.querySelector("div")!.firstChild!,2);range.setEnd(doc.querySelector("h2")!.firstChild!,2);mockMobiSelection(range);
+ await act(async()=>{doc.dispatchEvent(new MouseEvent("mouseup"));doc.dispatchEvent(new KeyboardEvent("keyup"));});
+ expect(props.onSelect).toHaveBeenCalledExactlyOnceWith({version:2,paragraphId:"p",startOffset:2,endOffset:8,text:"😀原版文字\n\n第二",fragments:[
+  {paragraphId:"p",startOffset:2,endOffset:8,text:"😀原版文字"},{paragraphId:"p2",startOffset:0,endOffset:2,text:"第二"},
+ ]},expect.any(Object));
+ expect(JSON.parse(localStorage.getItem("judu:original-position:mobi:e-mobi")!)).toEqual({version:1,originalHash:mobiIdentity,cfi:"epubcfi(/6/2!/4)",anchor:{paragraphId:"p",offset:2}});
+ expect(localStorage.getItem(originalPositionKey("e-mobi"))).toBe(legacy);expect(localStorage.getItem(convertedPositionKey("e-mobi"))).toBe(converted);
+ expect(doc.body.innerHTML).toBe(before);
+ range.selectNodeContents(doc.body);await act(async()=>doc.dispatchEvent(new MouseEvent("mouseup")));
+ expect(onClearSelection).toHaveBeenCalledOnce();expect(props.onSelect).toHaveBeenCalledOnce();expect(props.onNotice).toHaveBeenCalledWith(expect.stringContaining("此次未提交"));
+ await render({anchor:{paragraphId:"p2",offset:1}});
+ const navigation=vi.mocked(view.renderer.goTo).mock.calls.at(-1)![0];expect(navigation.anchor(doc).toString()).toBe("二");
+ expect(fetch).toHaveBeenCalledOnce();expect(loader.loadEpub).not.toHaveBeenCalled();
+});
+it.each([false,true])("MOBI跨段沿用既有1000字cap并收紧真实选区，反向=%s",async reverse=>{
+ const book=assembleMobi(),texts=["😀".repeat(600),"乙".repeat(600)];
+ book.chapters[0].paragraphs=texts.map((text,index)=>({id:index?"p2":"p",text}));
+ doc.body.innerHTML=`<h1>章</h1><div>${texts[0]}<p>${texts[1]}</p></div>`;
+ Object.defineProperty(doc.createRange().constructor.prototype,"getBoundingClientRect",{configurable:true,value:()=>({left:10,top:60,width:30})});
+ await render({book});
+ const selection=doc.defaultView!.getSelection()!,first=doc.querySelector("div")!.firstChild!,last=doc.querySelector("p")!.firstChild!;
+ selection.setBaseAndExtent(reverse?last:first,reverse?600:0,reverse?first:last,reverse?0:600);
+ const expected=capReadingSelection(selectionFromParts(book.chapters[0].paragraphs.map(paragraph=>({paragraphId:paragraph.id,startOffset:0,endOffset:paragraph.text.length,text:paragraph.text}))),reverse);
+ // WHY：不mock映射或cap；原版事件必须修改实际Selection，不能仅截断交给上层的请求文本。
+ await act(async()=>doc.dispatchEvent(new MouseEvent("mouseup")));
+ expect(props.onSelect).toHaveBeenCalledExactlyOnceWith(expected,expect.any(Object));expect(Array.from(expected.text)).toHaveLength(1000);
+ expect(selection.toString()).toBe(selectionParts(expected).map(part=>part.text).join(""));
+ expect(props.onNotice).toHaveBeenCalledWith("最多选择 1000 字，选区已限制到上限。");expect(fetch).toHaveBeenCalledOnce();
+});
+it("MOBI loaded warnings明确通知但不触发失败回退",async()=>{
+ mobiloader.loadMobiPublication.mockResolvedValueOnce({book:original,warnings:["部分图片缺失。","一个引用不可定位。"]});
+ await render({book:assembleMobi()});
+ expect(props.onNotice).toHaveBeenCalledWith("部分图片缺失。 一个引用不可定位。");
+ expect(props.onFallback).not.toHaveBeenCalled();expect(host.querySelector('[role="alert"]')).toBeNull();expect(view.open).toHaveBeenCalledWith(original);
+});
+it.each(["match","old-layout","old-version","original-hash","epub-key","other-edition","umd-key"])("MOBI CFI仅恢复独立key和当前positionIdentity：%s",async kind=>{
+ const book=assembleMobi(),cfi="epubcfi(/6/2!/4/1:4)";
+ const identity=kind==="old-layout"?mobiIdentity.replace("b".repeat(64),"c".repeat(64)):kind==="old-version"?mobiIdentity.replace("v1:","v0:"):kind==="original-hash"?book.edition!.originalHash:mobiIdentity;
+ const key=kind==="epub-key"?originalPositionKey("e-mobi"):kind==="other-edition"?originalPositionKey("mobi:other"):kind==="umd-key"?convertedPositionKey("e-mobi"):originalPositionKey("mobi:e-mobi");
+ localStorage.setItem(key,JSON.stringify({version:1,originalHash:identity,cfi,anchor:null}));
+ const resolve=vi.spyOn(view,"resolveCFI");await render({book});
+ expect(view.init).toHaveBeenCalledExactlyOnceWith(kind==="match"?{lastLocation:cfi,showTextStart:true}:{showTextStart:true});
+ if(kind==="match")expect(resolve).toHaveBeenCalledExactlyOnceWith(cfi);else expect(resolve).not.toHaveBeenCalled();
+ expect(props.onPosition).not.toHaveBeenCalled();expect(loader.loadEpub).not.toHaveBeenCalled();
+});
+it("MOBI身份匹配但精读锚点改变时不恢复旧CFI",async()=>{
+ const book=assembleMobi(),cfi="epubcfi(/6/2!/4/1:4)";
+ localStorage.setItem(originalPositionKey("mobi:e-mobi"),JSON.stringify({version:1,originalHash:mobiIdentity,cfi,anchor:{paragraphId:"p",offset:0}}));
+ const resolve=vi.spyOn(view,"resolveCFI");await render({book,anchor:{paragraphId:"p2",offset:1}});
+ expect(resolve).not.toHaveBeenCalled();expect(view.init).toHaveBeenCalledWith({showTextStart:true});
+ expect(vi.mocked(view.renderer.goTo).mock.calls.at(-1)![0].anchor(doc).toString()).toBe("二");
+});
+it("MOBI同身份CFI已经失效时明确通知并回到精读锚点",async()=>{
+ const book=assembleMobi(),anchor={paragraphId:"p2",offset:1},cfi="epubcfi(/6/2!/4/1:4)";
+ localStorage.setItem(originalPositionKey("mobi:e-mobi"),JSON.stringify({version:1,originalHash:mobiIdentity,cfi,anchor}));
+ vi.spyOn(view,"resolveCFI").mockImplementation(()=>{throw new Error("过期CFI");});vi.spyOn(console,"warn").mockImplementation(()=>{});
+ await render({book,anchor});
+ expect(props.onNotice).toHaveBeenCalledWith("原版位置已失效，已回退到精读锚点。");expect(view.init).toHaveBeenCalledExactlyOnceWith({showTextStart:true});
+ expect(vi.mocked(view.renderer.goTo).mock.calls.at(-1)![0].anchor(doc).toString()).toBe("二");expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it("MOBI手势位置按真实章节UTF-16锚点保存，重流不覆盖位置",async()=>{
+ await render({book:assembleMobi()});const range=doc.createRange();range.setStart(doc.querySelector("p")!.firstChild!,4);range.setEnd(doc.querySelector("p")!.firstChild!,8);
+ await act(async()=>{view.renderer.dispatchEvent(new CustomEvent("relocate",{detail:{reason:"snap"}}));view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},range,cfi:"epubcfi(/6/2!/4:4)"}}));});
+ expect(props.onPosition).toHaveBeenCalledExactlyOnceWith({paragraphId:"p",offset:4});
+ const saved=localStorage.getItem(originalPositionKey("mobi:e-mobi"));expect(JSON.parse(saved!)).toMatchObject({originalHash:mobiIdentity,anchor:{paragraphId:"p",offset:4}});
+ range.selectNodeContents(doc.querySelectorAll("p")[1]);
+ await act(async()=>{view.renderer.dispatchEvent(new CustomEvent("relocate",{detail:{reason:"anchor"}}));view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},range,cfi:"epubcfi(/6/2!/4:0)"}}));});
+ expect(props.onPosition).toHaveBeenCalledOnce();expect(localStorage.getItem(originalPositionKey("mobi:e-mobi"))).toBe(saved);
+});
+it("MOBI后续标题复用真实paint及本地标注交互，不请求AI或改写正文",async()=>{
+ const registry=new Map<string,{ranges:Range[]}>();
+ class Highlight {ranges:Range[];constructor(...ranges:Range[]){this.ranges=ranges;}}
+ Object.defineProperties(doc.defaultView!,{CSS:{configurable:true,value:{highlights:registry}},Highlight:{configurable:true,value:Highlight}});
+ const book=assembleMobi();doc.body.innerHTML='<h1>章名</h1><p>世界😀原版文字</p><h2>第二段</h2>';
+ const before=doc.body.innerHTML,node=doc.querySelector("h2")!.firstChild,onOpenAnnotation=vi.fn();
+ await render({book,onOpenAnnotation,annotations:[{id:"mobi-note",paragraphId:"p2",startOffset:0,endOffset:2,textHash:"h",threadId:"manual-mark",summary:"MOBI本地笔记",concepts:[],createdAt:"now",kind:"note",markColor:"yellow"}]});
+ expect(registry.get("judu-yellow")?.ranges.map(range=>range.toString())).toEqual(["第二"]);
+ await act(async()=>doc.querySelector("h2")!.dispatchEvent(new MouseEvent("click",{bubbles:true,clientX:20,clientY:30})));
+ expect(document.body.textContent).toContain("MOBI本地笔记");expect(onOpenAnnotation).not.toHaveBeenCalled();
+ expect(doc.querySelector("h2")!.firstChild).toBe(node);expect(doc.body.innerHTML).toBe(before);expect(fetch).toHaveBeenCalledOnce();
+ await act(async()=>root.render(null));expect(registry.size).toBe(0);expect(original.destroy).toHaveBeenCalledOnce();
+});
+it.each(["http","loader"])("MOBI %s失败明确显示错误与回退按钮，不降级使用EPUB loader",async kind=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});const book=assembleMobi();
+ if(kind==="http")vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({error:"MOBI布局不存在"}),{status:404,headers:{"content-type":"application/json"}}));
+ else mobiloader.loadMobiPublication.mockRejectedValueOnce(new Error("MOBI布局校验失败"));
+ await render({book});expect(host.querySelector('[role="alert"]')?.textContent).toContain(kind==="http"?"MOBI布局不存在":"MOBI布局校验失败");
+ expect([...host.querySelectorAll("nav button")].every(button=>(button as HTMLButtonElement).disabled)).toBe(true);
+ expect(view.open).not.toHaveBeenCalled();expect(loader.createFoliateView).not.toHaveBeenCalled();expect(loader.loadEpub).not.toHaveBeenCalled();expect(fb2loader.loadFb2).not.toHaveBeenCalled();
+ if(kind==="http")expect(mobiloader.loadMobiPublication).not.toHaveBeenCalled();
+ const fallback=[...host.querySelectorAll("button")].find(button=>button.textContent==="切回精读")!;
+ expect([...host.querySelectorAll("button")].some(button=>button.textContent==="重试原版")).toBe(true);
+ await act(async()=>fallback.click());expect(props.onFallback).toHaveBeenCalledOnce();expect(fetch).toHaveBeenCalledOnce();
+});
+it("MOBI重试仍走布局API和MOBI loader，成功后清除错误",async()=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});mobiloader.loadMobiPublication.mockRejectedValueOnce(new Error("MOBI暂不可用"));
+ await render({book:assembleMobi()});expect(host.querySelector('[role="alert"]')).not.toBeNull();
+ const retry=[...host.querySelectorAll("button")].find(button=>button.textContent==="重试原版")!;await act(async()=>retry.click());
+ expect(host.querySelector('[role="alert"]')).toBeNull();expect(view.open).toHaveBeenCalledOnce();expect(mobiloader.loadMobiPublication).toHaveBeenCalledTimes(2);
+ expect(vi.mocked(fetch).mock.calls.map(call=>call[0])).toEqual(["/api/books/b/mobi-layout?editionId=e-mobi","/api/books/b/mobi-layout?editionId=e-mobi"]);expect(loader.loadEpub).not.toHaveBeenCalled();
+});
+it("MOBI延迟loaded在卸载后完成只释放资源，不发出过期warning或创建view",async()=>{
+ let finish!:(value:{book:FoliateBook;warnings:string[]})=>void;
+ mobiloader.loadMobiPublication.mockReturnValueOnce(new Promise<{book:FoliateBook;warnings:string[]}>(resolve=>{finish=resolve;}));
+ await render({book:assembleMobi()});expect(mobiloader.loadMobiPublication).toHaveBeenCalledOnce();await act(async()=>root.render(null));
+ const late={...original,destroy:vi.fn()};await act(async()=>finish({book:late,warnings:["过期提醒"]}));
+ expect(late.destroy).toHaveBeenCalledOnce();expect(props.onNotice).not.toHaveBeenCalledWith("过期提醒");expect(loader.createFoliateView).not.toHaveBeenCalled();expect(host.childNodes).toHaveLength(0);
 });

@@ -8,7 +8,7 @@ const Pdf=dynamic(()=>import('./pdf-reader').then(module=>module.PdfReader),{ssr
 /** WHY：组合根按原件真实格式装配渲染器；PDF.js不进入EPUB加载/校验路径。 */
 export function OriginalReader(props:CbzReaderProps){
  const kind=originalReaderKind(props.book);
- if(kind==='epub'||kind==='fb2'||kind==='umd')return <Epub {...props}/>;
+ if(kind==='epub'||kind==='fb2'||kind==='umd'||kind==='mobi')return <Epub {...props}/>;
  if(kind==='cbz')return <Cbz {...props}/>;
  if(kind==='pdf')return <Pdf {...props}/>;
  return <div role="alert">此版本没有可用原文件。<button onClick={props.onFallback}>切回精读</button></div>;

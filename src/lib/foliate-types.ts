@@ -20,6 +20,8 @@ export interface FoliateNavigation {
   anchor: (doc: Document) => Range | Element | number;
 }
 export interface FoliateBook {
+  /** Derived DOM identity binds CFI to the exact preparation version, not just the original container. */
+  positionIdentity?: string;
   sections: FoliateSection[];
   toc?: FoliateTocItem[];
   metadata?: { title?: string; language?: string; [key: string]: unknown };

@@ -144,6 +144,35 @@ async function validateImport(rule, source) {
 }
 
 /**
+ * WHY：固定净化器的序列化会把惰性字符串里的引号输出为\\"，再次净化不能误拒绝自己的输出。
+ * 仅content/quotes/font-family的直接String节点临时替换成惰性哨兵；URL、函数、标识符转义仍拒绝。
+ * @param {string} source @param {MobiCssResolver} resolve @param {boolean} inline
+ */
+async function sanitizeQuotedStrings(source,resolve,inline){
+  const ast=node(parse(source,{context:inline?'declarationList':'stylesheet',positions:true}));
+  /** @type {{start:number,end:number,key:string,value:string}[]} */const replacements=[];
+  let prefix='judu-safe-literal-';while(source.includes(prefix))prefix+='x';
+  visitNodes(ast,part=>{
+    if(part.type!=='Declaration'||typeof part.property!=='string'||!['content','quotes','font-family'].includes(part.property.toLowerCase())||!isNode(part.value))return;
+    for(const candidate of children(part.value)){
+      if(candidate.type!=='String'||typeof candidate.value!=='string')continue;
+      const raw=original(candidate,source);if(!raw.includes('\\'))continue;
+      // WHY：只接受被序列化器插入的引号转义，不接纳十六进制、换行、URL或标识符转义。
+      if(/\\(?!["'])/u.test(raw))throw new Error('MOBI CSS: escapes/control characters unsupported by pinned sanitizer');
+      const loc=candidate.loc;
+      if(!record(loc)||!record(loc.start)||!record(loc.end)||typeof loc.start.offset!=='number'||typeof loc.end.offset!=='number')throw new Error('MOBI CSS: invalid literal location');
+      replacements.push({start:loc.start.offset,end:loc.end.offset,key:prefix+replacements.length,value:candidate.value});
+    }
+  });
+  let masked=source;for(const replacement of [...replacements].sort((a,b)=>b.start-a.start))masked=masked.slice(0,replacement.start)+'"'+replacement.key+'"'+masked.slice(replacement.end);
+  if(masked.includes('\\')||!replacements.length)throw new Error('MOBI CSS: escapes/control characters unsupported by pinned sanitizer');
+  const safe=await sanitizeMobiCss(masked,resolve,inline),result=node(parse(safe,{context:inline?'declarationList':'stylesheet'}));
+  const values=new Map(replacements.map(r=>[r.key,r.value]));
+  visitNodes(result,part=>{if(part.type==='String'&&typeof part.value==='string'&&values.has(part.value))part.value=values.get(part.value);});
+  const output=print(result);if(output.length>MAX_OUTPUT)throw new Error('MOBI CSS: output exceeds 8 MiB characters');return output;
+}
+
+/**
  * 固定 Foliate CSS 净化器的包内 import 包装层，返回 CSS 字符串（不是资源安全证明）。
  * 非本地地址/null 被删除；非法位置、import Raw、未知条件或畸形 resolver 结果抛出具名错误。
  * 资源存在性、MIME/角色、递归/循环/深度及最终 token 运输由调用者的资源图负责。
@@ -157,10 +186,11 @@ export async function sanitizeMobiCss(source, resolve, inline = false) {
     throw new TypeError('MOBI CSS: invalid arguments');
   }
   if (source.length > MAX_INPUT) throw new Error('MOBI CSS: input exceeds 2 MiB characters');
-  // WHY：不放宽固定净化器的转义/控制字符边界，否则 import 包装层会成为它的旁路。
-  if (/[\\\u0000-\u0008\u000b\u000e-\u001f]/u.test(source)) {
+  // WHY：控制字符不接受；仅在AST确认属于惰性字面引号时恢复序列化的安全字符串。
+  if (/[\u0000-\u0008\u000b\u000e-\u001f]/u.test(source)) {
     throw new Error('MOBI CSS: escapes/control characters unsupported by pinned sanitizer');
   }
+  if(source.includes('\\'))return sanitizeQuotedStrings(source,resolve,inline);
   let ast;
   try { ast = node(parse(source, { context: inline ? 'declarationList' : 'stylesheet', positions: true })); }
   catch (cause) { throw new Error('MOBI CSS: parse failed', { cause }); }

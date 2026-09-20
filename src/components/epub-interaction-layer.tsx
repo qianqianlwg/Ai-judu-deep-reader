@@ -11,5 +11,5 @@ type Props={host:RefObject<HTMLDivElement|null>;documents:readonly EpubInteracti
 export function EpubInteractionLayer(props:Props){
  const documents=useMemo(()=>props.documents.map(item=>({doc:item.doc,index:item.index,targets:buildEpubInteractions(item.maps,props.annotations,props.concepts)})),[props.documents,props.annotations,props.concepts]);
  const relocationSources=useMemo(()=>[props.view,...(props.view.renderer?[props.view.renderer]:[])],[props.view]);
- return <OriginalInteractionLayer {...props} documents={documents} documentsIdentity={props.documents} relocationSources={relocationSources} previewLink={(link,index,doc)=>previewEpubLink(link.getAttribute('href')??'',props.book.sections,index,doc)} interceptLink={link=>/noteref/u.test(link.getAttribute('epub:type')??link.getAttribute('role')??'')}/>;
+ return <OriginalInteractionLayer {...props} documents={documents} documentsIdentity={props.documents} relocationSources={relocationSources} previewLink={(link,index,doc)=>previewEpubLink(link.getAttribute('href')??'',props.book.sections,index,doc,props.book)} interceptLink={link=>/noteref/u.test(link.getAttribute('epub:type')??link.getAttribute('role')??'')}/>;
 }

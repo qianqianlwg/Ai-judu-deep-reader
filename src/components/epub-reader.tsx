@@ -15,6 +15,7 @@ import type { FoliateTocItem } from "@/lib/foliate-types";
 import type { EpubLinkPreview } from "@/lib/epub-link-preview";
 import { EpubInteractionLayer, type EpubInteractionDocument } from "./epub-interaction-layer";
 import "./epub-reader.css";
+import {mapMobiDocument} from "@/lib/mobi-browser-source-map";
 import {isFb2Format} from "@/lib/fb2-format";
 
 type View = Awaited<ReturnType<typeof createFoliateView>>;
@@ -38,7 +39,7 @@ async function bounded<T>(work:Promise<T>, milliseconds=20000):Promise<T> {
 function documentMaps(doc:Document, index:number, session:Session, book:LibraryBookContent):EpubParagraphMap[] {
   const section=session.book.sections[index];
   const chapter=chapterFor(book,section?.id ?? section?.href);
-  return chapter ? mapEpubDocument(doc,chapter,isFb2Format(book.edition?.fileType??"")?"[data-fb2-paragraph]":undefined) : [];
+  return chapter ? book.edition?.fileType===".mobi"?mapMobiDocument(doc,chapter):mapEpubDocument(doc,chapter,isFb2Format(book.edition?.fileType??"")?"[data-fb2-paragraph]":undefined) : [];
 }
 export function appearanceCss(appearance:ReadingAppearancePreferences):string {
   const style=getReadingTextStyle(appearance), theme=READING_THEMES.find(item=>item.id===appearance.theme)!;
@@ -54,7 +55,7 @@ export function EpubReader(props:EpubReaderProps) {
   const {book}=props;
   const converted = book.edition?.fileType === ".umd";
   const modeLabel = converted ? "转换版" : "原版";
-  const readerLabel = converted ? "UMD 转换版" : (isFb2Format(book.edition?.fileType??"") ? "FB2" : "EPUB") + " 原版";
+  const readerLabel = converted ? "UMD 转换版" : (book.edition?.fileType===".mobi"?"MOBI":isFb2Format(book.edition?.fileType??"") ? "FB2" : "EPUB") + " 原版";
   const conversionState = resolveConvertedEpub(book);
   useEffect(()=>{latest.current=props;});
 
@@ -69,7 +70,7 @@ export function EpubReader(props:EpubReaderProps) {
     try {
       // WHY：CFI属于实际渲染的派生字节，独立key与双hash防止原UMD/旧转换记录污染恢复位置。
       if(s.artifact){const {sourceHash,fileHash,converterVersion}=s.artifact.conversion;localStorage.setItem(convertedPositionKey(source.editionId),JSON.stringify({version:1,kind:"umd-epub",sourceHash,fileHash,converterVersion,cfi,anchor:s.anchor}));}
-      else localStorage.setItem(originalPositionKey(source.editionId),JSON.stringify({version:1,originalHash:source.edition?.originalHash ?? "",cfi,anchor:s.anchor}));
+      else localStorage.setItem(originalPositionKey((s.book.positionIdentity?"mobi:":"")+source.editionId),JSON.stringify({version:1,originalHash:s.book.positionIdentity ?? source.edition?.originalHash ?? "",cfi,anchor:s.anchor}));
     }
     catch(cause:unknown){console.error("原版阅读位置保存失败",cause);latest.current.onNotice("原版阅读位置保存失败，请检查浏览器存储。");}
   }
@@ -90,19 +91,27 @@ export function EpubReader(props:EpubReaderProps) {
       const source=resolveConvertedEpub(book);
       if(source.kind==="invalid")throw new Error(source.message);
       const artifact=source.kind==="ready"?source.artifact:null;
-      const response=await fetch(artifact?.url ?? `/api/books/${encodeURIComponent(book.id)}/original?editionId=${encodeURIComponent(book.editionId!)}`,{signal:controller.signal,cache:"no-store"});
+      const mobi=book.edition?.fileType===".mobi";
+      const response=await fetch(artifact?.url ?? `/api/books/${encodeURIComponent(book.id)}/${mobi?"mobi-layout":"original"}?editionId=${encodeURIComponent(book.editionId!)}`,{signal:controller.signal,cache:"no-store"});
       if(!response.ok) {
         let message=(artifact?"转换文件":"原文件")+"读取失败（HTTP "+response.status+"），可切回精读。";
         if(response.headers.get("content-type")?.includes("json")) {const body:unknown=await response.json();if(body&&typeof body==="object"&&"error"in body&&typeof body.error==="string")message=body.error;}
         throw new Error(message);
       }
-      let bytes:Blob;
-      if(artifact){const buffer=await response.arrayBuffer();if(cancelled)return;await verifyConvertedEpub(buffer,artifact);bytes=new Blob([buffer],{type:"application/epub+zip"});}
-      else bytes=await response.blob();
-      if(cancelled)return;
       setStatus("正在校验并准备"+modeLabel+"章节…");
-      // WHY：保留上游原生 blob 章节加载，不因开发工具或内置浏览器异常改变产品渲染方案。
-      const epub=isFb2Format(book.edition?.fileType??"")?await(await import("@/lib/fb2-loader")).loadFb2(bytes,book.edition!.fileType):await loadEpub(bytes);pendingBook=epub;
+      let epub:EpubBook;
+      if(mobi){
+        const loaded=await(await import("@/lib/mobi-loader")).loadMobiPublication(response,book.edition?.originalHash??"");epub=loaded.book;
+        if(!cancelled&&loaded.warnings.length)latest.current.onNotice(loaded.warnings.join(" "));
+      }else{
+        let bytes:Blob;
+        if(artifact){const buffer=await response.arrayBuffer();if(cancelled)return;await verifyConvertedEpub(buffer,artifact);bytes=new Blob([buffer],{type:"application/epub+zip"});}
+        else bytes=await response.blob();
+        if(cancelled)return;
+        // WHY：保留上游原生blob加载；MOBI只更换输入适配器，精读交互与视图生命周期继续复用。
+        epub=isFb2Format(book.edition?.fileType??"")?await(await import("@/lib/fb2-loader")).loadFb2(bytes,book.edition!.fileType):await loadEpub(bytes);
+      }
+      pendingBook=epub;
       if(cancelled){epub.destroy?.();return;}
       const view=await createFoliateView();
       if(cancelled){epub.destroy?.();view.close();return;}
@@ -163,7 +172,7 @@ export function EpubReader(props:EpubReaderProps) {
       },true);
       setStatus("正在加载"+modeLabel+"章节…");
       let saved=null;
-      try{saved=artifact?readConvertedPosition(localStorage.getItem(convertedPositionKey(book.editionId!)),artifact.conversion):readOriginalPosition(localStorage.getItem(originalPositionKey(book.editionId!)),book.edition?.originalHash ?? "");}catch(cause:unknown){console.warn("无法读取原版位置",cause);}
+      try{saved=artifact?readConvertedPosition(localStorage.getItem(convertedPositionKey(book.editionId!)),artifact.conversion):readOriginalPosition(localStorage.getItem(originalPositionKey((epub.positionIdentity?"mobi:":"")+book.editionId!)),epub.positionIdentity ?? book.edition?.originalHash ?? "");}catch(cause:unknown){console.warn("无法读取原版位置",cause);}
       if(saved&&sameReadingAnchor(saved.anchor,latest.current.anchor)) {
         try { const target=view.resolveCFI(saved.cfi);if(!epub.sections[target.index])throw new Error("位置不属于本书");await bounded(view.init({lastLocation:saved.cfi,showTextStart:true})); }
         catch(cause:unknown){if(cancelled||!currentSession(s)){console.warn("已关闭的阅读会话初始化失败，未重试旧视图",cause);return;}console.warn("原版位置已失效，回退精读锚点",cause);latest.current.onNotice("原版位置已失效，已回退到精读锚点。");saved=null;await bounded(view.init({showTextStart:true}));}
@@ -189,10 +198,10 @@ export function EpubReader(props:EpubReaderProps) {
     try {
       const doc=await s.book.sections[index].createDocument();
       if(!current())return;
-      if(!rangeForEpubPosition(mapEpubDocument(doc,chapter,isFb2Format(source.edition?.fileType??"")?"[data-fb2-paragraph]":undefined),anchor.paragraphId,anchor.offset)) {latest.current.onNotice("该段排版与精读文本无法精确映射，请切回精读定位。");return;}
+      if(!rangeForEpubPosition(documentMaps(doc,index,s,source),anchor.paragraphId,anchor.offset)) {latest.current.onNotice("该段排版与精读文本无法精确映射，请切回精读定位。");return;}
       s.anchor=anchor;
       await s.view.renderer!.goTo({index,anchor:(target:Document)=>{
-        const range=rangeForEpubPosition(mapEpubDocument(target,chapter,isFb2Format(source.edition?.fileType??"")?"[data-fb2-paragraph]":undefined),anchor.paragraphId,anchor.offset);
+        const range=rangeForEpubPosition(documentMaps(target,index,s,source),anchor.paragraphId,anchor.offset);
         if(!range)throw new Error("阅读锚点在渲染后失效，请切回精读");return range;
       }});
       if(!current())return;
@@ -212,6 +221,7 @@ export function EpubReader(props:EpubReaderProps) {
     try {
       s.shouldSave=true;
       await s.view.renderer.goTo({index:preview.index,anchor:doc=>{
+        if(preview.navigationHref){const resolved=s.book.resolveHref?.(preview.navigationHref);if(!resolved||resolved.index!==preview.index)throw new Error("引用目标已失效");const target=resolved.anchor(doc);if(typeof target==="number")throw new Error("引用缺少精确位置");return target;}
         const target=preview.fragment?doc.getElementById(preview.fragment):doc.body;
         if(!target)throw new Error("引用目标不可用");return target;
       }});

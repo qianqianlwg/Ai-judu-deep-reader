@@ -58,3 +58,50 @@ it("UMD双份元数据和连续来源齐全才启用转换版，不能标为原�
   await act(async()=>root.render(<Harness value={{...umd,edition:{...umd.edition!,conversion:undefined}}}/>));expect(host.querySelector('button')?.disabled).toBe(true);expect(host.querySelector('button')?.title).toContain('尚无已保存');expect(originalReaderKind({...umd,edition:{...umd.edition!,id:'wrong'}})).toBeNull();
  }finally{await act(async()=>root.unmount());}
 });
+
+describe("MOBI原版模式门禁",()=>{
+ const mobi:LibraryBookContent={...book,editionId:"mobi-e1",edition:{...book.edition!,id:"mobi-e1",fileType:".mobi",fileName:"书.mobi",originalHash:"a".repeat(64)},
+  chapters:[{id:"mobi-c",title:"正文",sourceHref:"mobi-v1/mobi/0",paragraphs:[{id:"mobi-p",text:"可精读正文"}]}]};
+ it.each(["mobi","kf8"])("MOBI原件和%s来源齐全才提供原版，不冒充EPUB容器",kind=>{
+  const value={...mobi,chapters:[{...mobi.chapters[0],sourceHref:`mobi-v1/${kind}/0`}]};
+  expect(originalReaderKind(value)).toBe("mobi");expect(originalEpubAvailable(value)).toBe(false);
+ });
+ const unavailable:[string,(value:LibraryBookContent)=>LibraryBookContent][]=[
+  ["无版本",value=>({...value,editionId:undefined})],
+  ["无版本元数据",value=>({...value,edition:undefined})],
+  ["无原件",value=>({...value,edition:{...value.edition!,hasOriginalFile:false}})],
+  ["无章节",value=>({...value,chapters:[]})],
+  ["无来源",value=>({...value,chapters:[{...value.chapters[0],sourceHref:undefined}]})],
+  ["EPUB来源",value=>({...value,chapters:[{...value.chapters[0],sourceHref:"OEBPS/0.xhtml"}]})],
+  ["FB2来源",value=>({...value,chapters:[{...value.chapters[0],sourceHref:"fb2-v1/section-0.xhtml"}]})],
+ ];
+ it.each(unavailable)("MOBI%s时仍可精读，但禁用原版并明确说明",async(_label,transform)=>{
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",true);const host=document.createElement("div"),root=createRoot(host),value=transform(mobi);
+  function Harness(){const state=useReaderMode(value);return <ReaderModeSwitch book={value} original={state.original} onChange={state.selectMode}/>;}
+  try{
+   expect(originalReaderKind(value)).toBeNull();expect(originalEpubAvailable(value)).toBe(false);
+   await act(async()=>root.render(<Harness/>));const [original,text]=host.querySelectorAll("button");
+   expect(original.disabled).toBe(true);expect(original.getAttribute("aria-pressed")).toBe("false");expect(original.title).toContain("没有可用原文件");
+   expect(text.disabled).toBe(false);expect(text.getAttribute("aria-pressed")).toBe("true");
+  }finally{await act(async()=>root.unmount());}
+ });
+ it("MOBI默认原版且可切精读，选择按版本隔离，禁用时不触发切换",async()=>{
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",true);const host=document.createElement("div"),root=createRoot(host),onChange=vi.fn();
+  function Harness({value,disabled=false}:{value:LibraryBookContent;disabled?:boolean}){
+   const state=useReaderMode(value);
+   return <ReaderModeSwitch book={value} original={state.original} disabled={disabled} onChange={mode=>{onChange(mode);state.selectMode(mode);}}/>;
+  }
+  try{
+   await act(async()=>root.render(<Harness value={mobi}/>));let [original,text]=host.querySelectorAll("button");
+   expect(original.textContent).toBe("原版");expect(original.disabled).toBe(false);expect(original.getAttribute("aria-pressed")).toBe("true");expect(text.disabled).toBe(false);
+   expect(original.title).toContain("保留原文件");expect(host.textContent).not.toContain("转换版");
+   await act(async()=>text.click());expect(onChange).toHaveBeenCalledWith("text");expect(original.getAttribute("aria-pressed")).toBe("false");
+   const next={...mobi,editionId:"mobi-e2",edition:{...mobi.edition!,id:"mobi-e2"}};
+   await act(async()=>root.render(<Harness value={next}/>));expect(host.querySelector("button")?.getAttribute("aria-pressed")).toBe("true");
+   await act(async()=>root.render(<Harness value={mobi}/>));expect(host.querySelector("button")?.getAttribute("aria-pressed")).toBe("false");
+   // WHY：保留用户各版本的精读选择；繁忙状态不能借原版按钮触发新的加载会话。
+   onChange.mockClear();await act(async()=>root.render(<Harness value={mobi} disabled/>));[original,text]=host.querySelectorAll("button");
+   expect(original.disabled).toBe(true);expect(text.disabled).toBe(true);await act(async()=>{original.click();text.click();});expect(onChange).not.toHaveBeenCalled();
+  }finally{await act(async()=>root.unmount());}
+ });
+});
