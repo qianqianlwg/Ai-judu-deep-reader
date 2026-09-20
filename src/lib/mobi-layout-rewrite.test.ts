@@ -1,3 +1,4 @@
+import {rewriteMobiLegacyMarkup} from "./mobi-layout-rewrite.mjs";
 import { describe, expect, it, vi } from "vitest";
 import { parse as parseHtml, type DefaultTreeAdapterTypes } from "parse5";
 import { rewriteMobiResourceCss, rewriteMobiResourceMarkup } from "./mobi-layout-rewrite.mjs";
@@ -149,4 +150,13 @@ it('String import按资源语义处理，但外部import及content字符串保�
  const replace=vi.fn(()=> 'mobi-resource-v1/theme.css');
  const input='@import "kindle:flow:0001?mime=text/css" layer(book) screen; @import "https://invalid.example/a.css"; p{content:"kindle:flow:0001?mime=text/css"}';
  expect(rewriteMobiResourceCss(input,replace)).toBe(input.replace('"kindle:flow:0001?mime=text/css"','url(mobi-resource-v1/theme.css)'));expect(replace).toHaveBeenCalledExactlyOnceWith('kindle:flow:0001?mime=text/css');
+});
+it('MOBI旧图片/音视频/锚点属性语义转换，不改注释脚本或模板字面量',()=>{
+ const raw='<IMG title=">" recindex="1"><video mediarecindex="2" recindex="3"></video><audio mediarecindex="2"></audio><a filepos="00025">跳</a><!--<img recindex="1">--><script>"<img recindex=1>"</script><template><img recindex="1"></template>';
+ const calls:number[]=[];const result=rewriteMobiLegacyMarkup(raw,index=>{calls.push(index);return 'mobi-resource-v1/'+index+'.bin'});
+ expect(calls).toEqual([1,2,3,2]);expect(result).toContain('<IMG title=">" src="mobi-resource-v1/1.bin">');expect(result).toContain('<video src="mobi-resource-v1/2.bin" poster="mobi-resource-v1/3.bin">');expect(result).toContain('<a href="filepos:00025">');expect(result).toContain('<!--<img recindex="1">-->');expect(result).toContain('<template><img recindex="1"></template>');
+});
+it('旧属性的越界整数与新旧属性冲突明确拒绝，缺映射不会猜资源ID',()=>{
+ for(const raw of ['<img recindex="-1">','<img recindex="0">','<img recindex="1x">','<img recindex="99999999999999999999">','<img recindex="1" src="wrong">','<a filepos="1" href="#other">'])expect(()=>rewriteMobiLegacyMarkup(raw,()=>undefined)).toThrow();
+ expect(rewriteMobiLegacyMarkup('<img recindex="1">',()=>undefined)).toBe('<img recindex="1">');
 });

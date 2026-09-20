@@ -36,3 +36,11 @@
 - HTML实体边界直接使用此前安装/锁定的 `entities@8.1.0`，从传递依赖提升为精确直接devDependency；lock只新增根声明。离线安装命令因本地registry元数据未命中而失败后，没有更换版本或联网升级依赖。其许可仍由私有运行时打包清单自动收录。
 - `parse5`保留sourceCodeLocation，按body childNodes索引定位，签名含命名空间/标签/文本/节点顺序，不把资源属性变化当正文变化。隐藏区域、非HTML内容和不完整实体/UTF8/代理对保持不支持，不执行脚本或加载网络资源。
 - 本机Node22.22.0/ICU77.1的windows-1252 C1解码异常已报告待环境确认，未加入fallback。真实样本的部分目录仍未证实，禁止把内部候选或现有测试结果宣传为完整MOBI/AZW/AZW3支持。详见 `reader-mobi-verification.md` 最新批次。
+
+## 2026-09-20 正文窗口与资源来源补丁
+
+固定补丁新增 `source-body-projection` 与 `resource-provenance`。vendor和来源构建共享按parse5实际语法得到的body窗口；MOBI6旧属性转换不再使用匹配标签的正则，KF8继续使用已有HTML/CSS语义资源改写。`getResourceAliases`只导出本次实际缓存映射，由worker核对目标确实属于已捕获资源；不返回磁盘路径或可执行渲染许可。
+
+内部协议v3加入章节HTML hash绑定以及worker目标语义复核，资源转换之前/之后的节点属性不能无条件忽略。Parser关闭hook使用已固定parse5内部行为，预算、边界及可复现vendor测试均是升级门禁。body窗口同时保留已知根容器隐藏语义，不能在裁掉容器后开放原隐藏内容的定位。
+
+四个固定样本的11个内部目标已逐点核验；不扩张为完整AZW/AZW3、CP1252 C1或安全渲染支持。许可与依赖版本未改变，样本仍只用于本地验证，不进入仓库。验收和剩余范围见 `reader-mobi-verification.md` 最新小节。

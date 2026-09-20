@@ -4,6 +4,7 @@ import { mobiHtmlBlocks } from './mobi-html.mjs';
 import { captureMobiResources } from './mobi-layout-resources.mjs';
 import { buildMobiSourceIndex } from './mobi-source-map.mjs';
 import { indexMobiLayout } from './mobi-layout-html.mjs';
+import { verifyMobiLayoutTargets } from './mobi-layout-targets.mjs';
 /** @typedef {import('./mobi-layout-snapshot').MobiLayoutSnapshot} Snapshot */
 /** @param {import('../../vendor/mobi/index.mjs').MobiCandidate} parser @param {{bytes:Uint8Array,kind:'mobi'|'kf8',resourceDir:string}} input @returns {Promise<Snapshot>} */
 export async function buildMobiLayout(parser, input) {
@@ -27,7 +28,11 @@ export async function buildMobiLayout(parser, input) {
   const chapters = rawChapters.map(chapter=>({...chapter,html:captured.rewrite(chapter.html),head:captured.rewrite(chapter.head),css:chapter.css.map(href=>resourceId(href))}));
   const indices = new Map(chapters.map(chapter=>[chapter.id,indexMobiLayout(chapter.html)]));
   const sources=chapters.map(chapter=>{const source=parser.getSourceChapter(chapter.id);if(!source)throw new Error('MOBI原始章节来源缺失');return source;});
-  const sourceIndex=buildMobiSourceIndex(input.kind,sources,chapters);
+  const aliases=parser.getResourceAliases();
+  if(!Array.isArray(aliases)||aliases.length>20000)throw new Error('MOBI资源来源映射无效');
+  /** @type {Map<string,string>} */ const resourceMap=new Map();
+  for(const pair of aliases){if(!Array.isArray(pair)||pair.length!==2||typeof pair[0]!=='string'||typeof pair[1]!=='string'||resourceMap.has(pair[0]))throw new Error('MOBI资源来源映射无效');const id=resourceId(pair[1]);if(!captured.resources.some(resource=>resource.id===id))throw new Error('MOBI资源来源未捕获');resourceMap.set(pair[0],id);}
+  const sourceIndex=buildMobiSourceIndex(input.kind,sources,chapters,resourceMap);
   const target=sourceIndex.resolve;
   /** @type {Snapshot['toc']} */ const toc = [];
   const stack = parser.getToc().map(item=>({item,depth:0})).reverse();
@@ -46,5 +51,6 @@ export async function buildMobiLayout(parser, input) {
     const external = /^(?!filepos:|kindle:)[a-z][\w+.-]*:/iu.test(href) || href.startsWith('//');
     links.push({chapterId:chapter.id,href,target:resolved,reason:resolved?'exact-source':external?'external':'unresolved'});
   }
-  return {schema:'mobi-layout-untrusted-v2',kind:input.kind,sourceHash:createHash('sha256').update(input.bytes).digest('hex'),title:metadata.title??'',authors:metadata.author,cover:coverPath?resourceId(coverPath):null,chapters,resources:captured.resources,toc,links};
+  /** @type {Snapshot} */const result={schema:'mobi-layout-untrusted-v3',kind:input.kind,sourceHash:createHash('sha256').update(input.bytes).digest('hex'),title:metadata.title??'',authors:metadata.author,cover:coverPath?resourceId(coverPath):null,chapters,resources:captured.resources,toc,links};
+  verifyMobiLayoutTargets(result);return result;
 }

@@ -5,6 +5,7 @@ export type TocItem = { label: string; href: string; children?: TocItem[] };
 export type MobiCandidate = {
   getMetadata(): Metadata;
   getCoverImage(): string;
+  getResourceAliases(): [string,string][];
   getSpine(): SpineChapter[];
   getSourceChapter(id: string): import("../../src/lib/mobi-source-bytes.mjs").MobiSourceChapter | undefined;
   getToc(): TocItem[];

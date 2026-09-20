@@ -4,7 +4,7 @@
   "license": "MIT",
   "sourceSha256": "37ceb6f781bb0b83024c86c0baa782d154dd3e8c5c72234fcb44dfe2f5d3682a",
   "licenseSha256": "995c6c256b13ced9b14de5bbc2b03d1d1648576c84cd2e96f995d7094c83d08e",
-  "patchedSha256": "bb673ddadd9f30eb2c81e09166e0c84da55a453a09f464265afc9f863f73ce7f",
+  "patchedSha256": "f179e08e4f0cc9daa9e0d096d529373e115857d154799ecbd54554c1e6d73da1",
   "patches": [
     "absent-EXTH",
     "single-flow-KF8-FDST",
@@ -18,7 +18,9 @@
     "bounded-resource-write",
     "stable-resource-ids",
     "semantic-resource-rewrite",
-    "source-byte-ranges"
+    "source-byte-ranges",
+    "source-body-projection",
+    "resource-provenance"
   ],
   "generator": "scripts/vendor-mobi.mjs"
 }

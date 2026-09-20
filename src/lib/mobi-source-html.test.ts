@@ -178,10 +178,10 @@ describe("改写后point验证与严格运行时边界", () => {
 });
 
 describe("body结构签名", () => {
-  it("SHA256稳定，资源属性/属性顺序/id改写不会改变structure", () => {
+  it("SHA256包含资源和ID身份，资源改写必须先提供受控投影", () => {
     const a = indexMobiSourceHtml('<body><p id="a">正文&amp;😀</p><img src="kindle:embed:1"></body>');
     const b = indexMobiSourceHtml('<body class="x"><p title="x" id="b">正文&#38;😀</p><img alt="x" src="mobi-resource-v1/1.png"></body>');
-    expect(a.structureHash).toMatch(/^[a-f0-9]{64}$/u); expect(a.structureHash).toBe(b.structureHash);
+    expect(a.structureHash).toMatch(/^[a-f0-9]{64}$/u); expect(a.structureHash).not.toBe(b.structureHash);
     expect(a.structureHash).toBe(indexMobiSourceHtml('<body><p id="a">正文&amp;😀</p><img src="kindle:embed:1"></body>').structureHash);
   });
   it("element局部匹配不足以证明来源，正文变化/同标签重排必须由structure挡住", () => {
@@ -234,4 +234,24 @@ describe("预算与无副作用", () => {
       expect(fetch).not.toHaveBeenCalled(); expect(Reflect.get(globalThis, "MOBI_SOURCE_EXECUTED")).toBeUndefined();
     } finally { fetch.mockRestore(); }
   });
+});
+
+describe("正文fragment解析上下文",()=>{
+ it("首尾空白和注释保留在body childNodes，不受完整document插入模式吞掉",()=>{
+  const html='\n  <!--注--><p>甲😀 &amp; 乙</p>\n';const index=indexMobiSourceHtml(html,'body-fragment');
+  expect(index.locate(0)).toEqual(textPoint([0],'\n  ',0));
+  expect(index.locate(html.indexOf('<p>'))).toEqual({kind:'element',path:[2],tag:'p',offset:0});
+  const point=index.locate(html.indexOf('乙'));expect(point).toEqual(textPoint([2,0],'甲😀 & 乙',6));expect(index.matches(point)).toBe(true);
+  expect(index.locate(html.length-1)).toEqual(textPoint([3],'\n',0));
+ });
+ it("节点路径服从真实body fragment的table修复，不接受被隐式创建的元素作为原始落点",()=>{
+  const html='\n<table><tr><td>正文</td></tr></table>',index=indexMobiSourceHtml(html,'body-fragment');
+  const point=index.locate(html.indexOf('正文'));expect(point).toEqual(textPoint([1,0,0,0,0],'正文',0));expect(index.matches(point)).toBe(true);
+  expect(index.locate(html.indexOf('<tr>'))).toEqual({kind:'element',path:[1,0,0],tag:'tr',offset:0});
+  expect(index.matches({kind:'element',path:[1,0],tag:'tbody',offset:0})).toBe(false);
+ });
+ it("两种解析上下文不是可混用签名；无效上下文明确失败",()=>{
+  const html='\n<p>x</p>';expect(indexMobiSourceHtml(html).structureHash).not.toBe(indexMobiSourceHtml(html,'body-fragment').structureHash);
+  expect(()=>indexMobiSourceHtml(html,'invalid' as 'document')).toThrow('上下文');
+ });
 });

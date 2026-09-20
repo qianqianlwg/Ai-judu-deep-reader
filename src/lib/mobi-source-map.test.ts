@@ -19,8 +19,8 @@ it('KF8片段重建后的定位仍按fid/off字节；不选择同名下一元素
  expect(index.resolve('kindle:pos:fid:7:off:4')).toBeNull();expect(index.resolve('kindle:pos:fid:8:off:0')).toBeNull();
 });
 it('输出HTML结构或文本被删改时拒绝，资源属性改写不影响同一点',()=>{
- const html='<p>一</p><p>二</p><img src="kindle:embed:1"/>';const source={id:'0',encoding:65001,bytes:bytes(html),fileStart:0};
- expect(buildMobiSourceIndex('mobi',[source],[{id:'0',html:html.replace('kindle:embed:1','mobi-resource-v1/1.png')}]).resolve('filepos:0')?.point.kind).toBe('element');
+ const html='<p>一</p><p>二</p><img recindex="1"/>';const source={id:'0',encoding:65001,bytes:bytes(html),fileStart:0};
+ expect(buildMobiSourceIndex('mobi',[source],[{id:'0',html:html.replace('recindex="1"','src="mobi-resource-v1/1.png"')}],new Map([['1','mobi-resource-v1/1.png']])).resolve('filepos:0')?.point.kind).toBe('element');
  expect(buildMobiSourceIndex('mobi',[source],[{id:'0',html:'<p>二</p>'}]).resolve('filepos:0')).toBeNull();
 });
 it('半开章节边界、缺失fid和非法映射拒绝',()=>{
@@ -58,4 +58,24 @@ it('片段split后的原始offset连续而目标可被另一fid分开，skeleton
 it('body容器不属于正文子节点协议，不把它猜成第一个带ID的元素',()=>{
  const html='<html><head><title>书</title></head><body><p>正文</p></body></html>',source={id:'0',encoding:65001,bytes:bytes(html),fileStart:0};
  for(const rendered of [html,'<p>正文</p>']){const index=buildMobiSourceIndex('mobi',[source],[{id:'0',html:rendered}]);expect(index.resolve('filepos:'+bytes(html.slice(0,html.indexOf('<body>'))).length)).toBeNull();}
+});
+it.each([
+ ['<p id="a">same</p><p id="b">same</p>','<p id="b">same</p><p id="a">same</p>'],
+ ['<img src="mobi-resource-v1/a.png"><img src="mobi-resource-v1/b.png">','<img src="mobi-resource-v1/b.png"><img src="mobi-resource-v1/a.png">'],
+])('同文节点或图片换位不能只靠path/tag/textHash宣称同一来源 %#',(raw,html)=>{
+ const index=buildMobiSourceIndex('mobi',[{id:'0',encoding:65001,bytes:bytes(raw),fileStart:0}],[{id:'0',html}]);expect(index.resolve('filepos:0')).toBeNull();if(raw.includes('same'))expect(index.resolve('filepos:'+raw.indexOf('same'))).toBeNull();
+});
+it('KF8合法资源修改须有明确来源别名；缺映射或换到另一已捕获图片仍拒绝',()=>{
+ const raw='<p>正文</p><img src="kindle:embed:0001?mime=image/png">',uri='kindle:embed:0001?mime=image/png';const source={id:'0',encoding:65001,bytes:bytes(raw),spans:[{fid:0,start:0,end:bytes(raw).length,targetStart:0}]};
+ const layout={id:'0',html:raw.replace(uri,'mobi-resource-v1/0001.png')};const mapping=new Map([[uri,'mobi-resource-v1/0001.png']]);
+ expect(buildMobiSourceIndex('kf8',[source],[layout]).resolve('kindle:pos:fid:0:off:0')).toBeNull();expect(buildMobiSourceIndex('kf8',[source],[layout],mapping).resolve('kindle:pos:fid:0:off:0')?.point.kind).toBe('element');expect(buildMobiSourceIndex('kf8',[source],[{...layout,html:layout.html.replace('0001.png','0002.png')}],mapping).resolve('kindle:pos:fid:0:off:0')).toBeNull();
+});
+it.each(['<html hidden><body>','<body hidden>','<body style="display:none">'])('原始根容器不可见时，body fragment不能被误升为可定位 %s',opening=>{
+ const raw=opening+'<p>secret</p></body>',source={id:'0',encoding:65001,bytes:bytes(raw),fileStart:0};const index=buildMobiSourceIndex('mobi',[source],[{id:'0',html:'<p>secret</p>'}]);expect(index.resolve('filepos:'+raw.indexOf('secret'))).toBeNull();
+});
+it('MOBI首章body隐藏属性必须约束后续pagebreak片段，而KF8独立文档不互相污染',()=>{
+ const a='<html><body hidden><p>a</p>',b='<p>secret</p></body></html>',layouts=[{id:'0',html:'<p>a</p>'},{id:'1',html:'<p>secret</p>'}];
+ const sources=[{id:'0',encoding:65001,bytes:bytes(a),fileStart:0},{id:'1',encoding:65001,bytes:bytes(b),fileStart:100}];
+ expect(buildMobiSourceIndex('mobi',sources,layouts).resolve('filepos:103')).toBeNull();
+ const kf8=[{id:'0',encoding:65001,bytes:bytes(a),spans:[{fid:0,start:0,end:bytes(a).length,targetStart:0}]},{id:'1',encoding:65001,bytes:bytes(b),spans:[{fid:1,start:0,end:bytes(b).length,targetStart:0}]}];expect(buildMobiSourceIndex('kf8',kf8,layouts).resolve('kindle:pos:fid:1:off:3')?.point.kind).toBe('text');
 });

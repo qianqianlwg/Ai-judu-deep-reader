@@ -148,3 +148,34 @@ export function rewriteMobiResourceMarkup(source, replace) {
   }
   return patches.finish();
 }
+/**
+ * MOBI6旧属性的语义投影；只处理真实HTML元素，注释/脚本/模板内字面内容保持原样。
+ * WHY：定位与实际布局必须使用同一明确转换，不能忽略所有属性后把不同图片/同文节点视为同一来源。
+ * @param {string} source @param {(index: number) => string | undefined} load
+ */
+export function rewriteMobiLegacyMarkup(source, load) {
+  validate(source, load, MAX_HTML);
+  const budget = {nodes:0,patches:0}, patches=patchesFor(source,MAX_HTML,budget);
+  const tree=parseHtml(source,{sourceCodeLocationInfo:true,scriptingEnabled:true});
+  /** @type {HtmlNode[]} */ const stack=[tree];
+  while(stack.length){
+    const node=stack.pop();if(!node)throw new Error('MOBI旧属性节点缺失');countNode(budget);
+    if('tagName' in node){
+      if(['script','template','noscript'].includes(node.tagName))continue;
+      if(node.namespaceURI==='http://www.w3.org/1999/xhtml')for(const attr of node.attrs){
+        const destination=attr.name==='filepos'&&node.tagName==='a'?'href':attr.name==='recindex'&&node.tagName==='img'?'src':attr.name==='mediarecindex'&&['video','audio'].includes(node.tagName)?'src':attr.name==='recindex'&&['video','audio'].includes(node.tagName)?'poster':null;
+        if(!destination)continue;
+        if(/^\d+$/u.exec(attr.value)?.[0]!==attr.value||attr.value.length>16||!Number.isSafeInteger(Number(attr.value)))throw new Error('MOBI旧属性整数无效');
+        const number=Number(attr.value);if(attr.name!=='filepos'&&(number<1||number>0xffffffff))throw new Error('MOBI资源索引无效');
+        if(node.attrs.some(other=>other.name===destination))throw new Error('MOBI新旧属性冲突');
+        const value=attr.name==='filepos'?'filepos:'+attr.value:load(number);
+        if(value===undefined)continue;
+        if(typeof value!=='string'||!value||value.length>4096)throw new Error('MOBI旧属性输出无效');
+        const location=node.sourceCodeLocation?.attrs?.[attr.name];if(!location)throw new Error('MOBI旧属性源码位置缺失');
+        patches.add(location.startOffset,location.endOffset,destination+'="'+attributeValue(value)+'"');
+      }
+    }
+    if('childNodes' in node)for(let i=node.childNodes.length-1;i>=0;i--)stack.push(node.childNodes[i]);
+  }
+  return patches.finish();
+}

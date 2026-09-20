@@ -1,6 +1,6 @@
 // @ts-check
 import { createHash } from "node:crypto";
-import { parse, defaultTreeAdapter } from "parse5";
+import { parse, parseFragment, defaultTreeAdapter, html as parse5Html } from "parse5";
 import { EntityDecoder, DecodingMode, htmlDecodeTree } from "entities/decode";
 
 /** @typedef {{kind: 'element', path: number[], tag: string, offset: 0} | {kind: 'text', path: number[], text: string, offset: number}} MobiSourcePoint */
@@ -9,12 +9,12 @@ import { EntityDecoder, DecodingMode, htmlDecodeTree } from "entities/decode";
 /** @typedef {import('parse5').DefaultTreeAdapterTypes.TextNode} Text */
 /** @typedef {{node: Text, start: number, end: number, map?: Int32Array | null}} TextEntry */
 const MAX_HTML = 20_000_000, MAX_NODES = 400_000, MAX_DEPTH = 128;
-const HTML_NS = "http://www.w3.org/1999/xhtml";
+const HTML_NS = parse5Html.NS.HTML;
 const EXCLUDED = new Set(["head", "script", "style", "template", "noscript", "title", "meta", "link", "base", "iframe", "object", "embed", "canvas", "input", "textarea", "select", "xmp", "plaintext", "noembed", "noframes"]);
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function record(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 /** @param {Element} node */
-function excluded(node) {
+export function isMobiSourceElementExcluded(node) {
   // WHY：此层没有浏览器样式计算；保守排除已知隐藏语义与非HTML命名空间，不声称解析外部CSS的可见性。
   if (node.namespaceURI !== HTML_NS || EXCLUDED.has(node.tagName)) return true;
   return node.attrs.some(({ name, value }) => ["hidden", "inert", "data-judu-decoration"].includes(name)
@@ -69,13 +69,13 @@ function structureOf(body, allowed) {
     const node = stack.pop(); if (!node) throw new Error("MOBI结构节点缺失");
     const opaque = "tagName" in node && !allowed.has(node);
     const children = !opaque && "childNodes" in node ? node.childNodes : [];
-    const token = "tagName" in node ? [opaque ? "opaque" : "element", node.namespaceURI, node.tagName, children.length]
+    const token = "tagName" in node ? [opaque ? "opaque" : "element", node.namespaceURI, node.tagName, node.attrs.map(attr=>[attr.namespace??"",attr.prefix??"",attr.name,attr.value]).sort((a,b)=>{const left=JSON.stringify(a),right=JSON.stringify(b);return left<right?-1:left>right?1:0;}), children.length]
       : node.nodeName === "#text" && "value" in node ? ["text", node.value] : [node.nodeName, children.length];
     const json = JSON.stringify(token) + "\n";
     bytes += Buffer.byteLength(json, "utf8");
     if (bytes > 128 * 1024 * 1024) throw new Error("MOBI结构签名总量超限");
     // WHY：先序token带子节点数，保留嵌套/文本/注释位置；流式哈希避免返回或积攒第二份巨型正文。
-    // 资源属性不参与签名；非正文子树只记带命名空间的opaque占位，不可因此定位其内部。
+    // 属性属于节点身份；仅先经受控资源投影后比较，不能忽略id/src让不同同文节点或图片换位。
     hash.update(json);
     for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
   }
@@ -86,21 +86,26 @@ function structureOf(body, allowed) {
  * 源码与DOM偏移均为UTF-16单位，不是字节。仅支持HTML正文；SVG/MathML及已知隐藏区域明确拒绝。
  * 不执行脚本、不请求网络；matches只证明指定路径的局部身份，不证明整本文档/资源安全。
  * @param {string} html
- * @returns {{readonly structureHash: string, locate: (sourceOffset: number) => MobiSourcePoint | null, matches: (point: unknown) => boolean}}
+ * @param {"document"|"body-fragment"} [mode]
+ * @returns {{readonly structureHash: string, locate: (sourceOffset: number) => MobiSourcePoint | null, matches: (point: unknown) => boolean, matchesTextDigest: (point: unknown) => boolean}}
  */
-export function indexMobiSourceHtml(html) {
+export function indexMobiSourceHtml(html, mode = "document") {
+  if (!["document", "body-fragment"].includes(mode)) throw new Error("MOBI源码解析上下文无效");
   if (typeof html !== "string" || html.length > MAX_HTML) throw new Error("MOBI源码HTML类型或长度超限");
   let created = 0;
   const located = new WeakSet();
-  const tree = parse(html, { sourceCodeLocationInfo: true, scriptingEnabled: true, treeAdapter: {
+  /** @type {import("parse5").ParserOptions<import("parse5").DefaultTreeAdapterMap>} */
+  const options = { sourceCodeLocationInfo: true, scriptingEnabled: true, treeAdapter: {
     ...defaultTreeAdapter,
     setNodeSourceCodeLocation(node, location) {
       if (!located.has(node)) { located.add(node); if (++created > MAX_NODES) throw new Error("MOBI源码节点数超限"); }
       defaultTreeAdapter.setNodeSourceCodeLocation(node, location);
     },
-  } });
+  } };
+  // WHY：正文片段用真实body上下文解析；完整document解析会把首部空白放在body外，导致节点路径错位。
+  const tree = mode === "body-fragment" ? parseFragment(defaultTreeAdapter.createElement("body", HTML_NS, []), html, options) : parse(html, options);
   const htmlElement = tree.childNodes.find(node => "tagName" in node && node.tagName === "html");
-  const body = htmlElement && "childNodes" in htmlElement
+  const body = mode === "body-fragment" ? tree : htmlElement && "childNodes" in htmlElement
     ? htmlElement.childNodes.find(node => "tagName" in node && node.tagName === "body") : undefined;
   /** @type {Map<number, Element | null>} */ const starts = new Map();
   /** @type {WeakSet<Node>} */ const allowed = new WeakSet();
@@ -115,7 +120,7 @@ export function indexMobiSourceHtml(html) {
     const { node, depth } = frame;
     // WHY：全树预算包含非正文/template内容及隐式html/head/body；不跳过隐藏区域逃避深度或节点限制。
     if (++count > MAX_NODES || depth > MAX_DEPTH) throw new Error("MOBI源码节点数或深度超限");
-    const blocked = frame.blocked || ("tagName" in node && excluded(node)), inBody = frame.inBody || node === body;
+    const blocked = frame.blocked || ("tagName" in node && isMobiSourceElementExcluded(node)), inBody = frame.inBody || node === body;
     const eligible = inBody && !blocked;
     if (eligible) allowed.add(node);
     if ("tagName" in node) {
@@ -154,6 +159,14 @@ export function indexMobiSourceHtml(html) {
     }
     return result.reverse();
   }
+  /** @type {WeakMap<Text, string>} */ const textHashes = new WeakMap();
+  /** @param {unknown} path @returns {Node | undefined} */
+  function nodeAt(path) {
+    if(!Array.isArray(path)||path.length>MAX_DEPTH||Object.keys(path).length!==path.length||!body)return undefined;
+    /** @type {Node} */ let node=body;
+    for(const index of path){if(!Number.isSafeInteger(index)||index<0||!("childNodes" in node)||index>=node.childNodes.length)return undefined;node=node.childNodes[index];}
+    return allowed.has(node)?node:undefined;
+  }
   return {
     structureHash: structureOf(body, allowed),
     locate(sourceOffset) {
@@ -170,6 +183,13 @@ export function indexMobiSourceHtml(html) {
       const offset = textMap(html, entry)?.[sourceOffset - entry.start];
       if (offset === undefined || offset < 0 || !boundary(entry.node.value, offset)) return null;
       return { kind: "text", path: pathFor(entry.node), text: entry.node.value, offset };
+    },
+    matchesTextDigest(point) {
+      if(!record(point)||Object.keys(point).length!==5||point.kind!=="text"||typeof point.offset!=="number"||typeof point.textLength!=="number"||typeof point.textHash!=="string")return false;
+      const node=nodeAt(point.path),entry=node?textEntries.get(node):undefined;
+      if(!entry||entry.node.value.length!==point.textLength||!boundary(entry.node.value,point.offset)||textMap(html,entry)===null)return false;
+      let hash=textHashes.get(entry.node);if(!hash){hash=createHash("sha256").update(entry.node.value).digest("hex");textHashes.set(entry.node,hash);}
+      return point.textHash===hash;
     },
     matches(point) {
       if (!record(point) || !Array.isArray(point.path) || point.path.length > MAX_DEPTH || Object.keys(point).length !== 4 || !body) return false;

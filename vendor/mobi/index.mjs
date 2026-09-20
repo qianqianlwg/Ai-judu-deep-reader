@@ -1,6 +1,7 @@
 // Vendored from @lingo-reader/mobi-parser@0.4.6 (MIT); see LICENSE and PROVENANCE.json.
+import { projectMobiDocument } from "../../src/lib/mobi-document-projection.mjs";
 import { reconstructKf8Source } from "../../src/lib/mobi-source-bytes.mjs";
-import { rewriteMobiResourceMarkup, rewriteMobiResourceCss } from "../../src/lib/mobi-layout-rewrite.mjs";
+import { rewriteMobiResourceMarkup, rewriteMobiResourceCss, rewriteMobiLegacyMarkup } from "../../src/lib/mobi-layout-rewrite.mjs";
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlink } from 'node:fs';
 import path, { resolve } from 'node:path';
 import { unzlibSync } from 'fflate';
@@ -899,6 +900,9 @@ class Kf8 {
   getMetadata() {
     return this.mobiFile.getMetadata();
   }
+  getResourceAliases() {
+    return Array.from(this.resourceCache).filter(([key, value]) => key !== "cover" && typeof key === "string" && typeof value === "string");
+  }
   getCoverImage() {
     if (this.resourceCache.has("cover")) {
       return this.resourceCache.get("cover");
@@ -1135,7 +1139,8 @@ class Kf8 {
   }
   replace(str) {
     const cssUrls = [];
-    const head = str.match(/<head[^>]*>([\s\S]*)<\/head>/i)[1];
+    const projection = projectMobiDocument(str);
+    const head = projection.head;
     const links = head.match(/<link[^>]*>/gi) ?? [];
     for (const link of links) {
       const linkHref = link.match(/href="([^"]*)"/i)[1];
@@ -1146,7 +1151,7 @@ class Kf8 {
         href
       });
     }
-    const body = str.match(/<body[^>]*>([\s\S]*)<\/body>/i)[1];
+    const body = projection.body;
     const bodyReplaced = rewriteMobiResourceMarkup(body, value => this.replaceResources(value));
     return {
       html: bodyReplaced,
@@ -1230,6 +1235,9 @@ class Mobi {
   getToc() {
     return this.toc;
   }
+  getResourceAliases() {
+    return Array.from(this.resourceCache).filter(([key, value]) => key !== "cover" && typeof key === "string" && typeof value === "string");
+  }
   getCoverImage() {
     if (this.resourceCache.has("cover")) {
       return this.resourceCache.get("cover");
@@ -1286,13 +1294,10 @@ class Mobi {
       idToChapter.set(id, chapter);
       id++;
     }
-    const lastChapterText = chapters[chapters.length - 1].text;
-    const bodyEnd = lastChapterText.search(/<\/body\s*>/i);
-    chapters[chapters.length - 1].text = bodyEnd < 0 ? lastChapterText : lastChapterText.slice(0, bodyEnd);
     const firstChapterText = chapters[0].text;
-    const bodyOpen = /<body\b[^>]*>/i.exec(firstChapterText);
-    const bodyOpenTagIndex = bodyOpen?.index ?? 0;
-    chapters[0].text = bodyOpen ? firstChapterText.slice(bodyOpen.index + bodyOpen[0].length) : firstChapterText;
+    const firstProjection = projectMobiDocument(firstChapterText);
+    const bodyOpenTagIndex = firstProjection.prefixEnd;
+    for (const chapter of chapters) chapter.text = chapter.id === "0" ? firstProjection.body : projectMobiDocument(chapter.text).body;
     this.chapters = chapters;
     this.idToChapter = idToChapter;
     const referenceStr = firstChapterText.slice(0, bodyOpenTagIndex);
@@ -1363,45 +1368,7 @@ class Mobi {
     return resourceUrl;
   }
   replace(html) {
-    html = html.replace(
-      /<img[^>]*>/g,
-      (matched) => {
-        const recindex = matched.match(this.recindexReg)?.[1];
-        if (!recindex) return matched;
-        const url = this.loadResource(Number.parseInt(recindex));
-        return matched.replace(this.recindexReg, `src="${url}"`);
-      }
-    );
-    html = html.replace(
-      /<(video|audio)[^>]*>/g,
-      (matched) => {
-        const mediarecindex = matched.match(this.recindexReg)[1];
-        const mediaUrl = this.loadResource(Number.parseInt(mediarecindex));
-        matched = matched.replace(this.mediarecindexReg, `src="${mediaUrl}"`);
-        const recindex = matched.match(this.recindexReg)?.[1];
-        if (recindex) {
-          const posterUrl = this.loadResource(Number.parseInt(recindex));
-          matched = matched.replace(this.recindexReg, `poster="${posterUrl}"`);
-        }
-        return matched;
-      }
-    );
-    html = html.replace(
-      /<a[^>]*>/g,
-      (matched) => {
-        const fileposMatch = matched.match(this.fileposReg);
-        if (!fileposMatch) {
-          return matched;
-        }
-        const filepos = fileposMatch[1];
-        return matched.replace(this.fileposReg, `href="filepos:${filepos}"`);
-      }
-    );
-    return {
-      html,
-      head: this.layoutHead ?? "",
-      css: []
-    };
+    return { html: rewriteMobiLegacyMarkup(html, index => this.loadResource(index)), head: this.layoutHead ?? "", css: [] };
   }
   resolveHref(href) {
     const hrefmatch = href.match(/filepos:(\d+)/);

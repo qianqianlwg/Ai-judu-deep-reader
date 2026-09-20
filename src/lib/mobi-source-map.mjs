@@ -2,12 +2,16 @@
 import {createHash} from 'node:crypto';
 import {decodeMobiSource,parseMobiSourceLocator} from './mobi-source-bytes.mjs';
 import {indexMobiSourceHtml} from './mobi-source-html.mjs';
+import {projectMobiDocument} from './mobi-document-projection.mjs';
+import {rewriteMobiResourceMarkup,rewriteMobiLegacyMarkup} from './mobi-layout-rewrite.mjs';
 /** @typedef {import('./mobi-source-bytes.mjs').MobiSourceChapter} Source */
 /** @typedef {import('./mobi-layout-snapshot').MobiLayoutTarget} Target */
-/** @param {'mobi'|'kf8'} kind @param {Source[]} sources @param {{id:string;html:string}[]} layouts */
-export function buildMobiSourceIndex(kind,sources,layouts){
+/** @param {'mobi'|'kf8'} kind @param {Source[]} sources @param {{id:string;html:string}[]} layouts @param {ReadonlyMap<string,string>} [resources] */
+export function buildMobiSourceIndex(kind,sources,layouts,resources=new Map()){
+ if(!(resources instanceof Map)||resources.size>20000)throw new Error("MOBI资源来源映射无效");
+ for(const [key,value]of resources)if(typeof key!=="string"||key.length>4096||typeof value!=="string"||value.length>512||/^mobi-resource-v1\/[A-Za-z0-9_-]+\.[a-z0-9]+$/u.exec(value)?.[0]!==value)throw new Error("MOBI资源来源映射无效");
  if(!['mobi','kf8'].includes(kind)||!Array.isArray(sources)||!Array.isArray(layouts)||sources.length!==layouts.length||sources.length>10000)throw new Error('MOBI来源章节不一致');
- /** @type {Map<string,{decoded:ReturnType<typeof decodeMobiSource>;html:ReturnType<typeof indexMobiSourceHtml>;rendered:ReturnType<typeof indexMobiSourceHtml>}>} */
+ /** @type {Map<string,{bodyAllowed:boolean;htmlHash:string;start:number;end:number;decoded:ReturnType<typeof decodeMobiSource>;html:ReturnType<typeof indexMobiSourceHtml>;expected:ReturnType<typeof indexMobiSourceHtml>;rendered:ReturnType<typeof indexMobiSourceHtml>}>} */
  const chapters=new Map();
  /** @type {Map<number,{chapterId:string;start:number;end:number;targetStart:number}[]>} */
  const fragments=new Map();
@@ -42,7 +46,9 @@ export function buildMobiSourceIndex(kind,sources,layouts){
    destinations.sort((a,b)=>a.start-b.start);
    for(let i=1;i<destinations.length;i++)if(destinations[i].start<destinations[i-1].end)throw new Error('KF8片段目标区间重叠');
   }
-  chapters.set(source.id,{decoded,html:indexMobiSourceHtml(decoded.text),rendered:indexMobiSourceHtml(layout.html)});
+  const projection=projectMobiDocument(decoded.text);
+  const expected=kind==="kf8"?rewriteMobiResourceMarkup(projection.body,uri=>resources.get(uri)??uri):rewriteMobiLegacyMarkup(projection.body,index=>resources.get(String(index)));
+  chapters.set(source.id,{bodyAllowed:projection.bodyAllowed,htmlHash:createHash("sha256").update(layout.html).digest("hex"),expected:indexMobiSourceHtml(expected,"body-fragment"),start:projection.start,end:projection.end,decoded,html:indexMobiSourceHtml(projection.body,"body-fragment"),rendered:indexMobiSourceHtml(layout.html,"body-fragment")});
  }
  files.sort((a,b)=>a.start-b.start);
  for(let i=1;i<files.length;i++)if(files[i].start<files[i-1].end)throw new Error('MOBI来源区间重叠');
@@ -53,6 +59,8 @@ export function buildMobiSourceIndex(kind,sources,layouts){
  }
  /** @type {Map<string,Target|null>} */
  const cache=new Map();
+ // WHY：MOBI6的首章根容器覆盖后续pagebreak章节，不能在后续片段重置为可见。
+ const bookBodyAllowed=kind!=="mobi"||!files.length||chapters.get(files[0].chapterId)?.bodyAllowed===true;
  return {
   /** @param {string} href @returns {Target|null} */
   resolve(href){
@@ -68,12 +76,14 @@ export function buildMobiSourceIndex(kind,sources,layouts){
     const list=fragments.get(locator.fid),span=list?.find(span=>locator.offset>=span.start&&locator.offset<span.end);
     if(span){chapterId=span.chapterId;byteOffset=span.targetStart+locator.offset-span.start;}
    }
-   const chapter=chapters.get(chapterId);if(!chapter){cache.set(href,null);return null;}
-   const htmlOffset=chapter.decoded.characterOffset(byteOffset),point=htmlOffset===null?null:chapter.html.locate(htmlOffset);
+   const chapter=chapters.get(chapterId);if(!chapter||!chapter.bodyAllowed||!bookBodyAllowed){cache.set(href,null);return null;}
+   const htmlOffset=chapter.decoded.characterOffset(byteOffset);
+   if(htmlOffset===null||htmlOffset<chapter.start||htmlOffset>=chapter.end){cache.set(href,null);return null;}
+   const point=chapter.html.locate(htmlOffset-chapter.start);
    // WHY：根容器不属于正文子节点协议，不能以首段冒充；局部path/tag相同也不够；还须核对正文结构签名，避免删段后跳到同路径的另一段。
-   if(!point||!point.path.length||typeof chapter.html.structureHash!=='string'||chapter.html.structureHash!==chapter.rendered.structureHash||!chapter.rendered.matches(point)){cache.set(href,null);return null;}
+   if(!point||!point.path.length||typeof chapter.html.structureHash!=='string'||chapter.expected.structureHash!==chapter.rendered.structureHash||!chapter.expected.matches(point)||!chapter.rendered.matches(point)){cache.set(href,null);return null;}
    /** @type {Target} */
-   const target={chapterId,locator:href,byteOffset,htmlOffset:/** @type {number} */(htmlOffset),point:point.kind==='element'?point:{kind:'text',path:point.path,offset:point.offset,textLength:point.text.length,textHash:createHash('sha256').update(point.text).digest('hex')}};
+   const target={chapterId,htmlHash:chapter.htmlHash,locator:href,byteOffset,htmlOffset:/** @type {number} */(htmlOffset),point:point.kind==='element'?point:{kind:'text',path:point.path,offset:point.offset,textLength:point.text.length,textHash:createHash('sha256').update(point.text).digest('hex')}};
    cache.set(href,target);return target;
   }
  };

@@ -39,7 +39,7 @@ it('KF8 CSS字符串import捕获被导入样式而非当普通content忽略',asy
 function textAtTarget(snapshot:MobiLayoutSnapshot,target:MobiLayoutTarget|null):string{
  expect(target).not.toBeNull();if(!target)throw new Error('未解析来源');
  const html=snapshot.chapters.find(chapter=>chapter.id===target.chapterId)?.html;
- expect(html).toBeDefined();const dom=new JSDOM(html);
+ expect(html).toBeDefined();const dom=new JSDOM("<!doctype html><body></body>");dom.window.document.body.innerHTML=html??"";
  try{
   let node:Node=dom.window.document.body;
   for(const index of target.point.path){const child:ChildNode|undefined=node.childNodes[index];expect(child).toBeDefined();if(!child)throw new Error('DOM来源路径不存在');node=child;}
@@ -66,4 +66,13 @@ it('KF8真实worker按照fid/off字节落到实体解码后的正文，拒绝半
  expect(snapshot.links[0].reason).toBe('exact-source');expect(textAtTarget(snapshot,snapshot.links[0].target)).toBe('前😀 & 相同');
  expect(snapshot.links[1]).toMatchObject({reason:'exact-source',target:{point:{kind:'text',path:[1,0],offset:6}}});expect(textAtTarget(snapshot,snapshot.links[1].target)).toBe('相同');
  expect(snapshot.links.slice(2).every(link=>link.reason==='unresolved'&&link.target===null)).toBe(true);
+});
+it('完整KF8的首尾空白在body上下文保留，fid0落在真实首文本而不是错位标题',async()=>{
+ const fragment='\n  <h1>首章</h1>\n<p id="second">正文😀</p>\n<a href="kindle:pos:fid:0000:off:0000">开头</a>\n';
+ const snapshot=await parseMobiLayout(makeKf8Fixture({fragment}));const target=snapshot.links[0].target;expect(target?.point).toMatchObject({kind:'text',path:[0],offset:0,textLength:3});expect(textAtTarget(snapshot,target)).toBe('\n  ');
+});
+it('MOBI正文投影按实际语法处理引号内大于号、head脚本和注释伪body',async()=>{
+ let html='<html><head><script>const fake="<body>伪</body>"</script></head><body data-x=">">\n<!-- </body> --><p id="real">真实😀</p><a filepos="0000000000">跳</a>\n</body></html>\n';
+ const byte=Buffer.byteLength(html.slice(0,html.indexOf('真实')));html=html.replace('filepos="0000000000"',`filepos="${String(byte).padStart(10,'0')}"`);
+ const snapshot=await parseMobiLayout(makeMobiFixture({text:html}));expect(snapshot.chapters[0].html.startsWith('\n<!-- </body> -->')).toBe(true);expect(textAtTarget(snapshot,snapshot.links[0].target)).toBe('真实😀');
 });

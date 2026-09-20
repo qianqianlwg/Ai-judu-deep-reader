@@ -70,7 +70,7 @@ export function applyMobiPatches(input) {
   // WHY：磁盘路径不是书籍资源地址；候选统一返回包内ID，不能将Windows路径注入HTML/CSS或正文。
   source = once(source, '    resourceWriteBudgets.set(imageSaveDir, { bytes: usage.bytes + size, files: usage.files + 1 });\n    return url;', '    resourceWriteBudgets.set(imageSaveDir, { bytes: usage.bytes + size, files: usage.files + 1 });\n    return "mobi-resource-v1/" + fileName;');
   // WHY：仅在属性/CSS URL语义位置改写引用，普通正文、标题、SVG文本和content字符串逐字保留。
-  source = 'import { rewriteMobiResourceMarkup, rewriteMobiResourceCss } from "../../src/lib/mobi-layout-rewrite.mjs";\n' + source;
+  source = 'import { rewriteMobiResourceMarkup, rewriteMobiResourceCss, rewriteMobiLegacyMarkup } from "../../src/lib/mobi-layout-rewrite.mjs";\n' + source;
   source = once(source, 'const textReplaced = this.replaceResources(text);', 'const textReplaced = type === MIME.CSS ? rewriteMobiResourceCss(text, value => this.replaceResources(value)) : rewriteMobiResourceMarkup(text, value => this.replaceResources(value));');
   source = once(source, 'const bodyReplaced = this.replaceResources(body);', 'const bodyReplaced = rewriteMobiResourceMarkup(body, value => this.replaceResources(value));');
   source = once(source, 'head: this.replaceResources(head),', 'head: rewriteMobiResourceMarkup(head, value => this.replaceResources(value)),');
@@ -107,5 +107,24 @@ export function applyMobiPatches(input) {
     return this.mobiFile.decode(this.getSourceChapter(chapter.id).bytes.buffer);
   }
 ` + source.slice(loadEnd);
+
+  // WHY：渲染与定位共享同一真实body源码窗口；不再用正则裁剪带引号或伪标签的文档。
+  source = 'import { projectMobiDocument } from "../../src/lib/mobi-document-projection.mjs";\n' + source;
+  source = once(source, '    const head = str.match(/<head[^>]*>([\\s\\S]*)<\\/head>/i)[1];', '    const projection = projectMobiDocument(str);\n    const head = projection.head;');
+  source = once(source, '    const body = str.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i)[1];', '    const body = projection.body;');
+  const cropStart = source.indexOf('    const lastChapterText = chapters[chapters.length - 1].text;');
+  const cropEnd = source.indexOf('    this.chapters = chapters;', cropStart);
+  if (cropStart < 0 || cropEnd < cropStart) throw new Error('MOBI body projection patch anchor drift');
+  source = source.slice(0, cropStart) + '    const firstChapterText = chapters[0].text;\n    const firstProjection = projectMobiDocument(firstChapterText);\n    const bodyOpenTagIndex = firstProjection.prefixEnd;\n    for (const chapter of chapters) chapter.text = chapter.id === "0" ? firstProjection.body : projectMobiDocument(chapter.text).body;\n' + source.slice(cropEnd);
+
+  const legacyStart = source.indexOf('  replace(html) {', source.indexOf('class Mobi {'));
+  const legacyEnd = source.indexOf('  resolveHref(href) {', legacyStart);
+  if (legacyStart < 0 || legacyEnd < legacyStart) throw new Error('MOBI semantic legacy patch anchor drift');
+  source = source.slice(0, legacyStart) + '  replace(html) {\n    return { html: rewriteMobiLegacyMarkup(html, index => this.loadResource(index)), head: this.layoutHead ?? "", css: [] };\n  }\n' + source.slice(legacyEnd);
+  for (const className of ['Kf8', 'Mobi']) {
+    const at = source.indexOf('  getCoverImage() {', source.indexOf('class ' + className + ' {'));
+    if (at < 0) throw new Error('MOBI resource provenance patch anchor drift');
+    source = source.slice(0, at) + '  getResourceAliases() {\n    return Array.from(this.resourceCache).filter(([key, value]) => key !== "cover" && typeof key === "string" && typeof value === "string");\n  }\n' + source.slice(at);
+  }
   return source;
 }
