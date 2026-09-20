@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { repairLegacyThreadIds } from "./legacy-threads";
+import { migrateEditionConversions } from "./edition-conversion";
 import { getJuduDataDir } from "./data-storage";
 
 type SqliteStatement = {
@@ -69,6 +70,7 @@ export function createDatabase() {
     if (!editionColumns.some((column) => column.name === "original_file_size")) db.exec("ALTER TABLE editions ADD COLUMN original_file_size INTEGER NOT NULL DEFAULT 0");
     if (!editionColumns.some((column) => column.name === "reader_mode")) db.exec("ALTER TABLE editions ADD COLUMN reader_mode TEXT NOT NULL DEFAULT 'text'");
     if (!editionColumns.some((column) => column.name === "original_hash")) db.exec("ALTER TABLE editions ADD COLUMN original_hash TEXT");
+    migrateEditionConversions(db);
     const chapterColumns = db.prepare("PRAGMA table_info(chapters)").all() as { name: string }[];
     if (!chapterColumns.some((column) => column.name === "source_href")) db.exec("ALTER TABLE chapters ADD COLUMN source_href TEXT");
     const columns = db.prepare("PRAGMA table_info(annotations)").all() as { name: string }[];

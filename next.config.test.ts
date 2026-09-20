@@ -11,9 +11,13 @@ it("所有页面和API禁止第三方图片、对象及referrer外泄", async ()
 
 it("原文件响应覆盖全局 CSP，禁止直接激活或嵌入", async () => {
  const rules=await config.headers?.();
- expect(rules?.at(-1)).toEqual({source:"/api/books/:bookId/original",headers:[{key:"Content-Security-Policy",value:"sandbox; default-src 'none'; frame-ancestors 'none'"}]});
+ expect(rules?.find(rule => rule.source === "/api/books/:bookId/original")).toEqual({source:"/api/books/:bookId/original",headers:[{key:"Content-Security-Policy",value:"sandbox; default-src 'none'; frame-ancestors 'none'"}]});
 });
 
 it("导入路由显式跟踪私有解析产物而不通过public发布", () => {
   expect(config.outputFileTracingIncludes).toEqual({ "/api/import": ["./runtime/mobi/**/*", "./runtime/umd/**/*"] });
+});
+
+it("派生转换版同样只能以严格隔离的附件下载", async () => {
+ const rules=await config.headers?.();expect(rules?.find(rule=>rule.source==="/api/books/:bookId/converted")?.headers).toContainEqual({key:"Content-Security-Policy",value:"sandbox; default-src 'none'; frame-ancestors 'none'"});
 });

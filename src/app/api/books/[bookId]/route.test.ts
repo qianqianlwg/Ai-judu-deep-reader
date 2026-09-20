@@ -1,3 +1,4 @@
+import { EDITION_CONVERSIONS_SCHEMA } from "@/lib/edition-conversion";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type MemoryDatabase = { exec(sql: string): void; close(): void };
@@ -19,6 +20,7 @@ beforeEach(() => {
     "INSERT INTO paragraphs VALUES ('p2','a1','第二段',2),('p1','a1','第一段',1),('p3','a2','第三段',0),('p-old','old','旧版本原文',0),('p-b','b1','乙书独有原文',0);"
   );
   state.db.exec("ALTER TABLE editions ADD COLUMN original_file_path TEXT NOT NULL DEFAULT ''; ALTER TABLE editions ADD COLUMN original_file_size INTEGER NOT NULL DEFAULT 0; ALTER TABLE editions ADD COLUMN original_hash TEXT;");
+  state.db.exec(EDITION_CONVERSIONS_SCHEMA);
   state.db.exec("ALTER TABLE chapters ADD COLUMN source_href TEXT");
 });
 afterEach(() => { state.db?.close(); state.db = undefined; });

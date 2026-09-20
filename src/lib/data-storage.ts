@@ -3,10 +3,12 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { SupportedDocumentExtension } from "./document-adapter";
 
+export type StoredOriginalExtension = SupportedDocumentExtension | ".umd";
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const ORIGINAL_PATH = /^originals[\\/]([A-Za-z0-9][A-Za-z0-9_-]{0,127})(\.(?:epub|pdf|txt|md|fb2|fbz|cbz))$/u;
+const ORIGINAL_PATH = /^originals[\\/]([A-Za-z0-9][A-Za-z0-9_-]{0,127})(\.(?:epub|pdf|txt|md|fb2|fbz|cbz|umd))$/u;
+const DERIVED_PATH = /^derived[\\/]([A-Za-z0-9][A-Za-z0-9_-]{0,127})\.epub$/u;
 const RESERVED_ID = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu;
-const EXTENSIONS = new Set([".epub", ".pdf", ".txt", ".md", ".fb2", ".fbz", ".cbz"]);
+const EXTENSIONS = new Set([".epub", ".pdf", ".txt", ".md", ".fb2", ".fbz", ".cbz", ".umd"]);
 export class OriginalFileError extends Error {
   constructor(readonly code: "UNSAFE_PATH" | "MISSING_FILE" | "CORRUPT_FILE", message: string) {
     super(message); this.name = "OriginalFileError";
@@ -26,18 +28,23 @@ function privateDataDir(value: string): string {
 export function getJuduDataDir(): string {
   return privateDataDir(process.env.JUDU_DATA_DIR || path.join(process.cwd(), "data"));
 }
-export function originalRelativePath(editionId: string, extension: SupportedDocumentExtension): string {
+export function isStoredOriginalExtension(value: string): value is StoredOriginalExtension { return EXTENSIONS.has(value); }
+export function derivedRelativePath(editionId: string): string {
+  if (SAFE_ID.exec(editionId)?.[0] !== editionId || RESERVED_ID.test(editionId)) throw new Error("版本 ID 不合法");
+  return `derived/${editionId}.epub`;
+}
+export function originalRelativePath(editionId: string, extension: StoredOriginalExtension): string {
   if (SAFE_ID.exec(editionId)?.[0] !== editionId || RESERVED_ID.test(editionId)) throw new Error("版本 ID 不合法");
   if (!EXTENSIONS.has(extension)) unsafe();
   // WHY：数据库只存平台无关的相对路径；用户文件名永远不参与磁盘寻址。
   return `originals/${editionId}${extension}`;
 }
-function originalLocation(dataDir: string, relativePath: string) {
-  const match = ORIGINAL_PATH.exec(relativePath);
+function storedLocation(dataDir: string, relativePath: string, kind: "originals" | "derived") {
+  const match = (kind === "originals" ? ORIGINAL_PATH : DERIVED_PATH).exec(relativePath);
   if (!match || match[0] !== relativePath || RESERVED_ID.test(match[1])) unsafe();
   const base = privateDataDir(dataDir);
-  const directory = path.join(base, "originals");
-  return { directory, absolutePath: path.join(directory, match[1] + match[2]) };
+  const directory = path.join(base, kind);
+  return { directory, absolutePath: path.join(directory, match[1] + (kind === "originals" ? match[2] : ".epub")) };
 }
 // WHY：逐级检查（包括数据根目录的祖先）以拒绝 junction/symlink；仅词法 startsWith 不能阻止链接逃逸。
 async function checkedDirectory(directory: string, create = false): Promise<void> {
@@ -55,12 +62,18 @@ async function checkedDirectory(directory: string, create = false): Promise<void
 }
 export type StoredOriginalFile = { relativePath: string; absolutePath: string; size: number; originalHash: string };
 export async function storeOriginalFile(input: {
-  dataDir?: string; editionId: string; extension: SupportedDocumentExtension; buffer: Uint8Array;
+  dataDir?: string; editionId: string; extension: StoredOriginalExtension; buffer: Uint8Array;
 }): Promise<StoredOriginalFile> {
-  // WHY：先复制调用方缓冲区，防止异步写入期间被外部修改，确保原字节与哈希来自同一快照。
-  const buffer = Buffer.from(input.buffer);
-  const relativePath = originalRelativePath(input.editionId, input.extension);
-  const { directory, absolutePath } = originalLocation(input.dataDir ?? getJuduDataDir(), relativePath);
+  return storeFile(input.dataDir ?? getJuduDataDir(), originalRelativePath(input.editionId, input.extension), "originals", input.buffer);
+}
+export async function storeDerivedEpub(input: { dataDir?: string; editionId: string; buffer: Uint8Array }) {
+  const { originalHash, ...stored } = await storeFile(input.dataDir ?? getJuduDataDir(), derivedRelativePath(input.editionId), "derived", input.buffer);
+  return { ...stored, fileHash: originalHash };
+}
+async function storeFile(dataDir: string, relativePath: string, kind: "originals" | "derived", input: Uint8Array): Promise<StoredOriginalFile> {
+  // WHY：两类文件共享不可变发布与路径校验，但目录和公开哈希字段分开，不能把派生EPUB冒充UMD原件。
+  const buffer = Buffer.from(input);
+  const { directory, absolutePath } = storedLocation(dataDir, relativePath, kind);
   await checkedDirectory(directory, true);
   const pending = path.join(directory, `.pending-${randomUUID()}`);
   const handle = await fs.open(pending, "wx", 0o600);
@@ -90,8 +103,10 @@ export async function storeOriginalFile(input: {
     throw error;
   }
 }
-export async function removeStoredOriginalFile(dataDir: string, relativePath: string): Promise<void> {
-  const { directory, absolutePath } = originalLocation(dataDir, relativePath);
+export async function removeStoredOriginalFile(dataDir: string, relativePath: string): Promise<void> { return removeFile(dataDir, relativePath, "originals"); }
+export async function removeDerivedEpub(dataDir: string, relativePath: string): Promise<void> { return removeFile(dataDir, relativePath, "derived"); }
+async function removeFile(dataDir: string, relativePath: string, kind: "originals" | "derived"): Promise<void> {
+  const { directory, absolutePath } = storedLocation(dataDir, relativePath, kind);
   try {
     await checkedDirectory(directory);
     const stat = await fs.lstat(absolutePath);
@@ -99,10 +114,13 @@ export async function removeStoredOriginalFile(dataDir: string, relativePath: st
     await fs.rm(absolutePath);
   } catch (error: unknown) { if (!hasCode(error, "ENOENT")) throw error; }
 }
-export async function readStoredOriginalFile(input: {
-  dataDir?: string; relativePath: string; size: number; originalHash: string;
-}): Promise<Buffer> {
-  const { directory, absolutePath } = originalLocation(input.dataDir ?? getJuduDataDir(), input.relativePath);
+type ReadInput = { dataDir?: string; relativePath: string; size: number; originalHash: string };
+export async function readStoredOriginalFile(input: ReadInput): Promise<Buffer> { return readFile(input, "originals"); }
+export async function readDerivedEpub(input: Omit<ReadInput, "originalHash"> & { fileHash: string }): Promise<Buffer> {
+  return readFile({ ...input, originalHash: input.fileHash }, "derived");
+}
+async function readFile(input: ReadInput, kind: "originals" | "derived"): Promise<Buffer> {
+  const { directory, absolutePath } = storedLocation(input.dataDir ?? getJuduDataDir(), input.relativePath, kind);
   if (!Number.isSafeInteger(input.size) || input.size <= 0 || input.originalHash.length !== 64 || !/^[a-f0-9]{64}$/u.test(input.originalHash)) {
     throw new OriginalFileError("CORRUPT_FILE", "原文件完整性元数据缺失或损坏，请重新导入");
   }

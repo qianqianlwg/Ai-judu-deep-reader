@@ -16,6 +16,9 @@ const nextConfig: NextConfig = {
       // WHY：Next 全局 headers 会覆盖路由响应头；原件下载必须恢复更严格的隔离策略。
       source: "/api/books/:bookId/original",
       headers: [{ key: "Content-Security-Policy", value: "sandbox; default-src 'none'; frame-ancestors 'none'" }],
+    }, {
+      source: "/api/books/:bookId/converted",
+      headers: [{ key: "Content-Security-Policy", value: "sandbox; default-src 'none'; frame-ancestors 'none'" }],
     }];
   },
 };

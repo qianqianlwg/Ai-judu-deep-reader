@@ -1,3 +1,4 @@
+import { EDITION_CONVERSIONS_SCHEMA } from "@/lib/edition-conversion";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type MemoryDatabase = { exec(sql: string): void; close(): void };
@@ -14,6 +15,7 @@ beforeEach(() => {
     "INSERT INTO editions VALUES ('old-v0','old','初版.epub','epub','2025-01-01','hash-secret'),('old-v1','old','修订.epub','epub','2026-01-01','hash-secret'),('new-v1','new','新译.pdf','pdf','2026-03-01','hash-secret'),('other-v1','other','另一部书.txt','txt','2026-02-01','hash-secret');"
   );
   state.db.exec("ALTER TABLE editions ADD COLUMN original_file_path TEXT NOT NULL DEFAULT ''; ALTER TABLE editions ADD COLUMN original_file_size INTEGER NOT NULL DEFAULT 0; ALTER TABLE editions ADD COLUMN original_hash TEXT;");
+  state.db.exec(EDITION_CONVERSIONS_SCHEMA);
 });
 afterEach(() => { state.db?.close(); state.db = undefined; });
 describe("GET library 保留全部书籍与版本", () => {

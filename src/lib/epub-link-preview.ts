@@ -15,5 +15,9 @@ export async function previewEpubLink(href: string, sections: readonly FoliateSe
   let element = fragment ? targetDoc.getElementById(fragment) : targetDoc.body;
   if (!element) throw new Error("找不到引用目标");
   if (!element.textContent?.trim()) element = element.closest("p,li,aside,section") ?? element;
-  return { title: "引用预览", text: element.textContent?.trim().slice(0, 2400) || "此处没有可预览的文字。", address: target.pathname.slice(1) + target.hash, index: targetIndex, fragment };
+  const text = element.textContent?.trim() ?? "";
+  // WHY：与PDF引用概览相同，保留2400个UTF-16单位上限，但不能把emoji/增补汉字截成孤立代理项。
+  let excerpt = text.slice(0, 2400);
+  if (excerpt.length < text.length && /[\uD800-\uDBFF]$/u.test(excerpt)) excerpt = excerpt.slice(0, -1);
+  return { title: "引用预览", text: excerpt || "此处没有可预览的文字。", address: target.pathname.slice(1) + target.hash, index: targetIndex, fragment };
 }
