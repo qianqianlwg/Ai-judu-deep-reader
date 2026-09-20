@@ -10,7 +10,11 @@ const nextConfig: NextConfig = {
       { key: "Content-Security-Policy", value: "img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" },
       { key: "Referrer-Policy", value: "no-referrer" },
       { key: "X-Content-Type-Options", value: "nosniff" },
-    ] }];
+    ] }, {
+      // WHY：Next 全局 headers 会覆盖路由响应头；原件下载必须恢复更严格的隔离策略。
+      source: "/api/books/:bookId/original",
+      headers: [{ key: "Content-Security-Policy", value: "sandbox; default-src 'none'; frame-ancestors 'none'" }],
+    }];
   },
 };
 

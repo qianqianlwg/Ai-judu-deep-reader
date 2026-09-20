@@ -204,3 +204,14 @@ describe("原始问题回溯编辑计划", () => {
     expect(() => prepareReadingEdit(original, [{ id: "other", role: "user", content: "问题" }], "other", "新问题")).toThrow(/不匹配/);
   });
 });
+
+it("多段选文从首发到失败恢复、编辑和重试保存全部来源且不受新选区影响",()=>{
+ const parts=[{paragraphId:'p1',startOffset:0,endOffset:5,selectedText:'第一段正文'},{paragraphId:'p2',startOffset:0,endOffset:5,selectedText:'第二段正文'}];
+ const state=createReadingRequest({mode:'analyze',question:'请句读',selectedText:'第一段正文\n\n第二段正文',paragraphId:'p1',selectionStart:0,selectionEnd:5,selectionAnchors:parts});
+ parts[1].selectedText='后来改变了';expect(state.payload.selectionAnchors?.[1].selectedText).toBe('第二段正文');
+ const started=beginReadingRequest(state,[]);expect(started.messages[0].anchor?.fragments).toHaveLength(2);
+ const stored={id:state.payload.clientAssistantMessageId,role:'assistant',status:'error',content:'',structuredOutput:JSON.stringify({_request:{version:1,clientUserMessageId:state.payload.clientUserMessageId,clientAssistantMessageId:state.payload.clientAssistantMessageId,input:state.payload}})};
+ const restored=restoreReadingRequest(state.payload.threadId,stored)!;expect(restored.payload.selectionAnchors).toEqual(state.payload.selectionAnchors);
+ expect(beginReadingRequest(restored,started.messages).messages[1].anchor?.fragments).toEqual(state.payload.selectionAnchors);
+ const edited=prepareReadingEdit({...restored,status:'error'},started.messages,state.payload.clientUserMessageId,'换个问题');expect(edited.input.selectionAnchors).toEqual(state.payload.selectionAnchors);
+});

@@ -34,3 +34,16 @@ it("保留可供回溯编辑使用的原始请求快照和编辑身份",()=>{
  expect(readHistoricalRequestMetadata(saved)).toMatchObject({version:1,clientUserMessageId:"u",clientAssistantMessageId:"a",input:{question:"原始问题",paragraphId:"p1"},contextSnapshot:{version:1}});
 });
 it("快照 JSON 损坏时显式抛错，不静默生成编辑请求",()=>expect(()=>readHistoricalRequestMetadata({id:"a",role:"assistant",structuredOutput:"{"})).toThrow(/合法 JSON/));
+
+it("多段失败请求刷新后不丢失第二段且拒绝损坏片段",()=>{
+ const parts=[{paragraphId:'a',startOffset:0,endOffset:2,selectedText:'甲乙'},{paragraphId:'b',startOffset:0,endOffset:2,selectedText:'丙丁'}];
+ const message={id:'a',role:'assistant' as const,content:'',structuredOutput:JSON.stringify({_request:{clientUserMessageId:'u',input:{paragraphId:'a',selectionStart:0,selectionEnd:2,selectedText:'甲乙\n\n丙丁',selectionAnchors:parts}}})};
+ const restored=hydrateChatHistory([{id:'u',role:'user',content:'句读'},message]);expect(restored[0].anchor?.fragments).toEqual(parts);expect(restored[1].anchor?.version).toBe(2);
+ expect(hydrateChatHistory([{...message,structuredOutput:message.structuredOutput.replace('"endOffset":2','"endOffset":99')}])[0].anchor).toBeUndefined();
+});
+
+it("损坏的显式多段来源标为无效，不能降级成缺来源旧消息",()=>{
+ const anchor={paragraphId:'p',startOffset:0,endOffset:2,selectedText:'甲乙',version:2,fragments:[{paragraphId:'p',startOffset:0,endOffset:2,selectedText:'甲乙'},{paragraphId:'q',startOffset:0,endOffset:9,selectedText:'丙丁'}]};
+ const [message]=hydrateChatHistory([{id:'a',role:'assistant',content:'正文',structuredOutput:JSON.stringify({anchor})}]);expect(message.anchor).toBeUndefined();expect(message.sourceInvalid).toBe(true);
+ expect(hydrateChatHistory([{id:'old',role:'assistant',content:'旧正文'}])[0].sourceInvalid).toBeUndefined();
+});

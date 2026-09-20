@@ -315,7 +315,7 @@ describe("书架导入操作", () => {
     Object.defineProperty(input, "files", { configurable: true, value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle();
     expect(importedFile).toBeInstanceOf(File); expect((importedFile as File).name).toBe("测试书.epub");
-    expect(callCount("/api/import")).toBe(1); expect(element(".workspace-main").dataset.workspaceView).toBe("reader");
+    expect(callCount("/api/import")).toBe(1); expect(callCount("/api/books/C")).toBe(0); expect(element(".workspace-main").dataset.workspaceView).toBe("reader");
     expect(element(".shelf-book.active").textContent).toContain("测试书C");
   });
 });
@@ -476,7 +476,7 @@ describe("可访问选文与输出设置", () => {
       const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
     }); await settle();
-    expect(element(".selection-actions").textContent).toContain(String.fromCodePoint(0x5df2, 0x9009, 0x62e9) + " 10 " + String.fromCodePoint(0x4e2a, 0x5b57));
+    expect(element(".selection-actions").textContent).toContain("已选 10 / 1000 字");
     await act(async () => { document.getSelection()?.removeAllRanges(); document.dispatchEvent(new Event("selectionchange")); }); await settle();
     await click(button("句读一下"));
     expect(pendingStreams[0].payload.selectedText).toBe(bodyText.slice(0, 10));

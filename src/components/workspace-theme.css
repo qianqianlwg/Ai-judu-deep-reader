@@ -1,0 +1,165 @@
+/* WHY：统一工作台颜色角色，并压过历史全局规则；只接管颜色，不改布局、字号和书籍内容。 */
+.app-shell.workspace-shell {
+  color-scheme: var(--reading-color-scheme, light);
+  background: var(--reading-paper, #fffdf9);
+  color: var(--reading-text, #263238);
+}
+.app-shell.workspace-shell .workspace-main { background: var(--reading-paper, #fffdf9); }
+.app-shell.workspace-shell .topbar,
+.app-shell.workspace-shell .workspace-mobilebar { background: var(--reading-sidebar-background, #eef4f2); border-color: var(--reading-border, #d7e2e0); color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .brand-mark,
+.app-shell.workspace-shell .brand-name,
+.app-shell.workspace-shell .workspace-brand { color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .brand-mark > span,
+.app-shell.workspace-shell .workspace-brand > span { background: var(--reading-surface, #fff); border-color: var(--reading-border, #d7e2e0); color: var(--reading-accent, #396e6a); }
+.app-shell.workspace-shell .brand-mark small,
+.app-shell.workspace-shell .workspace-brand small,
+.app-shell.workspace-shell .book-crumb,
+.app-shell.workspace-shell .workspace-section-title button,
+.app-shell.workspace-shell .workspace-nav-hint { color: var(--reading-muted, #5d6a6c); }
+.app-shell.workspace-shell .top-actions > button,
+.app-shell.workspace-shell .workspace-heading > button,
+.app-shell.workspace-shell .workspace-empty button { background: var(--reading-surface, #fff); color: var(--reading-accent, #396e6a); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .top-actions > button:hover,
+.app-shell.workspace-shell .settings-link:hover { background: var(--reading-selected, #ddebe7); border-color: var(--reading-accent, #396e6a); }
+
+.app-shell.workspace-shell .workspace-nav,
+.app-shell.workspace-shell .sidebar,
+.app-shell.workspace-shell .toc-panel { background: var(--reading-sidebar-background, #eef4f2); border-color: var(--reading-border, #d7e2e0); color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .workspace-nav .workspace-nav-item,
+.app-shell.workspace-shell .workspace-nav .shelf-book,
+.app-shell.workspace-shell .workspace-nav .toc-item,
+.app-shell.workspace-shell .workspace-nav-footer a { color: var(--reading-muted, #5d6a6c); }
+.app-shell.workspace-shell .workspace-nav .workspace-nav-item:hover,
+.app-shell.workspace-shell .workspace-nav .workspace-nav-item.active,
+.app-shell.workspace-shell .workspace-nav .shelf-book:hover,
+.app-shell.workspace-shell .workspace-nav .shelf-book.active,
+.app-shell.workspace-shell .workspace-nav .toc-item.active,
+.app-shell.workspace-shell .shelf-editions > button[aria-current="true"] { background: var(--reading-selected, #ddebe7); color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .workspace-nav .workspace-nav-item.active,
+.app-shell.workspace-shell .workspace-nav .toc-item.active { box-shadow: inset 2px 0 var(--reading-accent, #396e6a); }
+.app-shell.workspace-shell .workspace-nav .workspace-book-spine { border-color: var(--reading-accent, #396e6a); }
+.app-shell.workspace-shell .workspace-nav-footer,
+.app-shell.workspace-shell .workspace-book-search,
+.app-shell.workspace-shell .shelf-editions { border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .workspace-book-search input { background: var(--reading-surface, #fff); color: var(--reading-text, #263238); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .workspace-book-search form button { background: var(--reading-selected, #ddebe7); color: var(--reading-accent, #396e6a); }
+.app-shell.workspace-shell .workspace-nav button:focus-visible,
+.app-shell.workspace-shell .workspace-nav a:focus-visible,
+.app-shell.workspace-shell .workspace-nav input:focus-visible,
+.app-shell.workspace-shell .workspace-nav summary:focus-visible { outline-color: var(--reading-accent, #396e6a); }
+
+.app-shell.workspace-shell .reading-pane,
+.app-shell.workspace-shell .reading-surface,
+.app-shell.workspace-shell .reading-content,
+.app-shell.workspace-shell .page-nav,
+.app-shell.workspace-shell .selection-bar { background: var(--reading-paper, #fffdf9); color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .reading-toolbar { color: var(--reading-muted, #5d6a6c); border-color: var(--reading-border, #d7e2e0); background: var(--reading-paper, #fffdf9); }
+.app-shell.workspace-shell .reader-sheet,
+.app-shell.workspace-shell .reader-sheet > p,
+.app-shell.workspace-shell .reading-content p,
+.app-shell.workspace-shell .reading-content h1,
+.app-shell.workspace-shell .reader-sheet .page-heading h1 { color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .reader-sheet .page-heading small,
+.app-shell.workspace-shell .reader-paginating,
+.app-shell.workspace-shell .selection-bar { color: var(--reading-muted, #5d6a6c); }
+.app-shell.workspace-shell .selection-bar { border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .selection-bar button { background: var(--reading-accent, #396e6a); color: var(--reading-surface, #fff); }
+.app-shell.workspace-shell .selection-bar button:hover { background: color-mix(in srgb, var(--reading-accent, #396e6a) 82%, var(--reading-text, #263238)); }
+.app-shell.workspace-shell .selection-bar .reading-settings { background: var(--reading-surface); color: var(--reading-muted); border-color: var(--reading-border); }
+.app-shell.workspace-shell .selection-bar .reading-settings button { background: transparent; color: var(--reading-accent); }
+.app-shell.workspace-shell .selection-bar .reading-settings button:hover { background: var(--reading-selected); }
+.app-shell.workspace-shell .page-nav { border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .reading-content [data-active-source="true"] { outline-color: var(--reading-accent, #396e6a); }
+
+.app-shell.workspace-shell .analysis-panel,
+.app-shell.workspace-shell .chat-messages { background: var(--reading-assistant-background, #f7faf9); color: var(--reading-text, #263238); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .analysis-header { background: var(--reading-sidebar-background, #eef4f2); color: var(--reading-text, #263238); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .analysis-header h2,
+.app-shell.workspace-shell .analysis-panel .message-content,
+.app-shell.workspace-shell .analysis-panel .assistant-readable,
+.app-shell.workspace-shell .analysis-panel .answer-row,
+.app-shell.workspace-shell .analysis-panel .empty-hint { color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .analysis-panel .message-role,
+.app-shell.workspace-shell .analysis-panel .answer-note { color: var(--reading-muted, #5d6a6c); }
+.app-shell.workspace-shell .book-context,
+.app-shell.workspace-shell .analysis-panel .raw-output pre,
+.app-shell.workspace-shell .analysis-panel .empty-orbit { background: var(--reading-surface, #fff); color: var(--reading-text, #263238); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .chat-message.user .message-content { background: var(--reading-selected, #ddebe7); border-color: var(--reading-border, #d7e2e0); color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .assistant-readable h4,
+.app-shell.workspace-shell .analysis-panel a,
+.app-shell.workspace-shell .citation-link { color: var(--reading-accent, #396e6a); }
+.app-shell.workspace-shell .chat-composer { background: var(--reading-sidebar-background, #eef4f2); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .chat-composer textarea { background: var(--reading-surface, #fff); color: var(--reading-text, #263238); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .chat-composer textarea::placeholder { color: var(--reading-muted, #5d6a6c); }
+.app-shell.workspace-shell .chat-composer textarea:focus { border-color: var(--reading-accent, #396e6a); box-shadow: 0 0 0 2px color-mix(in srgb, var(--reading-accent, #396e6a) 22%, transparent); }
+.app-shell.workspace-shell .send-button { background: var(--reading-accent, #396e6a); }
+.app-shell.workspace-shell .send-button:hover { background: color-mix(in srgb, var(--reading-accent, #396e6a) 82%, var(--reading-text, #263238)); }
+.app-shell.workspace-shell .analysis-panel button:focus-visible,
+.app-shell.workspace-shell .analysis-panel summary:focus-visible { outline-color: var(--reading-accent, #396e6a); }
+
+.app-shell.workspace-shell .bookshelf-workspace { background: var(--reading-paper, #fffdf9); color: var(--reading-text, #263238); }
+.app-shell.workspace-shell .bookshelf-toolbar input,
+.app-shell.workspace-shell .bookshelf-editions button { background: var(--reading-surface, #fff); color: var(--reading-text, #263238); border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .bookshelf-toolbar button,
+.app-shell.workspace-shell .bookshelf-author,
+.app-shell.workspace-shell .bookshelf-read-action,
+.app-shell.workspace-shell .bookshelf-footer,
+.app-shell.workspace-shell .workspace-empty { color: var(--reading-muted, #5d6a6c); }
+.app-shell.workspace-shell .bookshelf-heading,
+.app-shell.workspace-shell .workspace-heading p { color: var(--reading-muted, #5d6a6c); }
+.app-shell.workspace-shell .bookshelf-editions,
+.app-shell.workspace-shell .bookshelf-footer { border-color: var(--reading-border, #d7e2e0); }
+.app-shell.workspace-shell .workspace-inline-error { background: color-mix(in srgb, var(--reading-accent, #396e6a) 10%, var(--reading-paper, #fffdf9)); border-color: var(--reading-border, #d7e2e0); color: var(--reading-text, #263238); }
+
+.app-shell.workspace-shell .upload-toast { background: var(--reading-surface, #fff); color: var(--reading-text, #263238); border-color: var(--reading-border, #d7e2e0); }
+
+
+/* WHY：标题、空状态和状态菜单也属于主题，不能只验证容器背景色。书封和用户标亮色保留各自语义。 */
+.app-shell.workspace-shell .workspace-heading h1,
+.app-shell.workspace-shell .workspace-empty h2,
+.app-shell.workspace-shell .analysis-empty h3 { color: var(--reading-text); }
+.app-shell.workspace-shell .workspace-heading h1 span,
+.app-shell.workspace-shell .analysis-empty p,
+.app-shell.workspace-shell .shelf-editions > summary,
+.app-shell.workspace-shell .shelf-editions > button,
+.app-shell.workspace-shell .shelf-editions small,
+.app-shell.workspace-shell .bookshelf-editions > p,
+.app-shell.workspace-shell .bookshelf-editions time,
+.app-shell.workspace-shell .bookshelf-editions small,
+.app-shell.workspace-shell .workspace-book-search summary,
+.app-shell.workspace-shell .workspace-book-search .search-results small,
+.app-shell.workspace-shell .index-ready,
+.app-shell.workspace-shell .index-fallback { color: var(--reading-muted); }
+.app-shell.workspace-shell .bookshelf-editions button[aria-current="true"],
+.app-shell.workspace-shell .workspace-nav-footer a:hover { background: var(--reading-selected); color: var(--reading-text); }
+.app-shell.workspace-shell .workspace-book-search .search-results button,
+.app-shell.workspace-shell .search-status,
+.app-shell.workspace-shell .search-index-status { background: var(--reading-surface); color: var(--reading-text); border-color: var(--reading-border); }
+.app-shell.workspace-shell .search-results b,
+.app-shell.workspace-shell .search-results small,
+.app-shell.workspace-shell .search-status small { color: var(--reading-muted); }
+.app-shell.workspace-shell .concept-toggle { background: var(--reading-surface); color: var(--reading-text); border-color: var(--reading-border); }
+.app-shell.workspace-shell .concept-toggle[aria-pressed="true"] { background: var(--reading-selected); color: var(--reading-accent); }
+.app-shell.workspace-shell .page-nav button { color: var(--reading-accent); }
+.app-shell.workspace-shell .page-nav button:disabled { color: var(--reading-muted); opacity: .5; }
+.app-shell.workspace-shell .workspace-mobilebar button,
+.app-shell.workspace-shell .workspace-nav-close,
+.app-shell.workspace-shell .close-button,
+.app-shell.workspace-shell .bookshelf-open:hover .bookshelf-read-action { color: var(--reading-accent); }
+.app-shell.workspace-shell .bookshelf-workspace :is(button,input):focus-visible { outline-color: var(--reading-accent); }
+.app-shell.workspace-shell .shelf-editions > button[aria-current="true"] { color: var(--reading-text); }
+.app-shell.workspace-shell .knowledge-workspace .workspace-knowledge-panel { color: var(--reading-text); }
+.app-shell.workspace-shell .analysis-panel .answer-row b,
+.app-shell.workspace-shell .analysis-panel .raw-output summary { color: var(--reading-accent); }
+.app-shell.workspace-shell .analysis-panel .raw-output,
+.app-shell.workspace-shell .analysis-panel .answer-row { border-color: var(--reading-border); }
+.app-shell.workspace-shell .analysis-panel .close-button:hover { background: var(--reading-selected); }
+
+/* WHY：标注卡片通过 portal 放在 body，依赖根主题而不是 workspace-shell 祖先。 */
+.judu-annotation-popover,
+.judu-annotation-popover[data-theme] { background: var(--reading-surface); color: var(--reading-text); border-color: var(--reading-border); }
+.judu-annotation-history time { color: var(--reading-muted); }
+.judu-annotation-history li + li { border-color: var(--reading-border); }
+.judu-annotation-popover button:focus-visible { outline-color: var(--reading-accent); }
+.judu-annotation-popover__header button:hover { background: var(--reading-selected); }

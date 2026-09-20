@@ -1,6 +1,6 @@
-.knowledge-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; background: #fff; }
+.knowledge-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; background: var(--reading-paper); }
 .knowledge-workspace .workspace-heading { flex: 0 0 auto; padding-bottom: 12px; }
-.knowledge-workspace .workspace-knowledge-panel { flex: 1; min-height: 0; height: auto; border: 0; background: #fff; --chrome: #f4f6f5; --paper: #fff; }
+.knowledge-workspace .workspace-knowledge-panel { flex: 1; min-height: 0; height: auto; border: 0; background: var(--reading-paper);  }
 .knowledge-workspace .workspace-knowledge-panel > header { padding: 8px 30px 14px; }
 .knowledge-workspace .workspace-knowledge-panel > [role="tablist"] { padding-left: 30px; padding-right: 30px; }
 .knowledge-workspace .workspace-knowledge-panel > label { padding-left: 30px; padding-right: 30px; }

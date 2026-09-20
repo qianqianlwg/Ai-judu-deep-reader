@@ -15,6 +15,7 @@
         "@langchain/openai": "^1.5.13",
         "@types/pg": "^8.23.1",
         "epub": "^2.1.1",
+        "fast-xml-parser": "5.11.1",
         "langchain": "^1.5.11",
         "next": "16.3.5",
         "pdf-parse": "^2.4.5",
@@ -24,9 +25,11 @@
         "react-dom": "19.2.8",
         "react-markdown": "^10.1.0",
         "remark-gfm": "^4.0.1",
+        "sharp": "0.35.4",
         "zod": "^4.6.5"
     },
     "devDependencies": {
+        "@lingo-reader/mobi-parser": "0.4.6",
         "@tailwindcss/postcss": "^4",
         "@types/node": "^20",
         "@types/react": "^19",
@@ -34,6 +37,7 @@
         "eslint": "^9",
         "eslint-config-next": "16.3.5",
         "jsdom": "^30.0.1",
+        "parse5": "8.0.1",
         "tailwindcss": "^4",
         "typescript": "^5",
         "vitest": "^3.2.4"

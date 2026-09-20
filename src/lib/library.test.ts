@@ -25,3 +25,20 @@ describe("书籍版本身份", () => {
     expect(() => readBookResponse({ ...response, editionId: "foreign" }, "a")).toThrow("不属于");
   });
 });
+
+describe("dual-track public contract", () => {
+  it("retains original metadata and the exact source href, without changing paragraphs", () => {
+    const metadata = { ...old, hasOriginalFile: true, fileSize: 123, originalHash: "a".repeat(64), readerMode: "text" };
+    const response = { ...book, editions: [metadata], editionId: "old", chapters: [{ id: "c", title: "t", sourceHref: "OPS/Text/chapter%20one.xhtml#part", paragraphs: [{ id: "p", text: "  preserved text  " }] }] };
+    const result = readBookResponse(response, "a", "old");
+    expect(result.edition).toEqual(metadata); expect(result.chapters).toEqual(response.chapters);
+  });
+  it.each([{ readerMode: "epub" }, { originalHash: "not a hash" }, { fileSize: -1 }, { hasOriginalFile: 1 }])("rejects malformed original metadata %j", fields => {
+    expect(() => readLibraryResponse([{ ...book, editions: [{ ...old, ...fields }] }])).toThrow("版本数据不完整");
+  });
+  it("rejects malformed sourceHref but accepts legacy chapters without it", () => {
+    const response = { ...book, editionId: "old", chapters: [{ id: "c", title: "t", paragraphs: [{ id: "p", text: "original" }] }] };
+    expect(readBookResponse(response, "a").chapters[0]).not.toHaveProperty("sourceHref");
+    expect(() => readBookResponse({ ...response, chapters: [{ ...response.chapters[0], sourceHref: 42 }] }, "a")).toThrow("章节数据不完整");
+  });
+});

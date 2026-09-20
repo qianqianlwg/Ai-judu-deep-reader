@@ -1,0 +1,11 @@
+.epub-interactions{position:absolute;inset:0 0 40px;pointer-events:none;z-index:3;overflow:hidden;color:var(--reading-accent);}
+.epub-history-marker,.epub-concept-trigger,.epub-popover-anchor{position:absolute;display:block;box-sizing:border-box;padding:0;border:0;background:transparent;color:inherit;font:inherit;}
+.epub-history-marker{pointer-events:auto;cursor:pointer;border-radius:3px;background:var(--reading-paper);line-height:1;}
+.epub-history-marker:hover,.epub-history-marker:focus-visible{background:var(--reading-selected);outline:1px solid var(--reading-accent);}
+.epub-concept-trigger{pointer-events:none;}
+.epub-concept-trigger:focus-visible{outline:2px solid var(--reading-accent);outline-offset:2px;}
+.epub-popover-anchor{pointer-events:none;visibility:hidden;}
+.epub-reference-preview p{white-space:pre-wrap;overflow-wrap:anywhere;}
+.epub-reference-preview button{border:0;background:transparent;color:var(--reading-accent);padding:8px 0 0;text-decoration:underline;text-underline-offset:3px;cursor:pointer;}
+
+.pdf-document-surface>.original-interactions{inset:0;}

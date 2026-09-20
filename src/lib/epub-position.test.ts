@@ -1,0 +1,4 @@
+import { expect,it,vi } from 'vitest';
+import { originalPositionKey,readOriginalPosition,sameReadingAnchor } from './epub-position';
+it('原版位置绑定版本 key 和原文件哈希',()=>{ const value={version:1,originalHash:'hash',cfi:'epubcfi(/6/2)',anchor:{paragraphId:'p',offset:2}};expect(originalPositionKey('e')).toBe('judu:original-position:e');expect(readOriginalPosition(JSON.stringify(value),'hash')).toEqual(value);expect(readOriginalPosition(JSON.stringify(value),'other')).toBeNull();expect(sameReadingAnchor(value.anchor,{paragraphId:'p',offset:2})).toBe(true); });
+it('损坏或非法位置不能用于跳转',()=>{const log=vi.spyOn(console,'warn').mockImplementation(()=>{});expect(readOriginalPosition('{','h')).toBeNull();expect(readOriginalPosition('{"version":1,"originalHash":"h","cfi":"https://evil","anchor":null}','h')).toBeNull();expect(readOriginalPosition('{"version":1,"originalHash":"h","cfi":"epubcfi(/6)","anchor":{"paragraphId":"p","offset":-1}}','h')).toBeNull();log.mockRestore();});

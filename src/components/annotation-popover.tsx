@@ -57,7 +57,10 @@ export function isInPopoverBridge(point: { x: number; y: number }, anchor: Bound
   return inside;
 }
 
+export type PopoverSource = { document:Document; toHostPoint(x:number,y:number):{x:number;y:number}; containsPoint(x:number,y:number):boolean };
 type Props = {
+  source?:PopoverSource;
+  returnFocus?:()=>void;
   id: string;
   anchor: HTMLElement;
   title: string;
@@ -67,7 +70,7 @@ type Props = {
 };
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 
-export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, children }: Props) {
+export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, children, source, returnFocus }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -146,7 +149,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     const leave = () => { pointerInside.current = false; scheduleClose(); };
     const move = (event: MouseEvent) => {
       if (!card || pinnedRef.current) return;
-      if (event.target instanceof Node && (anchor.contains(event.target) || card.contains(event.target))) { enter(); return; }
+      if ((event.target instanceof Node && (anchor.contains(event.target) || card.contains(event.target))) || (source?.document===doc&&source.containsPoint(event.clientX,event.clientY))) { enter(); return; }
       pointerInside.current = false;
       // WHY：几何通道只用于短暂过渡，真正进入卡片后再取消关闭，避免留白移动无限续期。
       if (!isInPopoverBridge({ x: event.clientX, y: event.clientY }, anchor.getBoundingClientRect(), card.getBoundingClientRect())) scheduleClose();
@@ -156,7 +159,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
       scheduleClose();
     };
     const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !anchor.contains(event.target) && !card?.contains(event.target)) onCloseRef.current(false);
+      if (event.target instanceof Node && !anchor.contains(event.target) && !card?.contains(event.target) && !(source?.document===doc&&source.containsPoint(event.clientX,event.clientY))) onCloseRef.current(false);
     };
     const keys = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onCloseRef.current(!!card?.contains(doc.activeElement)); }
@@ -170,7 +173,20 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     anchor.addEventListener("mouseenter", enter); anchor.addEventListener("mouseleave", leave);
     anchor.addEventListener("focusout", blur); anchor.addEventListener("keydown", triggerKeys);
     doc.addEventListener("mousemove", move); doc.addEventListener("pointerdown", outside); doc.addEventListener("keydown", keys, true);
+    const sourceMove=(event:MouseEvent)=>{
+      if(!card||pinnedRef.current)return;
+      if(source?.containsPoint(event.clientX,event.clientY)){enter();return;}
+      const point=source?.toHostPoint(event.clientX,event.clientY);pointerInside.current=false;
+      if(point&&!isInPopoverBridge(point,anchor.getBoundingClientRect(),card.getBoundingClientRect()))scheduleClose();
+    };
+    const sourceOutside=(event:PointerEvent)=>{if(!source?.containsPoint(event.clientX,event.clientY))onCloseRef.current(false);};
+    // WHY：PDF文字与浮窗同属一个document，不能把卡片内部事件再当iframe外部点击处理。
+    const foreignSource=source?.document!==doc?source?.document:undefined;
+    foreignSource?.addEventListener("mousemove",sourceMove);
+    foreignSource?.addEventListener("pointerdown",sourceOutside);
+    foreignSource?.addEventListener("keydown",keys,true);
     return () => {
+      foreignSource?.removeEventListener("mousemove",sourceMove);foreignSource?.removeEventListener("pointerdown",sourceOutside);foreignSource?.removeEventListener("keydown",keys,true);
       cancelClose();
       anchor.removeEventListener("mouseenter", enter); anchor.removeEventListener("mouseleave", leave);
       anchor.removeEventListener("focusout", blur); anchor.removeEventListener("keydown", triggerKeys);
@@ -178,7 +194,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     };
   // WHY：事件通过 ref 读取最新回调和固定状态，避免流式更新时反复拆装鼠标监听。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor]);
+  }, [anchor, source]);
 
   if (!anchor.ownerDocument.body) return null;
   return createPortal(
@@ -192,7 +208,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
         event.stopPropagation();
         if (event.key !== "Tab") return;
         const items = Array.from(cardRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-        if (event.shiftKey && event.target === items[0]) { event.preventDefault(); anchor.focus(); }
+        if (event.shiftKey && event.target === items[0]) { event.preventDefault(); if(returnFocus)returnFocus();else anchor.focus(); }
         if (!event.shiftKey && event.target === items[items.length - 1]) {
           const outside = Array.from(anchor.ownerDocument.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((item) => !cardRef.current?.contains(item));
           const next = outside[outside.indexOf(anchor) + 1];

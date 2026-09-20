@@ -1,6 +1,7 @@
+import { readReadingAnchor, type ReadingAnchor } from "./reading-anchors";
 export type KnowledgeDefinition = { name: string; text: string };
 
-export type KnowledgeAnchor = {
+export type KnowledgeAnchor = ReadingAnchor & {
   editionId: string;
   chapterId: string;
   paragraphId: string;
@@ -52,7 +53,7 @@ export function isKnowledgeAnchor(value: unknown): value is KnowledgeAnchor {
     && typeof value.endOffset === "number" && Number.isInteger(value.endOffset)
     && value.startOffset >= 0 && value.endOffset > value.startOffset
     && typeof value.selectedText === "string"
-    && value.selectedText.length === value.endOffset - value.startOffset;
+    && value.selectedText.length === value.endOffset - value.startOffset && readReadingAnchor(value) !== null;
 }
 
 function isKnowledgeRecord(value: unknown): value is KnowledgeRecord {

@@ -38,11 +38,13 @@ function countReferences(db: LegacyThreadDatabase, table: LegacyThreadReferenceT
   return row.count;
 }
 function readThreads(db: LegacyThreadDatabase): LegacyRow[] {
-  return db.prepare("SELECT rowid AS legacyRowId, id, edition_id AS editionId FROM reading_threads ORDER BY rowid").all().map(value => {
-    if (!record(value) || typeof value.legacyRowId !== "number" || !Number.isSafeInteger(value.legacyRowId) || (typeof value.id !== "string" && value.id !== null) || typeof value.editionId !== "string") {
+  return db.prepare("SELECT rowid AS legacyRowId, CAST(id AS BLOB) AS idBytes, edition_id AS editionId FROM reading_threads ORDER BY rowid").all().map(value => {
+    if (!record(value) || typeof value.legacyRowId !== "number" || !Number.isSafeInteger(value.legacyRowId) || (value.idBytes !== null && !(value.idBytes instanceof Uint8Array)) || typeof value.editionId !== "string") {
       throw new Error("旧会话主键或版本字段无法安全识别，迁移已回滚");
     }
-    return { legacyRowId: value.legacyRowId, id: value.id, editionId: value.editionId };
+    // WHY：部分 Node SQLite 版本将含 NUL 的 TEXT 截断；用 BLOB 完整解码，避免非法旧 ID 被误认为合法且遗漏迁移。
+    const id = value.idBytes === null ? null : Buffer.from(value.idBytes as Uint8Array).toString("utf8");
+    return { legacyRowId: value.legacyRowId, id, editionId: value.editionId };
   });
 }
 function createUnusedId(db: LegacyThreadDatabase, tables: readonly LegacyThreadReferenceTable[], createId: () => string): string {

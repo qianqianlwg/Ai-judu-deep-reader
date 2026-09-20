@@ -4,9 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspaceSelection } from "./workspace-selection";
 let host: HTMLDivElement; let root: Root; let frames: Map<number, FrameRequestCallback>; let nextFrame: number;
-const received = vi.fn();
+const received = vi.fn(), cleared=vi.fn(), started=vi.fn();
 function View({ enabled = true }: { enabled?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null); useWorkspaceSelection(ref, received, enabled);
+  const ref = useRef<HTMLDivElement>(null); useWorkspaceSelection(ref, received, enabled,undefined,cleared,started);
   return <><div ref={ref}><p data-paragraph-id="p" data-source-start="29"><span data-reader-text="">自我意识😀通过承认认识自己。</span><span data-reader-decoration="">注</span></p></div><p data-paragraph-id="other" data-source-start="0">外部聊天原文</p><button type="button">句读一下</button></>;
 }
 function select(id = "p", start = 2, end = 8) {
@@ -18,7 +18,7 @@ function select(id = "p", start = 2, end = 8) {
 }
 function flush() { act(() => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(performance.now())); }); }
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); received.mockReset(); frames = new Map(); nextFrame = 0;
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); received.mockReset(); cleared.mockReset(); started.mockReset(); frames = new Map(); nextFrame = 0;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; });
   vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   host = document.createElement("div"); document.body.append(host); root = createRoot(host); act(() => root.render(<View />));
@@ -46,4 +46,13 @@ describe("useWorkspaceSelection", () => {
     act(() => { select(); document.dispatchEvent(new Event("selectionchange")); select("p", 0, 4); document.dispatchEvent(new Event("selectionchange")); }); flush();
     expect(received).toHaveBeenCalledOnce(); expect(received.mock.calls[0][0]).toMatchObject({ startOffset: 29, endOffset: 33, text: "自我意识" });
   });
+});
+
+it("开始新拖选取消待发旧快照，不影响工具栏点击，键盘折叠清理旧选文",()=>{
+ act(()=>{select();document.dispatchEvent(new Event('selectionchange'));host.querySelector('[data-reader-text]')!.dispatchEvent(new Event('pointerdown',{bubbles:true}));});flush();
+ expect(started).toHaveBeenCalledOnce();expect(received).not.toHaveBeenCalled();
+ act(()=>host.querySelector('button')!.dispatchEvent(new Event('pointerdown',{bubbles:true})));expect(started).toHaveBeenCalledOnce();
+ act(()=>{select();document.dispatchEvent(new Event('selectionchange'));});flush();expect(received).toHaveBeenCalledOnce();
+ act(()=>{document.getSelection()!.collapseToEnd();host.querySelector('[data-reader-text]')!.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'ArrowRight'}));});
+ expect(cleared).toHaveBeenCalledOnce();
 });

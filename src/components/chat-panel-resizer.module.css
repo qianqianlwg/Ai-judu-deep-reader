@@ -1,0 +1,53 @@
+.resizer {
+  /* WHY：覆盖在聊天面板左边缘，不占用宿主现有 grid 列。宿主需要 position: relative。 */
+  position: absolute;
+  inset: 0 auto 0 -5px;
+  z-index: 2;
+  width: 10px;
+  /* WHY：命中区域可以宽，但不能把整条命中区域画成主题色竖条。 */
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 5px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.resizer:hover::after,
+.resizer:focus-visible::after {
+  background: color-mix(in srgb, var(--reading-text, #292d32) 24%, transparent);
+}
+
+.resizer:focus-visible {
+  outline: 2px solid var(--reading-accent, #495666);
+  outline-offset: -2px;
+}
+
+.resizer[hidden] { display: none; }
+
+.status {
+  position: absolute;
+  inset: auto 12px 12px;
+  z-index: 3;
+  padding: 8px 12px;
+  border: 1px solid #ad7530;
+  border-radius: 6px;
+  background: #fff8e9;
+  color: #644514;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .resizer, .status { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resizer::after { transition: none; }
+}

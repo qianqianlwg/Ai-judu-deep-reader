@@ -106,6 +106,15 @@ describe("与可见正文和测量器共用的排版契约", () => {
       expect(getReadingAppearanceLayoutKey(normalizeReadingAppearance({ ...defaults, ...patch }))).not.toBe(baseline);
     }
   });
+  it("主题变量同时覆盖新阅读变量与旧工作台变量", () => {
+    const dark = getReadingThemeVariables("dark");
+    expect(dark["--ui-bg"]).toBe("#191C1F");
+    expect(dark["--ui-panel"]).toBe("#22272B");
+    expect(dark["--ui-panel-deep"]).toBe("#2B3236");
+    expect(dark["--ui-border"]).toBe("#4C5A5A");
+    expect(dark["--ui-text"]).toBe("#E3E7E6");
+    expect(dark["--ui-accent"]).toBe("#A1C9BF");
+  });
   it("雾彩仅两侧渐变，无外部资源，所有正文面板是纯色", () => {
     for (const theme of READING_THEMES) {
       const variables = getReadingThemeVariables(theme.id);
@@ -116,7 +125,7 @@ describe("与可见正文和测量器共用的排版契约", () => {
     expect(mist["--reading-sidebar-background"]).toContain("linear-gradient");
     expect(mist["--reading-assistant-background"]).toContain("linear-gradient");
   });
-  it("五种主题正文、次要文字、强调色对纸面及控件底色满足 4.5:1 对比度", () => {
+  it("所有主题正文、次要文字、强调色对纸面及控件底色满足 4.5:1 对比度", () => {
     const luminance = (hex: string) => {
       const rgb = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
         .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
@@ -149,6 +158,12 @@ describe("首屏主题防闪脚本", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     localStorage.setItem(keys.preferences, "broken"); bootstrap(); expect(warn).toHaveBeenCalledOnce();
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
-    bootstrap(); expect(error).toHaveBeenCalledOnce(); expect(document.documentElement.dataset.readingTheme).toBe("light");
+    bootstrap(); expect(error).toHaveBeenCalledOnce(); expect(document.documentElement.dataset.readingTheme).toBe("gray");
   });
+});
+
+it("默认灰白且旧浅色偏好仍保持浅绿配色",()=>{
+ expect(defaults.theme).toBe('gray');
+ expect(READING_THEMES.find(theme=>theme.id==='light')).toMatchObject({label:'浅绿',paper:'#FFFDF9'});
+ expect(normalizeReadingAppearance({theme:'light'}).theme).toBe('light');
 });

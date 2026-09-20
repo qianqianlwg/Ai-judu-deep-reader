@@ -1,4 +1,34 @@
-export type ReadingSelection = { paragraphId: string; startOffset: number; endOffset: number; text: string };
+import { countReadingCharacters, MAX_READING_SELECTION } from "./reading-detail";
+import { anchorsMatchParagraphs, SELECTION_SEPARATOR, type ReadingAnchorPart, type AnchorParagraph } from "./reading-anchors";
+export type ReadingSelectionPart = { paragraphId: string; startOffset: number; endOffset: number; text: string };
+export type ReadingSelection = ReadingSelectionPart & { version?: 2; fragments?: ReadingSelectionPart[] };
+export function selectionParts(selection: ReadingSelection): readonly ReadingSelectionPart[] { return selection.fragments ?? [selection]; }
+export function selectionAnchors(selection: ReadingSelection): ReadingAnchorPart[] { return selectionParts(selection).map(({text,...part}) => ({...part,selectedText:text})); }
+export function selectionFromParts(parts: readonly ReadingSelectionPart[]): ReadingSelection {
+  if (!parts.length) throw new Error("选区不能为空");
+  return parts.length === 1 ? {...parts[0]} : {...parts[0],version:2,fragments:parts.map(part=>({...part})),text:parts.map(part=>part.text).join(SELECTION_SEPARATOR)};
+}
+export function selectionMatchesParagraphs(selection: ReadingSelection, paragraphs: readonly AnchorParagraph[]): boolean { return anchorsMatchParagraphs(selectionAnchors(selection), paragraphs, selection.text); }
+/** WHY：限制实际可见选区而不是在提交时暗中截文；UTF-16 偏移与 Unicode 字数分别计算。 */
+export function capReadingSelection(selection: ReadingSelection, fromEnd = false): ReadingSelection {
+  if (countReadingCharacters(selection.text) <= MAX_READING_SELECTION) return selection;
+  let remaining = MAX_READING_SELECTION;
+  const result: ReadingSelectionPart[] = [];
+  const parts = [...selectionParts(selection)];
+  if (fromEnd) parts.reverse();
+  for (const part of parts) {
+    if (result.length) remaining -= SELECTION_SEPARATOR.length;
+    if (remaining <= 0) break;
+    const points = Array.from(part.text);
+    const text = (fromEnd ? points.slice(-remaining) : points.slice(0, remaining)).join("");
+    if (!text.trim()) break;
+    result.push({...part,text,...(fromEnd ? {startOffset:part.endOffset-text.length} : {endOffset:part.startOffset+text.length})});
+    remaining -= points.length;
+    if (remaining <= 0) break;
+  }
+  if (fromEnd) result.reverse();
+  return selectionFromParts(result);
+}
 
 /** 分页 DOM 中一个可合并的原文片段；偏移始终是 UTF-16 code unit 偏移。 */
 export type ReadingSelectionFragment = ReadingSelection & {
@@ -20,9 +50,6 @@ export type SelectionExtensionResult =
   | { ok: true; selection: ReadingSelection; fragments: readonly ReadingSelectionFragment[]; direction: SelectionExtensionDirection; added: ReadingSelectionFragment }
   | { ok: false; reason: SelectionMergeFailureReason; message: string; direction: SelectionExtensionDirection; added: ReadingSelectionFragment };
 
-function paragraphFor(node: Node): HTMLElement | null {
-  return (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("p[data-paragraph-id]") ?? null;
-}
 function plainText(fragment: DocumentFragment): string {
   fragment.querySelectorAll("[data-reader-decoration], button, [role='dialog'], [role='tooltip']").forEach(node => node.remove());
   return fragment.textContent ?? "";
@@ -71,6 +98,19 @@ export function mergeReadingSelectionFragments(fragments: readonly ReadingSelect
     fragments: ordered,
   };
 }
+export function mergeContinuousSelections(left: ReadingSelection, right: ReadingSelection, paragraphs: readonly AnchorParagraph[]): ReadingSelection | null {
+  const parts = [...selectionParts(left), ...selectionParts(right)].sort((a,b)=>paragraphs.findIndex(p=>p.id===a.paragraphId)-paragraphs.findIndex(p=>p.id===b.paragraphId)||a.startOffset-b.startOffset);
+  const merged: ReadingSelectionPart[] = [];
+  for (const part of parts) {
+    const previous = merged.at(-1);
+    if (previous?.paragraphId === part.paragraphId) {
+      if (previous.endOffset !== part.startOffset) return null;
+      previous.text += part.text; previous.endOffset = part.endOffset;
+    } else merged.push({...part});
+  }
+  const result = selectionFromParts(merged);
+  return selectionMatchesParagraphs(result, paragraphs) && countReadingCharacters(result.text) <= MAX_READING_SELECTION ? result : null;
+}
 function extendSelection(selection: ReadingSelection, adjacent: ReadingSelectionFragment, direction: SelectionExtensionDirection): SelectionExtensionResult {
   const fragments = direction === "next" ? [selection, adjacent] : [adjacent, selection];
   const result = mergeReadingSelectionFragments(fragments);
@@ -98,13 +138,46 @@ export function selectionFragmentFromPagePart(input: {
     endOffset: input.sourceEndOffset, pageIndex: input.pageIndex, pageNumber: input.pageNumber,
   };
 }
-export function readReadingSelection(selection: Selection | null, container: HTMLElement): ReadingSelection | null {
+export function readReadingSelection(selection: Selection | null, container: HTMLElement, onLimit?: () => void): ReadingSelection | null {
   if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
-  const range = selection.getRangeAt(0); const start = paragraphFor(range.startContainer); const end = paragraphFor(range.endContainer);
-  if (!start || start !== end || !container.contains(start)) return null;
-  const paragraphId = start.dataset.paragraphId; if (!paragraphId) return null;
-  const prefix = range.cloneRange(); prefix.selectNodeContents(start); prefix.setEnd(range.startContainer, range.startOffset);
-  const raw = plainText(range.cloneContents()); const text = raw.trim(); if (!text) return null;
-  const startOffset = Number(start.dataset.sourceStart ?? 0) + plainText(prefix.cloneContents()).length + (raw.length - raw.trimStart().length);
-  return { paragraphId, startOffset, endOffset: startOffset + text.length, text };
+  const range = selection.getRangeAt(0);
+  if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
+  const parts: ReadingSelectionPart[] = [];
+  const elements = Array.from(container.querySelectorAll<HTMLElement>("p[data-paragraph-id]"));
+  for (const element of elements) {
+    if (!range.intersectsNode(element)) continue;
+    const partRange = range.cloneRange();
+    if (!element.contains(range.startContainer)) partRange.setStart(element,0);
+    if (!element.contains(range.endContainer)) partRange.setEnd(element,element.childNodes.length);
+    const prefix = range.cloneRange(); prefix.selectNodeContents(element); prefix.setEnd(partRange.startContainer,partRange.startOffset);
+    const raw = plainText(partRange.cloneContents()); const text = raw.trim(); if (!text) continue;
+    const startOffset = Number(element.dataset.sourceStart ?? 0) + plainText(prefix.cloneContents()).length + raw.length-raw.trimStart().length;
+    parts.push({paragraphId:element.dataset.paragraphId!,startOffset,endOffset:startOffset+text.length,text});
+  }
+  if (!parts.length) return null;
+  const full = selectionFromParts(parts);
+  if(plainText(range.cloneContents()).replace(/\s/gu,"")!==full.text.replace(/\s/gu,""))return null;
+  const fromEnd = selection.anchorNode === range.endContainer && selection.anchorOffset === range.endOffset;
+  const capped = capReadingSelection(full, fromEnd);
+  if (capped !== full) {
+    const cappedParts = selectionParts(capped), first=cappedParts[0], last=cappedParts[cappedParts.length-1];
+    const locate = (part: ReadingSelectionPart, offset: number) => {
+      const element = elements.find(item=>item.dataset.paragraphId===part.paragraphId && offset>=Number(item.dataset.sourceStart??0) && offset<=Number(item.dataset.sourceStart??0)+plainText(elementFragment(item)).length);
+      if (!element) return null;
+      let remaining=offset-Number(element.dataset.sourceStart??0);
+      const walker=element.ownerDocument.createTreeWalker(element,4);
+      for(let node=walker.nextNode();node;node=walker.nextNode()) {
+        if(node.parentElement?.closest("[data-reader-decoration], button, [role='dialog'], [role='tooltip']"))continue;
+        if(remaining <= (node.nodeValue?.length??0))return {node,offset:remaining};
+        remaining-=node.nodeValue?.length??0;
+      }
+      return null;
+    };
+    const start=locate(first,first.startOffset), end=locate(last,last.endOffset);
+    if(!start||!end)return null;
+    selection.setBaseAndExtent(fromEnd?end.node:start.node,fromEnd?end.offset:start.offset,fromEnd?start.node:end.node,fromEnd?start.offset:end.offset);
+    onLimit?.();
+  }
+  return capped;
 }
+function elementFragment(element: Element): DocumentFragment { const range=element.ownerDocument.createRange();range.selectNodeContents(element);return range.cloneContents(); }

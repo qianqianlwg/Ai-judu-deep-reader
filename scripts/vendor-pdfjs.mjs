@@ -1,0 +1,14 @@
+import {cp,mkdir,readFile,writeFile,copyFile} from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const source=path.join(root,'node_modules','pdfjs-dist'),target=path.join(root,'public','vendor','pdfjs');
+const pkg=JSON.parse(await readFile(path.join(source,'package.json'),'utf8'));
+if(pkg.version!=='5.4.296')throw new Error('PDF.js版本变化，需要重新核验worker/API及许可');
+await mkdir(target,{recursive:true});
+for(const directory of ['cmaps','standard_fonts','wasm','iccs'])await cp(path.join(source,directory),path.join(target,directory),{recursive:true});
+await cp(path.join(source,'web','images'),path.join(target,'images'),{recursive:true});
+await copyFile(path.join(source,'build','pdf.worker.min.mjs'),path.join(target,'pdf.worker.min.mjs'));
+await copyFile(path.join(source,'LICENSE'),path.join(target,'LICENSE'));
+await writeFile(path.join(target,'version.json'),JSON.stringify({name:pkg.name,version:pkg.version,source:'npm:pdfjs-dist@'+pkg.version,license:'Apache-2.0'})+'\n');
+console.log('已同步固定版本PDF.js离线worker、字体、CMap与图标资源');

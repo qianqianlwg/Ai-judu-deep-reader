@@ -18,6 +18,8 @@ beforeEach(() => {
     "INSERT INTO chapters VALUES ('a2','a-new','第二章',2),('a1','a-new','第一章',1),('old','a-old','旧版章节',0),('b1','b-new','别书章节',0);" +
     "INSERT INTO paragraphs VALUES ('p2','a1','第二段',2),('p1','a1','第一段',1),('p3','a2','第三段',0),('p-old','old','旧版本原文',0),('p-b','b1','乙书独有原文',0);"
   );
+  state.db.exec("ALTER TABLE editions ADD COLUMN original_file_path TEXT NOT NULL DEFAULT ''; ALTER TABLE editions ADD COLUMN original_file_size INTEGER NOT NULL DEFAULT 0; ALTER TABLE editions ADD COLUMN original_hash TEXT;");
+  state.db.exec("ALTER TABLE chapters ADD COLUMN source_href TEXT");
 });
 afterEach(() => { state.db?.close(); state.db = undefined; });
 describe("GET books/[bookId] 显式版本", () => {
@@ -37,7 +39,7 @@ describe("GET books/[bookId] 显式版本", () => {
   it.each(["missing", "", "a' OR 1=1 --"])("无效BookID不回退其他书：%s", async id => { expect((await get(id)).status).toBe(404); });
   it("无版本和无章节均明确返回空目录，不混用其他版本", async () => {
     expect(await (await get("empty")).json()).toMatchObject({ id: "empty", editions: [], chapters: [] });
-    state.db?.exec("INSERT INTO editions VALUES ('a-empty','a','空版本.txt','txt','2026-04-01')");
+    state.db?.exec("INSERT INTO editions (id, book_id, file_name, file_type, created_at) VALUES ('a-empty','a','空版本.txt','txt','2026-04-01')");
     expect(await (await get("a")).json()).toMatchObject({ editionId: "a-empty", chapters: [] });
   });
   it("数据库异常上抛", async () => { state.db?.exec("DROP TABLE books"); await expect(get("a")).rejects.toThrow(); });

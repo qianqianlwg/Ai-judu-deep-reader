@@ -52,7 +52,7 @@ async function selectA() {
     const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   }); await settle();
-  expect(element(".selection-actions").textContent).toContain("已选择 2 个字");
+  expect(element(".selection-actions").textContent).toContain("已选 2 / 1000 字");
 }
 async function searchB() {
   await click(element(".workspace-book-search summary"));
@@ -138,6 +138,28 @@ describe("A选区→搜索B→真实句读请求", () => {
   });
   it("B偏移与命中不一致也不能继续沿用A锚点", async () => {
     result.startOffset = 0; await mount(); await selectA(); await searchB();
-    expect(element(".selection-actions").textContent).not.toContain("已选择"); expect(requests).toHaveLength(0);
+    expect(element(".selection-actions").textContent).not.toContain("已选"); expect(requests).toHaveLength(0);
   });
+});
+
+describe("多段选文真实页面装配",()=>{
+ async function selectBetween(firstId:string,start:number,lastId:string,end:number,pointer=false){
+  await act(async()=>{
+   const first=element('[data-paragraph-id="'+firstId+'"] [data-reader-text]').firstChild!,last=element('[data-paragraph-id="'+lastId+'"] [data-reader-text]').firstChild!;
+   if(pointer)first.parentElement!.dispatchEvent(new Event('pointerdown',{bubbles:true}));
+   const range=document.createRange();range.setStart(first,start);range.setEnd(last,end);const selection=document.getSelection()!;selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new Event('selectionchange'));
+  });await settle();
+ }
+ it("跨段选文提交全部片段、完整预览和第一段导航位置",async()=>{
+  await mount();await selectBetween('a',2,'b',12);const text=sourceA.slice(2)+'\n\n'+sourceB.slice(0,12);
+  expect(element('.selection-preview blockquote').textContent).toBe(text);expect(element('.selection-preview summary').textContent).toContain('2 段');
+  expect(document.getSelection()!.toString().replace(/\s/gu,'')).toBe(text.replace(/\s/gu,''));
+  await click(button('句读一下'));expect(requests[0]).toMatchObject({selectedText:text,paragraphId:'a',selectionStart:2,selectionEnd:sourceA.length,selectionAnchors:[{paragraphId:'a',startOffset:2,endOffset:sourceA.length,selectedText:sourceA.slice(2)},{paragraphId:'b',startOffset:0,endOffset:12,selectedText:sourceB.slice(0,12)}]});
+ });
+ it("显式继续选取在拖动端点多次更新时始终保留前段，下一次新拖选清理扩展",async()=>{
+  await mount();await selectBetween('a',2,'a',sourceA.length);await click(button('继续选取'));
+  await selectBetween('b',0,'b',6,true);expect(element('.selection-preview blockquote').textContent).toBe(sourceA.slice(2)+'\n\n'+sourceB.slice(0,6));
+  await selectBetween('b',0,'b',12);expect(element('.selection-preview blockquote').textContent).toBe(sourceA.slice(2)+'\n\n'+sourceB.slice(0,12));
+  await selectBetween('b',12,'b',24,true);expect(element('.selection-preview blockquote').textContent).toBe(sourceB.slice(12,24));
+ });
 });

@@ -1,10 +1,11 @@
-﻿import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import {
   DEFAULT_READING_APPEARANCE, getReadingAppearanceBootstrapScript, getReadingAppearanceVariables,
 } from "@/lib/reading-appearance";
 import "./globals.css";
+import "@/components/workspace-theme.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });

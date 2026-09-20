@@ -21,9 +21,9 @@ beforeEach(async () => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); host =
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe("ReadingAppearanceSettings", () => {
-  it("渲染五种本地主题缩略图、版本无外部图片，并提供无障碍分组", () => {
-    expect(host.querySelectorAll('input[type="radio"][name*="-theme"]')).toHaveLength(5);
-    expect(host.querySelectorAll(`[data-testid="reading-appearance-theme"]`)).toHaveLength(5);
+  it("渲染本地主题缩略图、版本无外部图片，并提供无障碍分组", () => {
+    expect(host.querySelectorAll('input[type="radio"][name*="-theme"]')).toHaveLength(6);
+    expect(host.querySelectorAll(`[data-testid="reading-appearance-theme"]`)).toHaveLength(6);
     expect(host.querySelectorAll("img")).toHaveLength(0);
     expect(host.querySelector("fieldset[disabled]")).toBeNull();
     expect(host.querySelector('fieldset legend')?.textContent).toContain("主题");

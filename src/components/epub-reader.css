@@ -1,0 +1,20 @@
+.reader-mode{display:flex;gap:2px;flex-shrink:0;border:1px solid var(--reading-border);border-radius:7px;padding:2px;}
+.reader-mode button{font:12px system-ui;border:0;border-radius:5px;background:transparent;color:var(--reading-muted);padding:5px 9px;}
+.reader-mode button[aria-pressed=true]{background:var(--reading-selected);color:var(--reading-accent);}
+.reader-mode button:disabled{opacity:.5;cursor:not-allowed;}
+.reading-surface{position:relative;min-width:0;min-height:0;overflow:hidden;}
+.reading-surface[data-original=true]>.reading-content{position:absolute;inset:0;visibility:hidden;pointer-events:none;}
+.epub-reader{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;background:var(--reading-paper,#fffdf9);}
+.epub-host{flex:1;min-height:0;width:100%;}
+.epub-status,.epub-error{position:absolute;inset:28% 12px auto;text-align:center;font:14px/1.8 system-ui;background:var(--reading-paper,#fffdf9);padding:20px;color:var(--reading-text);}
+.epub-error button{padding:7px 13px;margin:6px;border:1px solid var(--reading-border);border-radius:6px;background:var(--reading-surface);}
+.epub-navigation{flex:0 0 40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid var(--reading-border);font:12px system-ui;gap:6px;}
+.epub-navigation button{border:0;background:transparent;color:var(--reading-accent);padding:7px;}
+.epub-navigation button:disabled{opacity:.45;}
+.epub-footnote{position:absolute;bottom:48px;left:18px;right:18px;max-height:50%;overflow:auto;padding:16px;border:1px solid var(--reading-border);border-radius:8px;background:var(--reading-surface,#fff);color:var(--reading-text);z-index:4;}
+.epub-footnote header{display:flex;justify-content:space-between;align-items:center;}.epub-footnote p{white-space:pre-wrap;font:14px/1.8 system-ui;}.epub-footnote button{border:0;background:transparent;}
+.app-shell .reading-pane[data-original-active=true]{grid-template-rows:52px minmax(0,1fr) auto;}
+@media(max-width:600px){.app-shell .reading-toolbar{padding:0 10px;gap:8px;}.reading-toolbar .chapter-context{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.epub-navigation span{font-size:11px;}}
+
+.epub-navigation select{max-width:120px;min-width:0;border:1px solid var(--reading-border);background:var(--reading-paper);color:var(--reading-text);padding:4px;border-radius:5px;font-size:12px;}
+.epub-link-address{overflow-wrap:anywhere;color:var(--reading-muted);}.epub-footnote button{color:var(--reading-accent);cursor:pointer;}

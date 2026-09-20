@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageAnchor } from "@/lib/chat-stream";
 import { applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, type ReadingRequestState } from "@/lib/reading-request";
+import styles from "./analysis-panel.module.css";
 import { AnalysisPanel, type Analysis, type PanelMessage } from "./analysis-panel";
 
 type Props = Parameters<typeof AnalysisPanel>[0];
@@ -45,7 +46,7 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 describe("AnalysisPanel 消息、选文与失败状态", () => {
   it("保持原面板接口和可访问的空状态", async () => {
     await render();
-    expect(container.querySelector("aside")?.className).toBe("analysis-panel");
+    expect(container.querySelector("aside")?.classList.contains("analysis-panel")).toBe(true);
     expect(container.textContent).toContain("选择原文开始句读");
     expect(viewport().getAttribute("role")).toBe("log");
     await click(labelledButton("关闭句读面板"));
@@ -409,4 +410,54 @@ it("上下文整理仅展示中文内部进度，状态更新复用工具卡且�
   expect(container.querySelectorAll('[data-tool-id]')).toHaveLength(1);
   expect(container.querySelectorAll('[data-message-id]')).toHaveLength(1);
  }
+});
+
+
+describe("局部输入区视觉结构与交互回归", () => {
+  it("模型、用量、输入与底部操作共用局部容器，不依赖全局输入区类", async () => {
+    await render({ modelName: "long-model-name".repeat(12), onSend: vi.fn() });
+    const composer = container.querySelector("." + styles.composer)!;
+    expect(composer).not.toBeNull();
+    expect(composer.querySelector('[data-testid="usage-footer"]')).not.toBeNull();
+    expect(composer.querySelector("textarea")?.classList.contains(styles.composerInput)).toBe(true);
+    expect(composer.querySelector("." + styles.composerFooter)?.contains(labelledButton("发送追问"))).toBe(true);
+    expect(composer.querySelector("[title]")?.getAttribute("title")).toBe("long-model-name".repeat(12));
+    expect(container.querySelector(".chat-composer, .composer-footer, .send-button")).toBeNull();
+    await click(composer.querySelector("." + styles.backButton)! as HTMLButtonElement);
+    expect(callbacks.onBack).toHaveBeenCalledOnce();
+  });
+
+  it("点击发送去除首尾空白并清空输入，空白内容不发送", async () => {
+    const onSend = vi.fn();
+    await render({ onSend });
+    const input = container.querySelector("textarea")!;
+    input.value = "  解释这一句  ";
+    await click(labelledButton("发送追问"));
+    expect(onSend).toHaveBeenCalledWith("解释这一句");
+    expect(input.value).toBe("");
+    input.value = "  ";
+    await click(labelledButton("发送追问"));
+    expect(onSend).toHaveBeenCalledOnce();
+  });
+
+  it("流式消息仍展示停止按钮，读取会话时禁用输入与发送", async () => {
+    const onStop = vi.fn();
+    await render({ onSend: vi.fn(), onStop, messages: [{ id: "stream", role: "assistant", content: "回答中", status: "streaming" }] });
+    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(labelledButton("停止生成").classList.contains(styles.sendButton)).toBe(true);
+    await click(labelledButton("停止生成"));
+    expect(onStop).toHaveBeenCalledOnce();
+    await render({ onSend: vi.fn(), conversationsLoading: true });
+    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(labelledButton("发送追问").disabled).toBe(true);
+  });
+});
+
+
+it("失败状态作为圆角消息卡在滚动区内，不挤占输入区并保留原重试",async()=>{
+ const retry=vi.fn();await render({error:"模型或工具执行未完成，请检查协议。",onRetry:retry});
+ const card=container.querySelector('[role="alert"]')!;
+ expect(viewport().contains(card)).toBe(true);expect(card.className).toContain('errorCard');
+ const b=card.querySelector('button')!;await act(async()=>b.click());expect(retry).toHaveBeenCalledOnce();
+ expect(container.querySelector('textarea[aria-label="继续追问"]')).not.toBeNull();
 });

@@ -3,6 +3,7 @@
 import React, { Fragment, useId, useRef, useState } from "react";
 import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type TextAnnotation } from "@/lib/annotations";
 import { AnnotationPopover } from "./annotation-popover";
+import { ConceptPopoverContent, HistoryPopoverContent } from "./reading-popover-content";
 import "./annotation-popover.css";
 
 type Props = {
@@ -87,15 +88,7 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
       </Fragment>;
     })}
     {visible && <AnnotationPopover key={visible.key} id={id} anchor={visible.anchor} title={visible.kind === "concept" ? visible.concept.name : "句读历史"} pinned={visible.pinned} onClose={close}>
-      {visible.kind === "concept" ? <div className="judu-concept-definition" data-concept-definition={visible.concept.name}>
-        {visible.concept.definitions.some((item) => item.text.trim())
-          ? visible.concept.definitions.filter((item) => item.text.trim()).map((item, index) => <div key={index}>{item.text}</div>)
-          : <div>暂无定义</div>}
-      </div> : <ol className="judu-annotation-history">{visible.annotations.map((annotation) => <li key={annotation.id}>
-        <time dateTime={annotation.createdAt}>{new Date(annotation.createdAt).toLocaleString("zh-CN")}</time>
-        <div className="judu-annotation-summary">{annotation.summary || "暂无句读内容"}</div>
-        <button type="button" onClick={() => { onOpenAnnotation(annotation); close(false); }}>查看完整句读</button>
-      </li>)}</ol>}
+      {visible.kind === "concept" ? <ConceptPopoverContent concept={visible.concept}/> : <HistoryPopoverContent annotations={visible.annotations} onOpen={annotation=>{onOpenAnnotation(annotation);close(false);}}/>}
     </AnnotationPopover>}
   </p>;
 }

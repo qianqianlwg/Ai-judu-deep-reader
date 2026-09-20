@@ -144,8 +144,8 @@ describe("全部书籍和版本的页面入口", () => {
     expect(element('[data-message-id="assistant-edition-new"]').getAttribute("data-history-target")).toBe("true");
     expect(requestUrls("/api/threads/" + threadId("edition-new")).at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await click(button("打开原文"));
-    expect(element(".selection-actions").textContent).toContain(String.fromCodePoint(0x5df2, 0x9009, 0x62e9) + " 2 " + String.fromCodePoint(0x4e2a, 0x5b57));
-    await search(); await click(element(".search-results button")); expect(element(".selection-actions").textContent).toContain(String.fromCodePoint(0x5df2, 0x9009, 0x62e9));
+    expect(element(".selection-actions").textContent).toContain("已选 2 / 1000 字");
+    await search(); await click(element(".search-results button")); expect(element(".selection-actions").textContent).toContain("已选");
     expect(requests).toHaveLength(0);
     expect(requestUrls("/api/search").at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await reload(); expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);

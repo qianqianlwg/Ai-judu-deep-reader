@@ -30,3 +30,14 @@ it("首次进入设置页将旧外观迁移为唯一新偏好源",async()=>{
     expect(localStorage.getItem("judu:theme")).toBeNull(); expect(localStorage.getItem("judu:fontScale")).toBeNull();
   } finally { await act(async()=>root.unmount()); node.remove(); }
 });
+
+it("设置页样式没有会破坏首个选择器的 BOM，滚动仅由页面容器承担",async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const css=await readFile('src/app/settings/settings.module.css','utf8');
+ expect(css.charCodeAt(0)).not.toBe(0xfeff);
+ expect(css.startsWith('.page {')).toBe(true);
+ expect(css).toContain('height: 100dvh');
+ expect(css).toContain('overflow-y: auto');
+ expect(css).toContain('box-sizing: border-box');
+ expect(css).not.toContain('!important');
+});

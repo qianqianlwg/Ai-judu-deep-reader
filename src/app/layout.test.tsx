@@ -18,10 +18,10 @@ describe("根布局阅读外观引导", () => {
     expect(markup).toContain("dataset.readingTheme");
     expect(markup).not.toContain("defer"); expect(markup).not.toContain("async");
   });
-  it("默认 server html 使用同一组浅色变量，主题切换不伪装为全站国际化", () => {
+  it("默认 server html 使用同一组灰白默认变量，主题切换不伪装为全站国际化", () => {
     const element = RootLayout({ children: null });
     expect(element.props.lang).toBe("zh-CN");
-    expect(element.props.style["--reading-paper"]).toBe("#FFFDF9");
+    expect(element.props.style["--reading-paper"]).toBe("#FFFFFF");
     expect(element.props.children[1].props.style.background).toContain("--reading-paper");
   });
 });

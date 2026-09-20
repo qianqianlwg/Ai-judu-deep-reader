@@ -1,4 +1,4 @@
-export type LibraryEdition = { id: string; fileName: string; fileType: string; createdAt: string };
+export type LibraryEdition = { id: string; fileName: string; fileType: string; hasOriginalFile?: boolean; fileSize?: number; originalHash?: string; readerMode?: "text"; createdAt: string };
 export type LibraryBook = { id: string; title: string; author: string; createdAt?: string; editions?: readonly LibraryEdition[] };
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const identifier = (value: unknown): value is string => typeof value === "string" && value.length > 0;
@@ -14,9 +14,9 @@ export function readLibraryResponse(value: unknown): LibraryBook[] {
     if (row.editions !== undefined) {
       if (!Array.isArray(row.editions)) throw new Error("书籍版本列表不完整");
       editions = row.editions.map(item => {
-        if (!record(item) || !identifier(item.id) || typeof item.fileName !== "string" || typeof item.fileType !== "string" || typeof item.createdAt !== "string" || editionIds.has(item.id)) throw new Error("版本数据不完整或EditionID重复");
+        if (!record(item) || !identifier(item.id) || typeof item.fileName !== "string" || typeof item.fileType !== "string" || (item.hasOriginalFile !== undefined && typeof item.hasOriginalFile !== "boolean") || (item.fileSize !== undefined && (typeof item.fileSize !== "number" || !Number.isSafeInteger(item.fileSize) || item.fileSize < 0)) || (item.originalHash !== undefined && (typeof item.originalHash !== "string" || item.originalHash.length !== 64 || !/^[a-f0-9]{64}$/u.test(item.originalHash))) || (item.readerMode !== undefined && item.readerMode !== "text") || typeof item.createdAt !== "string" || editionIds.has(item.id)) throw new Error("版本数据不完整或EditionID重复");
         editionIds.add(item.id);
-        return { id: item.id, fileName: item.fileName, fileType: item.fileType, createdAt: item.createdAt };
+        return { id: item.id, fileName: item.fileName, fileType: item.fileType, ...(typeof item.hasOriginalFile === "boolean" ? { hasOriginalFile: item.hasOriginalFile } : {}), ...(typeof item.fileSize === "number" ? { fileSize: item.fileSize } : {}), ...(typeof item.originalHash === "string" ? { originalHash: item.originalHash } : {}), ...(item.readerMode === "text" ? { readerMode: "text" as const } : {}), createdAt: item.createdAt };
       });
     }
     // WHY：旧响应无版本元数据时仍可打开默认版本；新响应中的全部ID原样保留，绝不按标题去重。
@@ -34,7 +34,7 @@ export function bookEditionUrl(bookId: string, editionId?: string): string {
 
 
 export type LibraryParagraph = { id: string; text: string };
-export type LibraryChapter = { id: string; title: string; paragraphs: LibraryParagraph[] };
+export type LibraryChapter = { id: string; title: string; sourceHref?: string; paragraphs: LibraryParagraph[] };
 export type LibraryBookContent = LibraryBook & { editionId?: string; edition?: LibraryEdition; chapters: LibraryChapter[] };
 export function readBookResponse(value: unknown, bookId: string, editionId?: string): LibraryBookContent {
   if (!record(value) || value.id !== bookId || !Array.isArray(value.chapters) || (editionId !== undefined && value.editionId !== editionId)) throw new Error("返回的书籍或版本不匹配，未替换当前原文");
@@ -42,12 +42,12 @@ export function readBookResponse(value: unknown, bookId: string, editionId?: str
   const selectedId = typeof value.editionId === "string" ? value.editionId : undefined;
   if (selectedId && book.editions && !book.editions.some(item => item.id === selectedId)) throw new Error("正文版本不属于返回的书籍");
   const chapters = value.chapters.map(chapter => {
-    if (!record(chapter) || !identifier(chapter.id) || typeof chapter.title !== "string" || !Array.isArray(chapter.paragraphs)) throw new Error("章节数据不完整");
+    if (!record(chapter) || !identifier(chapter.id) || typeof chapter.title !== "string" || (chapter.sourceHref !== undefined && typeof chapter.sourceHref !== "string") || !Array.isArray(chapter.paragraphs)) throw new Error("章节数据不完整");
     const paragraphs = chapter.paragraphs.map(paragraph => {
       if (!record(paragraph) || !identifier(paragraph.id) || typeof paragraph.text !== "string") throw new Error("正文段落数据不完整");
       return { id: paragraph.id, text: paragraph.text };
     });
-    return { id: chapter.id, title: chapter.title, paragraphs };
+    return { id: chapter.id, title: chapter.title, ...(typeof chapter.sourceHref === "string" ? { sourceHref: chapter.sourceHref } : {}), paragraphs };
   });
   return { ...book, editionId: selectedId, edition: book.editions?.find(item => item.id === selectedId), chapters };
 }

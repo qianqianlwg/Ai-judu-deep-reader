@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+<description><title-info><genre>reference</genre><author><first-name>本地</first-name><last-name>测试作者</last-name></author><book-title>FB2 本地完整性验收</book-title><lang>zh</lang></title-info></description>
+<body><section id="chapter-one"><title><p>第一章：图文与脚注</p></title><p id="source-one">重复正文用于验证版本定位。</p><p>字符保真：&lt;公式&gt; x &amp; y，😀增补字符。<strong>重要概念</strong>不能被正文提取丢失。</p><image l:href="#pixel" alt="本地嵌入像素"/><p>这是一段带<a type="note" l:href="#note-one">注释一</a>的正文，不会自动访问外部链接。</p><section id="nested"><title><p>嵌套小节</p></title><poem><stanza><v>第一行诗。</v><v>第二行诗。</v></stanza></poem><table><tr><th>名称</th><th>说明</th></tr><tr><td>文本</td><td>表格保留</td></tr></table></section></section>
+<section id="chapter-two"><title><p>第二章</p></title><p>重复正文用于验证版本定位。</p><p>第二章连续正文用于跨章选文验证，最多允许一千字。</p></section></body>
+<body name="notes"><section id="note-one"><title><p>注释一</p></title><p>这是本地脚注内容，并不是外部网页。<a l:href="#source-one">返回正文</a></p></section></body>
+<binary id="pixel" content-type="image/png">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH1cAAAAASUVORK5CYII=</binary>
+</FictionBook>

@@ -13,3 +13,6 @@
 .selection-note-form textarea { resize:vertical;width:100%;min-height:90px;padding:9px;border:1px solid var(--reading-border,#d7e2e0);border-radius:7px;background:var(--reading-paper,#fffdf9);color:inherit;font:inherit; }
 .selection-note-form>div { display:flex;gap:6px;justify-content:flex-end; }
 .selection-note-form button { border:0;border-radius:6px;padding:6px 12px;background:var(--reading-selected,#ddebe7);color:inherit; }
+
+.selection-preview{max-width:min(540px,80vw);font-size:12px;color:var(--ui-muted)}
+.selection-preview summary{cursor:pointer;padding:6px 8px}.selection-preview blockquote{white-space:pre-wrap;max-height:180px;overflow:auto;margin:6px;padding:8px;color:var(--ui-text)}

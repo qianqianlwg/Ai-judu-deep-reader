@@ -1,3 +1,4 @@
+/* WHY：模块局部样式直接消费主题角色，避免全局选择器无法命中哈希类名。 */
 .scrollRegion {
   position: relative;
   display: flex;
@@ -24,10 +25,10 @@
   gap: 6px;
   max-width: calc(100% - 24px);
   padding: 8px 13px;
-  border: 1px solid #cedbd9;
+  border: 1px solid var(--reading-border);
   border-radius: 18px;
-  background: #fff;
-  color: #465f5d;
+  background: var(--reading-surface);
+  color: var(--reading-text);
   box-shadow: 0 3px 12px #263c3a16;
   font-size: 12px;
   white-space: nowrap;
@@ -35,19 +36,19 @@
   pointer-events: auto;
 }
 .latestButton[hidden] { display: none; }
-.latestButton:hover { background: #f3f7f6; }
+.latestButton:hover { background: var(--reading-selected); }
 .latestButton:focus-visible, .sourceLink:focus-visible, .sourceDetails summary:focus-visible {
-  outline: 2px solid #6f9a95;
+  outline: 2px solid var(--reading-accent);
   outline-offset: 3px;
 }
 .sourceCard {
   margin-top: 9px;
   padding: 9px 11px;
-  border: 1px solid #dce5e3;
-  border-radius: 8px;
-  background: #f8faf980;
+  border: 1px solid var(--ui-divider, var(--reading-border));
+  border-radius: var(--ui-radius-card, 12px);
+  background: var(--reading-surface);
   min-width: 0;
-  color: #526762;
+  color: var(--reading-text);
   font-size: 12px;
   line-height: 1.65;
 }
@@ -62,7 +63,7 @@
   display: block;
   margin-bottom: 4px;
   font-size: 10px;
-  color: #788d88;
+  color: var(--reading-muted);
 }
 .sourcePreview {
   display: -webkit-box;
@@ -71,15 +72,15 @@
   overflow: hidden;
   white-space: normal;
 }
-.expandHint, .collapseHint { display: inline-block; margin-top: 4px; color: #577b74; font-size: 10px; }
+.expandHint, .collapseHint { display: inline-block; margin-top: 4px; color: var(--reading-accent); font-size: 10px; }
 .collapseHint { display: none; }
 .sourceDetails[open] .expandHint, .sourceDetails[open] .sourcePreview { display: none; }
 .sourceDetails[open] .collapseHint { display: inline-block; }
 .sourceText {
   margin: 8px 0 4px;
   padding-left: 9px;
-  border-left: 2px solid #bbd1cb;
-  color: #4c605b;
+  border-left: 2px solid var(--reading-border);
+  color: var(--reading-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-weight: 400;
@@ -89,12 +90,12 @@
   padding: 3px 0;
   border: 0;
   background: none;
-  color: #4c7a6e;
+  color: var(--reading-accent);
   font-size: 11px;
   cursor: pointer;
 }
 .sourceLink:disabled { opacity: .55; cursor: not-allowed; }
-.failedMessage { margin: 8px 0; color: #926b51; font-size: 12px; }
+.failedMessage { margin: 8px 0; color: var(--reading-accent); font-size: 12px; }
 .srOnly {
   position: absolute;
   width: 1px;
@@ -113,38 +114,150 @@
 .markdown :is(h1,h2,h3,h4) { margin: 16px 0 8px; line-height: 1.4; font-family: inherit; color: inherit; }
 .markdown h1 { font-size: 19px; }.markdown h2 { font-size: 17px; }.markdown h3,.markdown h4 { font-size: 14px; }
 .markdown :is(ul,ol) { padding-left: 21px; margin: 8px 0; }
-.markdown blockquote { margin: 10px 0; padding-left: 10px; border-left: 2px solid #a5c3b7; color: #698275; }
-.markdown pre,.toolOutput { max-width: 100%; overflow: auto; padding: 10px; border-radius: 6px; background: #eaf0ed; font: 12px/1.6 ui-monospace,monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown blockquote { margin: 10px 0; padding-left: 10px; border-left: 2px solid var(--reading-border); color: var(--reading-text); }
+.markdown pre,.toolOutput { max-width: 100%; overflow: auto; padding: 10px; border-radius: 6px; background: var(--reading-surface); font: 12px/1.6 ui-monospace,monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .markdown code { font-family: ui-monospace,monospace; font-size: .92em; }
 .markdown table { display: block; overflow-x: auto; border-collapse: collapse; max-width: 100%; font-size: 12px; }
-.markdown th,.markdown td { padding: 6px 9px; border: 1px solid #d7e1db; text-align: left; }
-.markdown a { color: #437967; text-decoration: underline; text-underline-offset: 3px; }
-.toolRecord { margin: 10px 0 0; border: 1px solid #d7e3dc; border-radius: 7px; padding: 8px 10px; color: #567263; font-size: 12px; }
+.markdown th,.markdown td { padding: 6px 9px; border: 1px solid var(--reading-border); text-align: left; }
+.markdown a { color: var(--reading-accent); text-decoration: underline; text-underline-offset: 3px; }
+.toolRecord { margin: 10px 0 0; border: 1px solid var(--reading-border); border-radius: 7px; padding: 8px 10px; color: var(--reading-text); font-size: 12px; }
 .toolRecord > summary { cursor: pointer; font-size: 11px; }
-.toolRecord > summary > span { margin-left: 7px; color: #8a9c92; font-size: 10px; }
+.toolRecord > summary > span { margin-left: 7px; color: var(--reading-muted); font-size: 10px; }
 .toolRecord[open] > summary { margin-bottom: 10px; }
-.usageFooter { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 7px; margin-bottom: 8px; color: #7b9084; font-size: 10px; }
+.usageFooter { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 7px; margin-bottom: 8px; color: var(--reading-muted); font-size: 10px; }
 .modelName { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px; }
 .usageDetails { min-width: 0; max-width: 100%; }
 .usageDetails > summary { display: flex; align-items: center; justify-content: flex-end; gap: 5px; cursor: pointer; list-style: none; }
 .usageDetails > summary::-webkit-details-marker { display: none; }
 .contextRing { width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%; mask-image: radial-gradient(transparent 42%, #000 46%); }
-.usageSource { color: #92a298; font-size: 9px; }
+.usageSource { color: var(--reading-muted); font-size: 9px; }
 .usageDetails[open] { flex-basis: 100%; }
-.usageBreakdown,.usageUnknown { margin: 8px 0 0; padding: 8px 10px; border-radius: 7px; background: #f4f8f5; max-height: 160px; overflow: auto; line-height: 1.6; }
-.usageBreakdown p { margin: 3px 0; }.usageBreakdown dl { display: grid; grid-template-columns: auto auto; gap: 3px 14px; margin: 5px 0; }.usageBreakdown dd { margin: 0; text-align: right; color: #526b5d; }
+.usageBreakdown,.usageUnknown { margin: 8px 0 0; padding: 8px 10px; border-radius: 7px; background: var(--reading-surface); max-height: 160px; overflow: auto; line-height: 1.6; }
+.usageBreakdown p { margin: 3px 0; }.usageBreakdown dl { display: grid; grid-template-columns: auto auto; gap: 3px 14px; margin: 5px 0; }.usageBreakdown dd { margin: 0; text-align: right; color: var(--reading-muted); }
 
-.messageWarning { padding: 7px 9px; border-left: 2px solid #b69a6c; background: #faf7f0; border-radius: 0 5px 5px 0; color: #806d50; font-size: 11px; line-height: 1.6; }
+.messageWarning { padding: 7px 9px; border-left: 2px solid var(--reading-border); background: var(--reading-surface); border-radius: 0 5px 5px 0; color: var(--reading-accent); font-size: 11px; line-height: 1.6; }
 
-.toolSources > p { margin: 0 0 8px; font-size: 11px; color: #7b9084; }
-.toolSource { margin: 8px 0; padding: 9px; background: #f5f8f6; border: 1px solid #dce7e0; border-radius: 6px; }
-.toolSourceTitle { margin-bottom: 5px; font-size: 11px; color: #56796a; }
+.toolSources > p { margin: 0 0 8px; font-size: 11px; color: var(--reading-text); }
+.toolSource { margin: 8px 0; padding: 9px; background: var(--reading-surface); border: 1px solid var(--reading-border); border-radius: 6px; }
+.toolSourceTitle { margin-bottom: 5px; font-size: 11px; color: var(--reading-accent); }
 .toolSourcePreview { cursor: pointer; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
-.toolSource blockquote { margin: 8px 0; padding-left: 9px; border-left: 2px solid #adc8b9; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
+.toolSource blockquote { margin: 8px 0; padding-left: 9px; border-left: 2px solid var(--reading-border); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
 
-.stopButton { cursor: pointer; font-size: 12px; }
-.stopButton:focus-visible { outline: 2px solid #769a88; outline-offset: 3px; }
-
-
+.composer {
+  --composer-surface: var(--reading-surface, var(--ui-bg, #fffdf9));
+  --composer-text: var(--reading-text, var(--ui-text, #263238));
+  --composer-muted: var(--reading-muted, var(--ui-subtle, #6b7778));
+  --composer-border: var(--reading-border, var(--ui-border, #d7e2e0));
+  --composer-accent: var(--reading-accent, var(--ui-accent, #4f8b88));
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 8px var(--chat-inset, 16px) 16px;
+  padding: 12px;
+  border: 1px solid var(--chat-divider, var(--composer-border));
+  border-radius: var(--ui-radius-input, 20px);
+  background: var(--composer-surface);
+  color: var(--composer-text);
+  color-scheme: var(--reading-color-scheme, inherit);
+}
+.composer:focus-within {
+  border-color: var(--composer-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--composer-accent) 16%, transparent);
+}
+.composerInput {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  max-height: 200px;
+  resize: vertical;
+  padding: 10px 2px 14px;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.7;
+}
+.composerInput::placeholder { color: var(--composer-muted); opacity: 1; }
+.composerInput:disabled { cursor: not-allowed; opacity: .6; }
+.composerFooter { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .composerFooterStart { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.backButton { border: 0; background: transparent; color: #748384; font-size: 10px; }
+.backButton {
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--composer-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+/* WHY：仅调整输入区内插件入口，不影响菜单内容或其他组件实例。 */
+.composerFooterStart > div > button {
+  width: 36px;
+  height: 36px;
+  border-color: var(--composer-border);
+  border-radius: 10px;
+  color: var(--composer-muted);
+  background: transparent;
+}
+.sendButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: var(--composer-text);
+  color: var(--composer-surface);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.stopButton { font-size: 13px; }
+.sendButton:disabled { opacity: .4; cursor: not-allowed; }
+.sendButton:hover:not(:disabled) { opacity: .85; }
+.backButton:hover, .composerFooterStart > div > button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--composer-accent) 10%, transparent);
+  color: var(--composer-text);
+}
+.composer :is(button, summary):focus-visible { outline: 2px solid var(--composer-accent); outline-offset: 3px; }
+.composer .usageFooter { align-items: center; gap: 6px 10px; margin-bottom: 0; color: var(--composer-muted); font-size: 11px; line-height: 1.5; }
+.composer .modelName { max-width: 100%; flex: 1 1 110px; padding: 3px 0; }
+.composer .usageDetails { margin-left: auto; }
+.composer .usageDetails > summary { min-height: 28px; flex-wrap: wrap; gap: 5px; }
+.composer .usageSource { color: inherit; font-size: 10px; }
+.composer :is(.usageBreakdown, .usageUnknown) { background: color-mix(in srgb, var(--composer-border) 25%, var(--composer-surface)); color: var(--composer-muted); }
+.composer .usageBreakdown dd { color: var(--composer-text); overflow-wrap: anywhere; }
+.composer .usageBreakdown dl { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 480px) {
+  .composer { margin: 8px; padding: 10px; border-radius: 14px; }
+  .composerInput { min-height: 88px; font-size: 16px; }
+  .composerFooter { gap: 8px; }
+  .composerFooterStart { gap: 4px; }
+}
+
+/* WHY：消息、状态卡和输入框共用同一条对齐线；强调色只用于操作，不染色整个聊天背景。 */
+.panel { --chat-inset: 16px; }
+.panel .messages { padding: 20px var(--chat-inset) 12px; scrollbar-gutter: auto; }
+.panel .header { padding: 10px var(--chat-inset); }
+.panel .messageGroup { margin: 0 0 24px; }
+.messageGroup > :global(.message-role) { margin-bottom: 8px; font: 11px/1.5 system-ui; }
+:global(.app-shell.workspace-shell) .panel :global(.chat-message.user .message-content) { border: 0; border-radius: var(--ui-radius-card,12px); padding: 12px 14px; background: color-mix(in srgb,var(--reading-text) 5%,var(--reading-surface)); }
+.panel .toolRecord { border-color: var(--ui-divider,var(--reading-border)); border-radius: var(--ui-radius-control,8px); padding: 9px 11px; }
+.errorCard { margin: 12px 0 8px; padding: 14px; border: 1px solid var(--ui-divider,var(--reading-border)); border-radius: var(--ui-radius-card,12px); background: var(--reading-surface); color: var(--reading-text); overflow-wrap: anywhere; font: 13px/1.65 system-ui; }
+.errorHeading { display: flex; align-items: center; gap: 8px; }
+.errorHeading > span { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; border-radius: 50%; background: color-mix(in srgb,var(--reading-text) 8%,transparent); font-weight: 600; }
+.errorHeading h3 { margin: 0; font: 600 13px/1.5 system-ui; color: inherit; }
+.errorCard p { margin: 8px 0 12px; color: var(--reading-muted); }
+.errorCard button { padding: 7px 11px; border: 1px solid var(--ui-divider,var(--reading-border)); border-radius: var(--ui-radius-control,8px); background: var(--reading-paper); color: var(--reading-text); font: 12px/1.4 system-ui; cursor: pointer; }
+.errorCard button:hover:not(:disabled) { background: var(--reading-selected); }
+.errorCard button:disabled { opacity: .5; cursor: not-allowed; }
+.errorCard button:focus-visible { outline: 2px solid var(--reading-accent); outline-offset: 3px; }
+@media(max-width:480px){.panel{--chat-inset:12px}.panel .composer{margin:8px var(--chat-inset) 12px;border-radius:var(--ui-radius-input,20px)}}

@@ -28,7 +28,7 @@ export function Bookshelf({ books, currentBookId, currentEditionId, loading, imp
     {error && <div className="workspace-inline-error" role="alert">{error}<button type="button" onClick={onRefresh}>重新加载书架</button></div>}
     <div className="bookshelf-scroll">
       {loading && <p role="status">正在读取书架…</p>}
-      {!loading && !error && books.length === 0 && <div className="workspace-empty"><h2>从一本书开始</h2><p>导入 EPUB 或文字型 PDF，也可导入 TXT、Markdown。书籍会保存在本地书架。</p><button type="button" onClick={onImport} disabled={busy || importing}>导入第一本书</button></div>}
+      {!loading && !error && books.length === 0 && <div className="workspace-empty"><h2>从一本书开始</h2><p>导入 EPUB、PDF、FB2/FBZ、CBZ，也可导入 TXT、Markdown。书籍会保存在本地书架。</p><button type="button" onClick={onImport} disabled={busy || importing}>导入第一本书</button></div>}
       {!loading && books.length > 0 && filtered.length === 0 && <div className="workspace-empty" role="status"><h2>没有找到这本书</h2><p>试试书名中的另一个词，或按作者查找。</p><button type="button" onClick={() => setQuery("")}>清空筛选</button></div>}
       <div className="bookshelf-grid">{filtered.map((book, index) => <article className="bookshelf-card" key={book.id} data-book-id={book.id}>
         <button type="button" className="bookshelf-open" disabled={busy} aria-label={"阅读《" + book.title + "》"} onClick={() => onOpenBook(book.id)}>

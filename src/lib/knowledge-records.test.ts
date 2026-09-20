@@ -109,3 +109,18 @@ describe("本书知识聚合", () => {
     expect(data.records[0].annotationId).toBeNull();
   });
 });
+
+it("只有readingText的合法新句读也进入知识卡片且保留准确锚点",()=>{
+ const row=message('reading-only',{structured_output:JSON.stringify({...analysis,readingText:'忠实释读正文。',summary:'',breakdown:[],concepts:[],anchor})});
+ const result=buildBookKnowledge('e1',[],[row]);expect(result.records).toHaveLength(1);
+ expect(result.records[0]).toMatchObject({summary:'忠实释读正文。',messageId:'reading-only',anchor});
+});
+
+it("知识记录保留所有片段，未完整验证时不能用首段标注冒充完整来源",()=>{
+ const parts=[anchor,{paragraphId:'p2',startOffset:0,endOffset:3,selectedText:'第二段'}];
+ const composite={...anchor,version:2,fragments:parts};
+ const row=message('multi',{structured_output:JSON.stringify({...analysis,anchor:composite})});
+ const valid=buildBookKnowledge('e1',[],[row],()=>true).records[0];expect(valid.anchor?.fragments).toEqual(parts);expect(valid.excerpt).toBe('自我意识\n\n第二段');
+ const invalid=buildBookKnowledge('e1',[annotation({stored_message_id:'multi',message_id:'multi'})],[row],()=>false).records[0];expect(invalid.anchor).toBeNull();expect(invalid.locationReason).toContain('不一致');
+ expect(buildBookKnowledge('e1',[],[row]).records[0].anchor).toBeNull();
+});

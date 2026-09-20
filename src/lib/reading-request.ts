@@ -3,7 +3,9 @@ import { DEFAULT_CONTEXT_SETTINGS, MAX_CONTEXT_INPUT_TOKENS, type ContextMessage
 import { SseDecoder } from "./sse";
 import { normalizeReadingDetail, type ReadingDetail } from "./reading-detail";
 
-export type ReadingAnchor = { paragraphId: string; startOffset: number; endOffset: number; selectedText: string };
+import { makeReadingAnchor, readAnchorParts, type ReadingAnchorPart } from "./reading-anchors";
+import type { ReadingAnchor } from "./reading-anchors";
+export type { ReadingAnchor } from "./reading-anchors";
 
 export type RetryContextSettings = Pick<ContextSettings, "maxInputTokens" | "maxOutputTokens">;
 export function readRetryContextSettings(value: unknown): RetryContextSettings {
@@ -29,6 +31,7 @@ export type ReadingRequestInput = {
   bookTitle?: string;
   chapterTitle?: string;
   context?: string;
+  selectionAnchors?: ReadingAnchorPart[];
   selectionStart?: number;
   selectionEnd?: number;
   textHash?: string;
@@ -129,11 +132,13 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   const input = meta.input;
   if (meta.version !== 1 || typeof meta.clientUserMessageId !== "string" || meta.clientAssistantMessageId !== message.id || !isRecord(input) || (input.mode !== "chat" && input.mode !== "analyze") || typeof input.question !== "string" || typeof input.selectedText !== "string") throw new Error("已保存的重试请求不完整");
   const optionalString = (value: unknown) => typeof value === "string" ? value : undefined;
+  const selectionAnchors = input.selectionAnchors === undefined ? undefined : readAnchorParts(input.selectionAnchors);
+  if (selectionAnchors === null) throw new Error("已保存的多段选文来源损坏");
   const snapshot = readReadingContextSnapshot(meta.contextSnapshot);
   const failure = isRecord(meta.failure) ? meta.failure : undefined;
   const status = message.status === "completed" && message.content.trim() ? "completed" : failure?.code === "cancelled" ? "cancelled" : "error";
   return {
-    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, detail: normalizeReadingDetail(input.detail), question: input.question, selectedText: input.selectedText, editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
+    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, detail: normalizeReadingDetail(input.detail), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
     status, attempt: 1, content: message.content, analysis: isAnalysis(saved) ? saved : undefined,
     error: status === "completed" ? undefined : typeof failure?.message === "string" ? failure.message : "上次生成未完成，可以重试",
   };
@@ -164,7 +169,7 @@ export function prepareReadingEdit(state: ReadingRequestState, messages: ChatMes
     mode: state.payload.mode, detail: state.payload.detail, question: state.payload.question, selectedText: state.payload.selectedText,
     bookId: state.payload.bookId, editionId: state.payload.editionId, chapterId: state.payload.chapterId, paragraphId: state.payload.paragraphId,
     bookTitle: state.payload.bookTitle, chapterTitle: state.payload.chapterTitle, context: state.payload.context, selectionStart: state.payload.selectionStart,
-    selectionEnd: state.payload.selectionEnd, textHash: state.payload.textHash, contextSettings: state.payload.contextSettings,
+    selectionAnchors: state.payload.selectionAnchors, selectionEnd: state.payload.selectionEnd, textHash: state.payload.textHash, contextSettings: state.payload.contextSettings,
     chatHistory: state.payload.chatHistory, bookSearch: state.payload.bookSearch,
   };
   const contextMessages = contextBeforeMessage(messages, index);
@@ -191,9 +196,9 @@ export function applyReadingRequest(messages: ChatMessage[], state: ReadingReque
   if (user && (user.role !== "user" || user.content !== question)) throw new Error("重试用户消息不匹配");
   if (assistant && assistant.role !== "assistant") throw new Error("重试助手消息不匹配");
   const { paragraphId, selectionStart, selectionEnd, selectedText } = state.payload;
-  const anchor = paragraphId && selectionStart !== undefined && selectionEnd !== undefined ? {paragraphId,startOffset:selectionStart,endOffset:selectionEnd,selectedText} : undefined;
+  const anchor = state.payload.selectionAnchors ? makeReadingAnchor(state.payload.selectionAnchors) : paragraphId && selectionStart !== undefined && selectionEnd !== undefined ? {paragraphId,startOffset:selectionStart,endOffset:selectionEnd,selectedText} : undefined;
   const next = messages.map(message => {
-    const sameAnchor = message.anchor?.paragraphId === anchor?.paragraphId && message.anchor?.startOffset === anchor?.startOffset && message.anchor?.endOffset === anchor?.endOffset && message.anchor?.selectedText === anchor?.selectedText;
+    const sameAnchor = JSON.stringify(message.anchor) === JSON.stringify(anchor);
     return message.id === userId && !sameAnchor ? { ...message, anchor } : message;
   });
   if (!user) next.push({ id: userId, role: "user", kind: "chat", anchor, content: question, status: "completed" });

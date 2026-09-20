@@ -8,8 +8,8 @@
 .reader-sheet { box-sizing: border-box; display: flow-root; max-width: 650px; margin: 0 auto; font-family: var(--reading-font-family, Georgia, "Songti SC", "SimSun", serif); font-size: var(--reading-font-size, calc(16px * var(--reading-scale, 1))); color: var(--reading-text, #455457); }
 .reader-sheet > p, .app-shell .reading-content .reader-sheet > p { display: block; margin: 0 0 18px; padding: 0; font-family: inherit; font-size: inherit; font-weight: 400; line-height: var(--reading-line-height, 2); white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; letter-spacing: var(--reading-letter-spacing, 0); text-align: var(--reading-text-align, start); }
 .reader-sheet .page-heading, .app-shell .reading-content .reader-sheet .page-heading { padding: 0; margin: 0 0 20px; }
-.reader-sheet .page-heading small { display: block; margin-bottom: 8px; font-family: sans-serif; font-size: 11px; line-height: 1.5; color: #658786; }
-.reader-sheet .page-heading h1, .app-shell .reading-content .reader-sheet .page-heading h1 { font-family: inherit; font-size: 25px; line-height: 1.45; letter-spacing: 0; font-weight: 400; color: #31575b; padding: 0; margin: 0; overflow-wrap: anywhere; }
+.reader-sheet .page-heading small { display: block; margin-bottom: 8px; font-family: sans-serif; font-size: 11px; line-height: 1.5; color: var(--reading-muted); }
+.reader-sheet .page-heading h1, .app-shell .reading-content .reader-sheet .page-heading h1 { font-family: inherit; font-size: 25px; line-height: 1.45; letter-spacing: 0; font-weight: 400; color: var(--reading-text); padding: 0; margin: 0; overflow-wrap: anywhere; }
 .reader-measure-sheet { position: fixed; left: -100000px; top: 0; height: auto; visibility: hidden; pointer-events: none; contain: layout style; }
 .reader-sheet[data-measuring="true"] { visibility: hidden; }
 .reader-paginating { position: absolute; inset: 40% 12px auto; text-align: center; font-size: 13px; color: #758b89; }
@@ -23,3 +23,22 @@
 @media (max-width: 900px) { .app-shell .reading-content { padding: 16px 22px 8px; } }
 
 .app-shell .chat-messages { overflow-anchor: none; scroll-behavior: auto; }
+
+.app-shell .reading-toolbar { position: relative; overflow: visible; z-index: 25; gap: 8px; }
+.app-shell .reading-toolbar .chapter-context { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+@media(max-width:680px){.app-shell .reading-toolbar{padding:0 8px;gap:4px}.app-shell .reading-toolbar .chapter-context{display:none}}
+
+/* WHY：圆角按控件/卡片/输入区分级；外层三栏保持平直，避免层层套卡片占用正文。 */
+.app-shell.workspace-shell { --ui-radius-control: 8px; --ui-radius-card: 12px; --ui-radius-input: 20px; --ui-divider: color-mix(in srgb,var(--reading-text,#292d32) 10%,transparent); }
+.app-shell.workspace-shell .analysis-panel, .app-shell.workspace-shell .analysis-header, .app-shell.workspace-shell .chat-messages { background: color-mix(in srgb,var(--reading-surface,#fff) 94%,var(--reading-text,#292d32)); }
+.app-shell.workspace-shell .analysis-header { border-bottom-color:var(--ui-divider); }
+.app-shell.workspace-shell .workspace-nav .workspace-nav-item, .app-shell.workspace-shell .workspace-nav .toc-item, .app-shell.workspace-shell .workspace-nav .shelf-book { border-radius:var(--ui-radius-control); }
+.app-shell.workspace-shell .reading-toolbar { border-color:var(--ui-divider); }
+.app-shell.workspace-shell .reader-mode { border-color:var(--ui-divider); border-radius:var(--ui-radius-control); }
+.app-shell.workspace-shell .reading-pane .selection-bar { border-top:0; padding:6px 16px; min-height:38px; background:var(--reading-paper); }
+.app-shell.workspace-shell .reading-pane .page-nav { border-top-color:var(--ui-divider); }
+.app-shell.workspace-shell .reading-pane :is(.page-nav,.epub-navigation) button { border-radius:var(--ui-radius-control); min-height:30px; padding:5px 10px; }
+.app-shell.workspace-shell .reading-pane :is(.page-nav,.epub-navigation) button:hover:not(:disabled) { background:color-mix(in srgb,var(--reading-text) 5%,transparent); }
+.app-shell.workspace-shell .epub-navigation { border-top-color:var(--ui-divider); }
+
+::highlight(judu-source-selection) { background-color: var(--reading-selection, #ffe36e99); }

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { buildBookKnowledge } from "@/lib/knowledge-records";
 
+import { anchorParts, joinAnchorText } from "@/lib/reading-anchors";
+import { verifySelectionAnchors } from "@/lib/reading-anchor-validation";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
@@ -44,7 +46,10 @@ export async function GET(request: NextRequest) {
          AND m.structured_output IS NOT NULL
        ORDER BY m.created_at DESC, m.id`,
     ).all(editionId, editionId);
-    return NextResponse.json(buildBookKnowledge(editionId, annotations, messages), {
+    return NextResponse.json(buildBookKnowledge(editionId, annotations, messages, anchor => Boolean(verifySelectionAnchors(db, {
+      editionId, bookId:null, chapterId:null, paragraphId:anchor.paragraphId, selectionStart:anchor.startOffset, selectionEnd:anchor.endOffset,
+      selectedText:joinAnchorText(anchorParts(anchor)), selectionAnchors:[...anchorParts(anchor)],
+    }))), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error: unknown) {

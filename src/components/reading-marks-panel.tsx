@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MessageAnchor } from "@/lib/chat-stream";
+import { makeReadingAnchor, joinAnchorText } from "@/lib/reading-anchors";
 import type { ReadingMark } from "@/lib/reading-marks";
 import styles from "./reading-marks-panel.module.css";
 
@@ -28,11 +29,11 @@ export function ReadingMarksPanel({ editionId, onOpenSource, refreshToken = 0 }:
     <div className={styles.heading}><div><p>从正文留下的痕迹</p><h2>我的标注</h2></div><span>{marks.length}</span></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {!error && marks.length === 0 && <p className={styles.empty}>标亮、笔记和收藏会出现在这里。</p>}
-    <div className={styles.list}>{marks.map(mark => mark.anchors.map((anchor, index) => <article className={styles.card} key={mark.id + ":" + index}>
+    <div className={styles.list}>{marks.map(mark => <article className={styles.card} key={mark.id}>
       <div className={styles.meta}><span>{label(mark)}</span><time dateTime={mark.updatedAt}>{new Date(mark.updatedAt).toLocaleString("zh-CN")}</time></div>
-      <button type="button" className={styles.quote} disabled={!onOpenSource} onClick={() => onOpenSource?.({ paragraphId: anchor.paragraphId, startOffset: anchor.startOffset, endOffset: anchor.endOffset, selectedText: anchor.selectedText })}>{"“"}{anchor.selectedText}{"”"}</button>
+      <button type="button" className={styles.quote} disabled={!onOpenSource} onClick={() => onOpenSource?.(makeReadingAnchor(mark.anchors.map(({paragraphId,startOffset,endOffset,selectedText})=>({paragraphId,startOffset,endOffset,selectedText}))))}>{"“"}{joinAnchorText(mark.anchors)}{"”"}</button>
       {mark.note && <p className={styles.note}>{mark.note}</p>}
-    </article>))}</div>
+    </article>)}</div>
   </section>;
 }
 

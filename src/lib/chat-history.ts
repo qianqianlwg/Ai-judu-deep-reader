@@ -1,12 +1,8 @@
 import { isTokenUsage, type TokenUsage } from "./token-usage";
 import { isAnalysis, isRecord, type ChatMessage, type HistoricalToolActivity, type MessageAnchor, type ToolActivity } from "./chat-stream";
+import { makeReadingAnchor, readAnchorParts, readReadingAnchor } from "./reading-anchors";
 export type StoredChatMessage = { id: string; role: "user" | "assistant"; content: string; usage?: TokenUsage; tools?: unknown; historicalTools?: unknown; warnings?: unknown; usageJson?: string | null; structuredOutput?: string | null; status?: "streaming" | "completed" | "error" };
-function readAnchor(value:unknown): MessageAnchor | undefined {
- if(!isRecord(value)||typeof value.paragraphId!=="string"||typeof value.selectedText!=="string"||!Number.isSafeInteger(value.startOffset)||!Number.isSafeInteger(value.endOffset))return;
- const startOffset=value.startOffset as number,endOffset=value.endOffset as number;
- if(startOffset<0||endOffset<=startOffset||value.selectedText.length!==endOffset-startOffset)return;
- return {paragraphId:value.paragraphId,startOffset,endOffset,selectedText:value.selectedText};
-}
+function readAnchor(value:unknown): MessageAnchor | undefined { return readReadingAnchor(value) ?? undefined; }
 function readHistoricalTools(value: unknown): HistoricalToolActivity[] {
  if (!Array.isArray(value)) return [];
  return value.flatMap(item => {
@@ -27,13 +23,18 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
   if (!usage && message.usageJson) { try { const parsed: unknown = JSON.parse(message.usageJson); if (isTokenUsage(parsed)) usage = parsed; } catch (error: unknown) { console.error("恢复 Token 统计失败", error); } }
   const outputFormat = isRecord(value) && value.outputFormat === "text" ? "text" : analysis ? "legacy-json" : "text";
   let anchor=isRecord(value)?readAnchor(value.anchor):undefined;
+  let sourceInvalid=isRecord(value) && value.anchor!==undefined && !anchor;
   if(isRecord(value)&&isRecord(value._request)){
    const meta=value._request;
-   if(!anchor&&isRecord(meta.input))anchor=readAnchor({paragraphId:meta.input.paragraphId,selectedText:meta.input.selectedText,startOffset:meta.input.selectionStart,endOffset:meta.input.selectionEnd});
+   if(!anchor&&!sourceInvalid&&isRecord(meta.input)) {
+    const parts=readAnchorParts(meta.input.selectionAnchors);
+    if(meta.input.selectionAnchors!==undefined&&!parts)sourceInvalid=true;
+    anchor=parts ? makeReadingAnchor(parts) : meta.input.selectionAnchors===undefined ? readAnchor({paragraphId:meta.input.paragraphId,selectedText:meta.input.selectedText,startOffset:meta.input.selectionStart,endOffset:meta.input.selectionEnd}) : undefined;
+   }
    if(anchor&&typeof meta.clientUserMessageId==="string")sourceByUser.set(meta.clientUserMessageId,anchor);
   }
   // WHY：旧线程的最后选文不等于每一条消息的选文；缺少消息级位置时保持未知，禁止误跳。
-  return {id:message.id,role:message.role,content:message.content,analysis,anchor,usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
+  return {id:message.id,role:message.role,content:message.content,analysis,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
  });
  return result.map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??"")}:message);
 }

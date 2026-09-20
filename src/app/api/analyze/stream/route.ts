@@ -20,12 +20,14 @@ import { logAgentEvent } from "@/lib/agent/logger";
 import { readingSystemPrompt, READING_PROMPT_VERSION } from "@/lib/agent/prompt";
 
 
+import { readAnchorParts, type ReadingAnchorPart } from "@/lib/reading-anchors";
+import { verifySelectionAnchors } from "@/lib/reading-anchor-validation";
 export const runtime = "nodejs";
 type Db = ReturnType<typeof getDb>;
 type Input = {
   mode: "chat" | "analyze"; detail: ReadingDetail; question: string; selectedText: string;
   editionId: string; bookId: string | null; chapterId: string | null; paragraphId: string | null;
-  selectionStart: number | null; selectionEnd: number | null;
+  selectionStart: number | null; selectionEnd: number | null; selectionAnchors?: ReadingAnchorPart[];
 };
 type Failure = { code: string; message: string; retryable: boolean };
 type RequestMeta = {
@@ -56,6 +58,7 @@ function readConfig(db: Db): ProviderConfig {
   return { provider: row?.provider === "claude" ? "claude" : "openai", baseUrl: row?.base_url || process.env.AI_BASE_URL || "https://api.openai.com/v1", apiKey: row?.api_key || process.env.AI_API_KEY || "", model: row?.model || process.env.AI_MODEL || "gpt-4o-mini" };
 }
 function verifiedAnchor(db: Db, input: Input): ReadingAnchor | undefined {
+  if (input.selectionAnchors) return verifySelectionAnchors(db,{...input,selectionAnchors:input.selectionAnchors}) ?? undefined;
   const { paragraphId, selectionStart: startOffset, selectionEnd: endOffset, selectedText } = input;
   if (!paragraphId || startOffset === null || endOffset === null || !Number.isInteger(startOffset) || !Number.isInteger(endOffset) || startOffset < 0 || endOffset <= startOffset) return;
   const row = db.prepare("SELECT p.text, p.chapter_id FROM paragraphs p JOIN chapters c ON c.id = p.chapter_id WHERE p.id = ? AND c.edition_id = ?").get(paragraphId, input.editionId) as { text: string; chapter_id: string } | undefined;
@@ -145,12 +148,14 @@ export async function POST(request: NextRequest) {
     if (userId === assistantId) throw new RequestError("用户和助手消息 ID 不能相同", 400, "invalid_id");
     const mode = body.mode === "chat" ? "chat" : "analyze";
     const input: Input = { mode, detail: normalizeReadingDetail(body.detail), question: typeof body.question === "string" ? body.question : mode === "analyze" ? "请句读这一段" : "", selectedText: typeof body.selectedText === "string" ? body.selectedText : "", editionId: nullableString(body.editionId) ?? "demo", bookId: nullableString(body.bookId), chapterId: nullableString(body.chapterId), paragraphId: nullableString(body.paragraphId), selectionStart: typeof body.selectionStart === "number" ? body.selectionStart : null, selectionEnd: typeof body.selectionEnd === "number" ? body.selectionEnd : null };
+    if(body.selectionAnchors !== undefined) { const parts=readAnchorParts(body.selectionAnchors); if(!parts)throw new RequestError("选文来源格式无效",400,"invalid_selection"); input.selectionAnchors=parts; }
     if (!isConversationId(input.editionId)) throw new RequestError("书籍版本 ID 不合法", 400, "invalid_id");
     if (!input.question.trim() || (mode === "analyze" && !input.selectedText.trim())) throw new RequestError("问题或选中文本不能为空", 400, "invalid_input");
     const selectionError = mode === "analyze" ? readingSelectionError(input.selectedText) : null;
     if (selectionError) throw new RequestError(selectionError, 400, "selection_length");
     meta = { version: 1, clientUserMessageId: userId, clientAssistantMessageId: assistantId, fingerprint: createHash("sha256").update(JSON.stringify(input)).digest("hex"), attemptId: randomUUID(), leaseUntil: Date.now() + TIMEOUT_MS + 10_000, input, contextSnapshot: captureReadingContext(body, [userId, assistantId]) };
     db = getDb();
+    if(input.selectionAnchors && !verifiedAnchor(db,input)) throw new RequestError("选文来源与当前版本不一致，或选区不是连续正文，请重新划选",409,"anchor_mismatch");
     meta.contextSnapshot = { ...meta.contextSnapshot, chatHistory: attachSavedToolContext(db, threadId, meta.contextSnapshot.chatHistory) };
     const config = readConfig(db);
     let retrySettings: RetryContextSettings | undefined;
@@ -256,8 +261,9 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
           raw = result.text; usage = result.usage;
           logAgentEvent("info", "agent_completed", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, textLength: raw.length, hasAnalysis: Boolean(analysis), inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
           if (meta.input.mode === "analyze" && !analysis) {
-            // WHY: some compatible gateways stream the answer but omit the structured tool call; keep the validated readable answer instead of discarding it.
-            analysis = { readingText: raw.trim(), summary: "", breakdown: [], concepts: [], context: "", uncertainty: "", citations: [] };
+            // WHY：兼容网关省略工具调用时，自动保存仍须绑定同一组已核验来源，不能让成功正文丢失回跳位置。
+            const anchor=verifiedAnchor(db,meta.input);
+            analysis = { readingText: raw.trim(), summary: "", breakdown: [], concepts: [], context: "", uncertainty: "", citations: [], ...(anchor ? {anchor} : {}) };
             logAgentEvent("warn", "analysis_tool_fallback", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, readingTextLength: analysis.readingText?.length ?? 0 });
             persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage);
             send("structured", { result: analysis, messageId: meta.clientAssistantMessageId });

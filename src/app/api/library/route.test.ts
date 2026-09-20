@@ -13,6 +13,7 @@ beforeEach(() => {
     "INSERT INTO books VALUES ('old','同名书','旧作者','2026-01-01','private'),('other','另一部书','另一作者','2026-02-01','private'),('new','同名书','新作者','2026-03-01','private');" +
     "INSERT INTO editions VALUES ('old-v0','old','初版.epub','epub','2025-01-01','hash-secret'),('old-v1','old','修订.epub','epub','2026-01-01','hash-secret'),('new-v1','new','新译.pdf','pdf','2026-03-01','hash-secret'),('other-v1','other','另一部书.txt','txt','2026-02-01','hash-secret');"
   );
+  state.db.exec("ALTER TABLE editions ADD COLUMN original_file_path TEXT NOT NULL DEFAULT ''; ALTER TABLE editions ADD COLUMN original_file_size INTEGER NOT NULL DEFAULT 0; ALTER TABLE editions ADD COLUMN original_hash TEXT;");
 });
 afterEach(() => { state.db?.close(); state.db = undefined; });
 describe("GET library 保留全部书籍与版本", () => {
@@ -21,13 +22,13 @@ describe("GET library 保留全部书籍与版本", () => {
     expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(value.map((book: { id: string }) => book.id)).toEqual(["new", "other", "old"]);
     expect(value[2]).toEqual({ id: "old", title: "同名书", author: "旧作者", createdAt: "2026-01-01", editions: [
-      { id: "old-v1", fileName: "修订.epub", fileType: "epub", createdAt: "2026-01-01" },
-      { id: "old-v0", fileName: "初版.epub", fileType: "epub", createdAt: "2025-01-01" },
+      { id: "old-v1", fileName: "修订.epub", fileType: "epub", createdAt: "2026-01-01", hasOriginalFile: false, fileSize: 0, readerMode: "text" },
+      { id: "old-v0", fileName: "初版.epub", fileType: "epub", createdAt: "2025-01-01", hasOriginalFile: false, fileSize: 0, readerMode: "text" },
     ] });
     expect(JSON.stringify(value)).not.toContain("private"); expect(JSON.stringify(value)).not.toContain("hash-secret");
   });
   it("8个BookID即使只有2种书名也全部可达，9个EditionID均保留", async () => {
-    for (let index = 0; index < 5; index += 1) state.db?.exec("INSERT INTO books VALUES ('extra" + index + "','同名书','作者','2026-04-01','private'); INSERT INTO editions VALUES ('extra-v" + index + "','extra" + index + "','同一文件.epub','epub','2026-04-01','hash');");
+    for (let index = 0; index < 5; index += 1) state.db?.exec("INSERT INTO books VALUES ('extra" + index + "','同名书','作者','2026-04-01','private'); INSERT INTO editions (id, book_id, file_name, file_type, created_at, file_hash) VALUES ('extra-v" + index + "','extra" + index + "','同一文件.epub','epub','2026-04-01','hash');");
     const value = await (await GET()).json();
     expect(value).toHaveLength(8);
     expect(new Set(value.map((book: { id: string }) => book.id)).size).toBe(8);

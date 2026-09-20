@@ -6,7 +6,7 @@ export const READING_APPEARANCE_STORAGE_KEYS = Object.freeze({
   legacyFontScale: "judu:fontScale",
 });
 
-export type ReadingThemeId = "light" | "paper" | "green" | "dark" | "mist";
+export type ReadingThemeId = "gray" | "light" | "paper" | "green" | "dark" | "mist";
 export type ReadingFontId = "song" | "hei" | "kai" | "serif" | "sans";
 export type ReadingColumnWidth = 520 | 650 | 780 | "auto";
 export type ReadingLanguage = "zh-CN" | "en";
@@ -23,7 +23,7 @@ export interface ReadingAppearancePreferences {
 }
 
 export const DEFAULT_READING_APPEARANCE: Readonly<ReadingAppearancePreferences> = Object.freeze({
-  version: 1, theme: "light", font: "song", fontSize: 16, lineHeight: 2,
+  version: 1, theme: "gray", font: "song", fontSize: 16, lineHeight: 2,
   letterSpacing: 0, columnWidth: 650, textAlign: "left", language: "zh-CN",
 });
 export const READING_APPEARANCE_LIMITS = Object.freeze({
@@ -55,7 +55,10 @@ export interface ReadingTheme {
   selected: string;
 }
 export const READING_THEMES: ReadonlyArray<ReadingTheme> = [
-  { id: "light", label: "浅色", description: "暖白正文 · 灰青侧栏", scheme: "light",
+  { id: "gray", label: "灰白（默认）", description: "白色正文 · 中性灰侧栏", scheme: "light",
+    paper: "#FFFFFF", sidebar: "#F1F2F3", assistant: "#F7F7F8", surface: "#FFFFFF",
+    text: "#292D32", muted: "#626870", border: "#D9DCE0", accent: "#495666", selected: "#E3E6EA" },
+  { id: "light", label: "浅绿", description: "暖白正文 · 灰青侧栏", scheme: "light",
     paper: "#FFFDF9", sidebar: "#EEF4F2", assistant: "#F7FAF9", surface: "#FFFFFF",
     text: "#263238", muted: "#5D6A6C", border: "#D7E2E0", accent: "#396E6A", selected: "#DDEBE7" },
   { id: "paper", label: "纸张", description: "米色纸面 · 温暖柔和", scheme: "light",
@@ -167,7 +170,7 @@ export function writeReadingAppearance(storage: Pick<ReadingAppearanceStorage, "
   return preferences;
 }
 
-export type ReadingAppearanceVariables = Record<`--reading-${string}`, string>;
+export type ReadingAppearanceVariables = Record<`--reading-${string}` | `--ui-${string}`, string>;
 export function getReadingThemeVariables(themeId: ReadingThemeId): ReadingAppearanceVariables {
   const theme = READING_THEMES.find((item) => item.id === themeId) ?? READING_THEMES[0];
   return {
@@ -175,6 +178,10 @@ export function getReadingThemeVariables(themeId: ReadingThemeId): ReadingAppear
     "--reading-border": theme.border, "--reading-accent": theme.accent, "--reading-selected": theme.selected,
     "--reading-sidebar-background": theme.sidebar, "--reading-assistant-background": theme.assistant,
     "--reading-surface": theme.surface, "--reading-color-scheme": theme.scheme,
+    // WHY：旧版工作台样式仍使用 --ui-* 变量；在同一主题变量包中提供兼容别名，避免正文换色而三栏外壳停留在硬编码浅色。
+    "--ui-bg": theme.paper, "--ui-panel": theme.sidebar, "--ui-panel-deep": theme.surface,
+    "--ui-border": theme.border, "--ui-text": theme.text,
+    "--ui-subtle": theme.muted, "--ui-accent": theme.accent,
   };
 }
 /** 可见正文和隐藏测量器须用同一结果、同一可用容器宽度；挂载后先等 fonts.ready 再测量。 */
@@ -224,7 +231,7 @@ export function getReadingAppearanceBootstrapScript(): string {
   const config = JSON.stringify({ keys: READING_APPEARANCE_STORAGE_KEYS,
     themes: Object.fromEntries(READING_THEMES.map((theme) => [theme.id, getReadingThemeVariables(theme.id)])) });
   return "(()=>{const c=" + config.replace(/</g, "\\u003c") + ";" +
-    "let theme='light';try{const s=window.localStorage;let v=null;const raw=s.getItem(c.keys.preferences);" +
+    "let theme='gray';try{const s=window.localStorage;let v=null;const raw=s.getItem(c.keys.preferences);" +
     "if(raw!==null){try{v=JSON.parse(raw)}catch(e){console.warn('[reading-appearance] 已保存设置损坏，将回退')}}" +
     "const valid=v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length>0&&(v.version===undefined||v.version===1);" +
     "const candidate=valid?(v.theme===undefined?s.getItem(c.keys.legacyTheme):v.theme):s.getItem(c.keys.legacyTheme);" +

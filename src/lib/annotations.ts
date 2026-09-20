@@ -1,4 +1,5 @@
 import { hashText } from "./hash";
+import type { ReadingAnchorPart } from "./reading-anchors";
 
 export type ConceptDetail = { name: string; text: string };
 
@@ -289,4 +290,9 @@ function matchParagraphConcepts(input: AnnotationSlice, source: string, sourceOf
     if (!matches.some((item) => item.start < candidate.end && candidate.start < item.end)) matches.push(candidate);
   }
   return matches;
+}
+
+/** WHY：来源回跳高亮不写数据库；全部片段共同展示，避免只把首段当作整次句读。 */
+export function sourceSelectionHighlights(parts: readonly ReadingAnchorPart[]): TextAnnotation[] {
+  return parts.map(part=>({id:"source-"+part.paragraphId+"-"+part.startOffset,paragraphId:part.paragraphId,startOffset:part.startOffset,endOffset:part.endOffset,textHash:hashText(part.selectedText),threadId:"source-preview",summary:"",concepts:[],kind:"highlight",markColor:"yellow",createdAt:""}));
 }

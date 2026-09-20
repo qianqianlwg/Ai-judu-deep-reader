@@ -1,4 +1,5 @@
 import { isAnalysis, type Analysis } from "./chat-stream";
+import { anchorParts, joinAnchorText, readReadingAnchor, type ReadingAnchor } from "./reading-anchors";
 import { hashText } from "./hash";
 import type { BookKnowledge, KnowledgeAnchor, KnowledgeConcept, KnowledgeDefinition, KnowledgeRecord } from "./knowledge";
 
@@ -27,7 +28,8 @@ function analysisFrom(row: Row): (Analysis & { anchor?: unknown }) | null {
   const value = parseJson(row.structured_output, string(row.id) ?? "", "structured_output");
   // WHY：只接收成功保存的结构化句读，不从聊天正文、引用或线程的最后选文反推一次句读。
   if (!isRow(value) || value.kind === "chat" || value.mode === "chat" || !isAnalysis(value)) return null;
-  return value.summary.trim() || value.breakdown.length || value.concepts.length ? value : null;
+  // WHY：新句读以 readingText 为正文，summary 可为空；不能把已保存的纯释读误丢弃为普通聊天。
+  return value.readingText?.trim() || value.summary.trim() || value.breakdown.length || value.concepts.length ? value : null;
 }
 
 function validateAnchor(value: unknown, row: Row, editionId: string): KnowledgeAnchor | null {
@@ -53,18 +55,20 @@ function definitions(values: readonly KnowledgeDefinition[]): KnowledgeDefinitio
   return result.filter((item) => item.text || !result.some((other) => other.name === item.name && other.text));
 }
 
-function messageRecord(value: unknown, editionId: string): KnowledgeRecord | null {
+function messageRecord(value: unknown, editionId: string, verifyMulti?: (anchor: ReadingAnchor) => boolean): KnowledgeRecord | null {
   if (!isRow(value) || value.edition_id !== editionId || value.role !== "assistant"
     || value.status !== "completed" || !nonempty(value.id) || !nonempty(value.thread_id)
     || !nonempty(value.created_at)) return null;
   const analysis = analysisFrom(value);
   if (!analysis) return null;
-  const anchor = validateAnchor(analysis.anchor, value, editionId);
-  const excerpt = isRow(analysis.anchor) ? string(analysis.anchor.selectedText) ?? "" : "";
+  const source = readReadingAnchor(analysis.anchor);
+  const first = validateAnchor(analysis.anchor, value, editionId);
+  const anchor = first && source && (!source.fragments || verifyMulti?.(source)) ? {...first,...source} : null;
+  const excerpt = source ? joinAnchorText(anchorParts(source)) : isRow(analysis.anchor) ? string(analysis.anchor.selectedText) ?? "" : "";
   return { id: "message:" + value.id, editionId, annotationId: null,
     messageId: nonempty(value.id), threadId: nonempty(value.thread_id),
-    createdAt: String(value.created_at), summary: analysis.summary.trim(),
-    excerpt: anchor?.selectedText ?? excerpt, chapterTitle: string(value.chapter_title), anchor,
+    createdAt: String(value.created_at), summary: analysis.summary.trim() || analysis.readingText?.trim() || "",
+    excerpt: anchor ? joinAnchorText(anchorParts(anchor)) : excerpt, chapterTitle: string(value.chapter_title), anchor,
     locationReason: anchor ? null : analysis.anchor ? INVALID_ANCHOR : NO_ANCHOR,
     concepts: definitions(analysis.concepts) };
 }
@@ -114,11 +118,16 @@ function conceptsFor(records: KnowledgeRecord[]): KnowledgeConcept[] {
   return [...map.values()];
 }
 
-export function buildBookKnowledge(editionId: string, annotationRows: unknown[], messageRows: unknown[]): BookKnowledge {
+export function buildBookKnowledge(editionId: string, annotationRows: unknown[], messageRows: unknown[], verifyMulti?: (anchor: ReadingAnchor) => boolean): BookKnowledge {
   const records = new Map<string, KnowledgeRecord>();
+  const invalidMultiSources = new Set<string>();
   for (const row of messageRows) {
-    const record = messageRecord(row, editionId);
-    if (record) records.set(record.id, record);
+    const record = messageRecord(row, editionId, verifyMulti);
+    if (record) {
+      records.set(record.id,record);
+      const saved=isRow(row) ? analysisFrom(row) : null;
+      if(!record.anchor && isRow(saved?.anchor) && (saved.anchor.version===2 || saved.anchor.fragments!==undefined))invalidMultiSources.add(record.id);
+    }
   }
   for (const row of annotationRows) {
     const annotation = annotationRecord(row, editionId);
@@ -131,9 +140,10 @@ export function buildBookKnowledge(editionId: string, annotationRows: unknown[],
       console.warn("忽略未关联有效句读消息的标注", { annotationId: annotation.annotationId });
       continue;
     }
-    const anchor = message.anchor ?? annotation.anchor;
+    // WHY：多段来源任何一段失效都不能借首段标注降级为“已验证全选区”。
+    const anchor = message.anchor ?? (invalidMultiSources.has(message.id) ? null : annotation.anchor);
     records.set(message.id, { ...message, annotationId: annotation.annotationId, anchor,
-      excerpt: anchor?.selectedText ?? (message.excerpt || annotation.excerpt),
+      excerpt: anchor ? joinAnchorText(anchorParts(anchor)) : (message.excerpt || annotation.excerpt),
       chapterTitle: message.chapterTitle ?? annotation.chapterTitle,
       locationReason: anchor ? null : message.locationReason,
       concepts: definitions([...message.concepts, ...annotation.concepts]) });
