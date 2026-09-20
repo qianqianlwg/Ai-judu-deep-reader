@@ -18,3 +18,5 @@
 
 .epub-navigation select{max-width:120px;min-width:0;border:1px solid var(--reading-border);background:var(--reading-paper);color:var(--reading-text);padding:4px;border-radius:5px;font-size:12px;}
 .epub-link-address{overflow-wrap:anywhere;color:var(--reading-muted);}.epub-footnote button{color:var(--reading-accent);cursor:pointer;}
+.epub-conversion-notice{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-top:1px solid var(--reading-border);color:var(--reading-muted);font:11px/1.5 system-ui;}
+.epub-conversion-notice a{flex-shrink:0;color:var(--reading-accent);text-decoration:underline;text-underline-offset:3px;}

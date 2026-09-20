@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import { createHash, webcrypto } from "node:crypto";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EpubReader, appearanceCss, type EpubReaderProps } from "./epub-reader";
 import { DEFAULT_READING_APPEARANCE } from "@/lib/reading-appearance";
 import type { FoliateBook, FoliateView } from "@/lib/foliate-types";
-import { originalPositionKey } from "@/lib/epub-position";
+import { originalPositionKey, convertedPositionKey } from "@/lib/epub-position";
 const loader=vi.hoisted(()=>({loadEpub:vi.fn(),createFoliateView:vi.fn()}));
 vi.mock("@/lib/epub-loader",()=>loader);
 const fb2loader=vi.hoisted(()=>({loadFb2:vi.fn()}));
@@ -160,4 +161,53 @@ it("FB2延迟load在组件卸载后完成仍销毁归属资源，不创建迟到
  let resolve!:(book:FoliateBook)=>void;fb2loader.loadFb2.mockReturnValueOnce(new Promise<FoliateBook>(done=>{resolve=done;}));
  await render({book:assembleFb2()});expect(fb2loader.loadFb2).toHaveBeenCalledOnce();await act(async()=>root.render(null));
  const late={...original,destroy:vi.fn()};await act(async()=>resolve(late));expect(late.destroy).toHaveBeenCalledOnce();expect(loader.createFoliateView).not.toHaveBeenCalled();expect(host.childNodes).toHaveLength(0);
+});
+
+const convertedBytes = new TextEncoder().encode("converted EPUB bytes").buffer;
+function assembleUmd(bytes: ArrayBuffer = convertedBytes): EpubReaderProps["book"] {
+ vi.stubGlobal("crypto", webcrypto); original.sections[0].id="OPS/chapter-0001.xhtml";
+ vi.mocked(fetch).mockResolvedValue({ok:true,arrayBuffer:async()=>bytes} as Response);
+ return {...props.book,edition:{...props.book.edition!,fileType:".umd",fileName:"书.umd",conversion:{format:".epub",sourceHash:"a".repeat(64),fileHash:createHash("sha256").update(new Uint8Array(bytes)).digest("hex"),fileSize:bytes.byteLength,converterVersion:"umd-epub-v1",createdAt:"now"}},chapters:props.book.chapters.map(chapter=>({...chapter,sourceHref:"OPS/chapter-0001.xhtml"}))};
+}
+async function settleConversion() {await act(async()=>{await vi.waitFor(()=>{if(!loader.loadEpub.mock.calls.length&&!host.querySelector('[role="alert"]'))throw new Error("转换版尚未完成加载边界");});});}
+it("UMD只读取转换EPUB并校验字节，原件下载单独保留且界面不伪称原版",async()=>{
+ await render({book:assembleUmd()});await settleConversion();
+ expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/books/b/converted?editionId=e",expect.objectContaining({cache:"no-store"}));
+ expect(loader.loadEpub).toHaveBeenCalledWith(expect.any(Blob));expect(fb2loader.loadFb2).not.toHaveBeenCalled();
+ expect(host.querySelector('section')?.getAttribute('aria-label')).toBe('UMD 转换版阅读器');expect(view.getAttribute('aria-label')).toBe('UMD 转换版内容');
+ expect(host.textContent).toContain('转换版下一页');expect(host.textContent).toContain('不代表原文件版式');
+ expect(host.querySelector('a[download]')?.getAttribute('href')).toBe('/api/books/b/original?editionId=e');
+});
+it("UMD选文写入独立双hash位置，精读来源回跳仍逐字定位",async()=>{
+ const book=assembleUmd();const old='{"original":"do not overwrite"}';localStorage.setItem(originalPositionKey('e'),old);
+ await render({book});await settleConversion();const range=doc.createRange();range.selectNodeContents(doc.querySelectorAll('p')[1]);
+ Object.defineProperty(range,'getBoundingClientRect',{value:()=>({left:10,top:60,width:30})});vi.spyOn(doc.defaultView!,'getSelection').mockReturnValue({rangeCount:1,isCollapsed:false,getRangeAt:()=>range} as unknown as Selection);
+ await act(async()=>doc.dispatchEvent(new MouseEvent('mouseup')));
+ expect(props.onSelect).toHaveBeenCalledWith({paragraphId:'p2',startOffset:0,endOffset:3,text:'第二段'},expect.any(Object));
+ expect(JSON.parse(localStorage.getItem(convertedPositionKey('e'))!)).toMatchObject({kind:'umd-epub',sourceHash:book.edition!.originalHash,fileHash:book.edition!.conversion!.fileHash,converterVersion:'umd-epub-v1',anchor:{paragraphId:'p2',offset:0}});
+ expect(localStorage.getItem(originalPositionKey('e'))).toBe(old);
+ await render({anchor:{paragraphId:'p',offset:2}});expect(view.renderer.goTo).toHaveBeenCalledWith(expect.objectContaining({index:0,anchor:expect.any(Function)}));expect(fetch).toHaveBeenCalledOnce();
+});
+it.each(['match','old-original','different-derived'])("UMD恢复位置只接受当前派生身份：%s",async kind=>{
+ const book=assembleUmd(),cfi='epubcfi(/6/2!/4/1:4)';
+ const identity=book.edition!.conversion!;
+ if(kind==='old-original')localStorage.setItem(originalPositionKey('e'),JSON.stringify({version:1,originalHash:identity.sourceHash,cfi,anchor:null}));
+ else localStorage.setItem(convertedPositionKey('e'),JSON.stringify({version:1,kind:'umd-epub',sourceHash:identity.sourceHash,fileHash:kind==='match'?identity.fileHash:'c'.repeat(64),converterVersion:identity.converterVersion,cfi,anchor:null}));
+ await render({book});await settleConversion();
+ expect(view.init).toHaveBeenCalledWith(kind==='match'?{lastLocation:cfi,showTextStart:true}:{showTextStart:true});
+});
+it.each(['hash','size','metadata','missing-response'])("转换版%s失败不回退读取原UMD或启动EPUB解析",async kind=>{
+ vi.spyOn(console,'error').mockImplementation(()=>{});const book=assembleUmd();
+ if(kind==='hash')book.edition!.conversion!.fileHash='b'.repeat(64);
+ if(kind==='size')book.edition!.conversion!.fileSize++;
+ if(kind==='metadata')book.edition!.conversion!.sourceHash='b'.repeat(64);
+ if(kind==='missing-response')vi.mocked(fetch).mockResolvedValue({ok:false,status:404,headers:new Headers({'content-type':'application/json'}),json:async()=>({error:'转换版文件已丢失'})} as Response);
+ await render({book});await settleConversion();expect(host.querySelector('[role="alert"]')).not.toBeNull();expect(loader.loadEpub).not.toHaveBeenCalled();expect(view.open).not.toHaveBeenCalled();
+ expect(vi.mocked(fetch).mock.calls.some(call=>String(call[0]).includes('/original?'))).toBe(false);
+ expect([...host.querySelectorAll('button')].some(button=>button.textContent==='重试转换版')).toBe(true);
+});
+it("同版本派生hash改变会重开文件并关闭旧会话，不复用旧CFI",async()=>{
+ await render({book:assembleUmd()});await settleConversion();const nextBytes=new TextEncoder().encode('new converted EPUB bytes').buffer;
+ const next=assembleUmd(nextBytes);await render({book:next});await act(async()=>{await vi.waitFor(()=>expect(loader.loadEpub).toHaveBeenCalledTimes(2));});
+ expect(fetch).toHaveBeenCalledTimes(2);expect(original.destroy).toHaveBeenCalledOnce();expect(view.close).toHaveBeenCalledOnce();
 });

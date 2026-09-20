@@ -6,7 +6,7 @@ import { EPUB_LIMITS } from "./epub-security-zip";
 
 type ChapterSource = { href: string; startByte: number; endByte: number };
 type Snapshot = Omit<UmdBook, "cover"> & { cover?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } };
-export type UmdEpubResult = { epub: Buffer; sourceHash: string; converterVersion: string; chapters: ChapterSource[] };
+export type UmdEpubResult = { epub: Buffer; sourceHash: string; converterVersion: typeof CONVERTER_VERSION; chapters: ChapterSource[] };
 
 const CONVERTER_VERSION = "umd-epub-v1";
 const MAX_SOURCE_BYTES = 100 * 1024 * 1024;

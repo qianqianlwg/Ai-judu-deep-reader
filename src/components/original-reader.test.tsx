@@ -18,3 +18,13 @@ it.each(["fb2","fbz","fb2.zip"])("%s组合根复用EPUB原版阅读组件，但�
   expect(host.querySelector("[data-renderer]")?.getAttribute("data-renderer")).not.toBe(epubIdentity);
  }finally{await act(async()=>root.unmount());vi.unstubAllGlobals();}
 });
+it("UMD有效派生版本进入EPUB渲染器而非原文件解析器",async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const host=document.createElement('div'),root=createRoot(host);
+ const common={anchor:null,appearance:DEFAULT_READING_APPEARANCE,annotations:[],concepts:[],onSelect:vi.fn(),onPosition:vi.fn(),onNotice:vi.fn(),onFallback:vi.fn()};
+ const book={id:'b',title:'书',author:'',editionId:'e',edition:{id:'e',fileName:'书.epub',fileType:'.epub',hasOriginalFile:true,createdAt:'now'},chapters:[{id:'c',title:'章',sourceHref:'OPS/chapter-0001.xhtml',paragraphs:[{id:'p',text:'原文'}]}]};
+ try{
+  await act(async()=>root.render(<OriginalReader {...common} book={book}/>));const expected=host.querySelector('[data-renderer]')?.getAttribute('data-renderer');
+  await act(async()=>root.render(<OriginalReader {...common} book={{...book,edition:{...book.edition,fileType:'.umd',originalHash:'a'.repeat(64),conversion:{format:'.epub',sourceHash:'a'.repeat(64),fileHash:'b'.repeat(64),fileSize:100,converterVersion:'umd-epub-v1',createdAt:'now'}}}}/>));
+  expect(host.querySelector('[data-renderer]')?.getAttribute('data-renderer')).toBe(expected);expect(host.querySelector('[role="alert"]')).toBeNull();
+ }finally{await act(async()=>root.unmount());vi.unstubAllGlobals();}
+});

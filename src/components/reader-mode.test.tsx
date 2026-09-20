@@ -46,3 +46,15 @@ describe("CBZ阅读模式门禁", () => {
   });
 });
 
+
+it("UMD双份元数据和连续来源齐全才启用转换版，不能标为原版",async()=>{
+ vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",true);const host=document.createElement('div'),root=createRoot(host);
+ const umd:LibraryBookContent={...book,edition:{...book.edition!,fileType:'.umd',originalHash:'a'.repeat(64),conversion:{format:'.epub',sourceHash:'a'.repeat(64),fileHash:'b'.repeat(64),fileSize:100,converterVersion:'umd-epub-v1',createdAt:'now'}},chapters:[{id:'c',title:'章',sourceHref:'OPS/chapter-0001.xhtml',paragraphs:[{id:'p',text:'正文'}]}]};
+ function Harness({value}:{value:LibraryBookContent}){const mode=useReaderMode(value);return <ReaderModeSwitch book={value} original={mode.original} onChange={mode.selectMode}/>;}
+ try{
+  expect(originalReaderKind(umd)).toBe('umd');expect(originalEpubAvailable(umd)).toBe(false);
+  await act(async()=>root.render(<Harness value={umd}/>));const buttons=host.querySelectorAll('button');expect(buttons[0].textContent).toBe('转换版');expect(buttons[0].title).toContain('不代表原文件版式');expect(buttons[0].disabled).toBe(false);
+  await act(async()=>buttons[1].click());expect(buttons[0].getAttribute('aria-pressed')).toBe('false');
+  await act(async()=>root.render(<Harness value={{...umd,edition:{...umd.edition!,conversion:undefined}}}/>));expect(host.querySelector('button')?.disabled).toBe(true);expect(host.querySelector('button')?.title).toContain('尚无已保存');expect(originalReaderKind({...umd,edition:{...umd.edition!,id:'wrong'}})).toBeNull();
+ }finally{await act(async()=>root.unmount());}
+});

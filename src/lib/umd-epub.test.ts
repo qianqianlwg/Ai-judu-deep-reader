@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import JSZip from "jszip";
 import sharp from "sharp";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 import type { UmdBook, UmdCover, UmdTextChapter } from "./umd-parser";
 import { createUmdEpub } from "./umd-epub";
 import { validateEpubImport } from "./epub-import-security";
@@ -100,7 +100,7 @@ describe("UMD → EPUB2 可复现转换", () => {
     const input = book();
     const result = await createUmdEpub(input);
     expect(result.sourceHash).toBe(sourceHash);
-    expect(result.converterVersion).toBe("umd-epub-v1");
+    expect(result.converterVersion).toBe("umd-epub-v1"); expectTypeOf(result.converterVersion).toEqualTypeOf<"umd-epub-v1">();
     expect(result.chapters).toEqual(input.chapters.map((chapter, index) => ({
       href: `OPS/chapter-000${index + 1}.xhtml`, startByte: chapter.startByte, endByte: chapter.endByte,
     })));
