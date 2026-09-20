@@ -7,7 +7,11 @@
         "build": "next build",
         "start": "next start",
         "lint": "eslint",
-        "test": "vitest run --exclude \".verify-*/**\""
+        "test": "vitest run --exclude \".verify-*/**\"",
+        "build:mobi-worker": "node scripts/build-mobi-worker.mjs",
+        "predev": "npm run build:mobi-worker",
+        "prebuild": "npm run build:mobi-worker",
+        "pretest": "npm run build:mobi-worker"
     },
     "dependencies": {
         "@langchain/anthropic": "^1.5.10",
@@ -34,6 +38,7 @@
         "@types/node": "^20",
         "@types/react": "^19",
         "@types/react-dom": "^19",
+        "esbuild": "0.28.2",
         "eslint": "^9",
         "eslint-config-next": "16.3.5",
         "jsdom": "^30.0.1",

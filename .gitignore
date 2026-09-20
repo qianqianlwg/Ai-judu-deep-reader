@@ -49,3 +49,6 @@ next-env.d.ts
 .verify-*.log
 .verify-*.pid
 .main*.log
+
+# private generated parser deployment assets (npm run build:mobi-worker)
+/runtime/

@@ -13,3 +13,7 @@ it("原文件响应覆盖全局 CSP，禁止直接激活或嵌入", async () => 
  const rules=await config.headers?.();
  expect(rules?.at(-1)).toEqual({source:"/api/books/:bookId/original",headers:[{key:"Content-Security-Policy",value:"sandbox; default-src 'none'; frame-ancestors 'none'"}]});
 });
+
+it("导入路由显式跟踪私有解析产物而不通过public发布", () => {
+  expect(config.outputFileTracingIncludes).toEqual({ "/api/import": ["./runtime/mobi/**/*"] });
+});

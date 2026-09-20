@@ -81,3 +81,25 @@ DRM 绕过、OCR 和数学公式结构理解没有因本批次偷偷开启。
 - 补丁只针对已确认的格式/健壮性问题：合法无 EXTH 的 MOBI、KF8 单流 `numFdst=1`、FDST 区间覆盖、raw flow 索引/大小界、最后一个 MOBI body 区间和带属性 `<body>`。没有开放上传入口，也没有把补丁探针当成 production 支持。
 - 使用同一 4 个 libmobi 固定 commit 样本再次探针：MOBI6 1/1 可提取；3 个真实双格式 KF8 现在均可进入文本投影，结果分别为 2章/17段、2章/17段、3章/5段。该结果只证明候选补丁覆盖当前样本，不证明所有 AZW/AZW3、固定布局、资源、字体、NCX、locator 和 DRM 边界。
 - 解析器仍在独立可终止 worker；HTML 使用 `parse5` 有界投影。MOBI/AZW/AZW3 API 继续 415，直到完成真实样本矩阵、原版资源/定位、原件往返及独立端口验证。
+
+## 2026-09-20 私有运行时打包门禁
+
+本批只补齐候选解析的生产部署前置条件，不开放 MOBI/AZW/AZW3 导入。
+
+- 新增 `scripts/build-mobi-worker.mjs` 及同级测试，固定 esbuild 0.28.2，把已校验的 vendor、HTML 投影和实际第三方依赖打为 `runtime/mobi/worker.cjs`。
+- `npm run dev`、`npm test`、`npm run build` 的前置脚本自动构建；解析进程不依赖解析器/HTML库的开发包。部署必须保留 `runtime/mobi`，不能只复制 `.next` 后丢弃解析产物。
+- 输出同时含 `manifest.json` 和 `THIRD_PARTY_NOTICES.txt`：记录逐输入 SHA-256、实际包版本、许可、构建器版本与 lockfile 哈希；不记录机器绝对路径和构建时间。重复构建逐字节一致。
+- worker 仅获单个 bundle 和本次临时资源目录的读权限、临时目录写权限，不再授权整个 node_modules，也不从源码路径回退。缺少产物时明确提示执行构建命令。
+- 仅复制产物到没有 src/vendor/node_modules 的临时部署根，真实子进程解析 MOBI6 和无 FDST 表的纯 KF8；中文、emoji 标题及正文通过。后者证明补丁覆盖该自造结构，不等于真实 AZW3 文件已验收。
+- 原 worker 生命周期、取消、超时、IPC 校验、临时资源清理、密钥环境隔离测试继续通过；权限探针额外确认 src 与 node_modules 均不可读。
+- Next 生产构建 `/api/import/route.js.nft.json` 实际包含 worker、清单和许可三项。未使用 public 目录发布运行时。
+- AI 自测 3298：首页与书库 API 200；运行时、清单、许可的 HTTP 路径均 404；三种候选扩展名均明确 415，隔离书库仍为空。服务随后关闭，端口已释放。
+- 完整回归 156 文件、2196 项通过，0 失败、0 跳过；本地真实 EPUB 和 50 页论文测试均实际执行。ESLint、严格 TypeScript、构建脚本 checkJs、隔离生产构建通过。
+- 仍缺真实 AZW/AZW3 样本、原版资源与定位、原件/导入/知识回跳闭环；不能将本批打包门禁当作格式交付。
+
+### 本批独立验收和主项目交付
+
+- 子 agent 只读复核：158 项定向测试通过；9 项会写临时文件的用例主动排除，已由主流程全量实际运行，不把排除项算作子 agent 通过。
+- 子 agent 额外使用受限读取且禁写的进程验证 MOBI未压缩、PalmDOC、KF8单流、KF8双流四个合成fixture，全部通过；构建复现、完整许可、实际NFT以及tsc/checkJs复核均通过，未发现本批阻断。
+- 主项目已重启到3000，使用默认.next和正式data，首页与书库API均200；3298已释放。重启前后实测数量相同：3书/3版本/5条AI标注/2条手动标记/2会话/8消息。该统计是本批新测量，不沿用历史记录。
+- 未重试或绕过此前Foliate浏览器环境问题；第二阶段仍未完成。

@@ -175,6 +175,8 @@ describe("独立验收补充：异常生命周期与权限", () => {
           const probe = {
             env: process.env,
             readData: process.permission.has('fs.read', ${JSON.stringify(formalData)}),
+            readSource: process.permission.has('fs.read', ${JSON.stringify(path.resolve('src'))}),
+            readDependencies: process.permission.has('fs.read', ${JSON.stringify(path.resolve('node_modules'))}),
             writeData: process.permission.has('fs.write', ${JSON.stringify(formalData)}),
             writeOwn: process.permission.has('fs.write', process.cwd()),
             spawn: process.permission.has('child'),
@@ -188,7 +190,7 @@ describe("独立验收补充：异常生命周期与权限", () => {
       });
       const value = await runMobiWorker({ bytes: makeMobiFixture(), kind: "mobi", resourceDir: directory });
       const probe: unknown = JSON.parse(value.chapters[0].paragraphs[0]);
-      expect(probe).toMatchObject({ readData: false, writeData: false, writeOwn: true, spawn: false, workers: false });
+      expect(probe).toMatchObject({ readData: false, readSource: false, readDependencies: false, writeData: false, writeOwn: true, spawn: false, workers: false });
       expect(value.chapters[0].paragraphs[0]).not.toMatch(/OPENAI_API_KEY|NODE_OPTIONS|JUDU_DATA_DIR/u);
     } finally {
       const resolved = path.resolve(directory);

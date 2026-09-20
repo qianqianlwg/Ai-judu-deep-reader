@@ -11,6 +11,7 @@ const eslintConfig = defineConfig([
     "public/vendor/foliate/**/*.js",
     "public/vendor/pdfjs/**",
     "vendor/mobi/index.mjs",
+    "runtime/**",
     "!public/vendor/foliate/bridge.js",
     "!public/vendor/foliate/security-css.js",
     "work/**",

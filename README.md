@@ -56,3 +56,10 @@ npm run build
 工具入参/出参及保存边界见 docs/agent-tools.md；本机范围的最终验收证据、主库切换与部署边界见 docs/stage4-verification.md。
 
 业务 API 默认限制本机 Host、同源来源和写请求内容类型。若部署到其他域名，须配置 JUDU_APP_ORIGIN，并另行配置认证与 HTTPS；这不是现成的多用户公网部署方案。
+
+## 私有解析运行时的构建与部署
+
+- `npm run dev`、`npm test`、`npm run build` 会先执行 `npm run build:mobi-worker`，生成不经 HTTP 发布的 `runtime/mobi`。该目录是构建产物，不提交 Git。
+- 生产运行不从 `src` 或开发依赖目录动态加载 MOBI parser；部署需携带生成的 worker、清单和第三方许可。Next 导入路由的文件追踪已显式包含这三项。仅安装生产依赖时，应使用先前构建生成的运行时，而不是在启动时临时安装解析开发包。
+- `node --test scripts/build-mobi-worker.test.mjs` 验证可复现构建和许可，`src/lib/mobi-worker-deployment.test.ts` 验证独立目录真实子进程运行。直接调用 Vitest 前需先构建运行时，常规 `npm test` 会自动完成。
+- 这只是 MOBI/KF8 候选的部署前置条件；MOBI/AZW/AZW3 API 仍然返回 415，完整格式及 UMD 转换尚未交付。

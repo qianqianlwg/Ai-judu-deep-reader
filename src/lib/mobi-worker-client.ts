@@ -1,13 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { lstat } from "node:fs/promises";
 import type { MobiContainerKind } from "./mobi-format";
 
 export type MobiWorkerResult = { title: string; authors: string[]; chapters: { id: string; title: string; paragraphs: string[] }[] };
 export type MobiWorkerInput = { bytes: Uint8Array; kind: MobiContainerKind; resourceDir: string };
 export type MobiWorkerOptions = { signal?: AbortSignal; timeoutMs?: number };
-const localRequire = createRequire(import.meta.url);
 const MAX_CHARS = 20_000_000;
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object");
 
@@ -63,13 +61,19 @@ export async function runMobiWorker(input: MobiWorkerInput, options: MobiWorkerO
   if (options.signal?.aborted) throw new Error("MOBI解析已取消");
   if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 60_000)) throw new Error("MOBI解析超时配置无效");
   if (input.bytes.byteLength > 100 * 1024 * 1024) throw new Error("MOBI输入超限");
-  const worker = fileURLToPath(new URL("./mobi-worker.mjs", import.meta.url));
-  const parserPath = localRequire.resolve("@lingo-reader/mobi-parser");
-  const nodeModules = path.resolve(parserPath, "../../../..");
+  // WHY：固定私有部署路径不随Next模块重定位；不从开发依赖解析运行时，也不回退到源码。
+  const worker = path.resolve(process.cwd(), "runtime/mobi/worker.cjs");
+  try {
+    const file = await lstat(worker);
+    if (!file.isFile() || file.isSymbolicLink()) throw new Error("运行时不是普通文件");
+  } catch (cause: unknown) {
+    throw new Error("MOBI解析运行时未就绪，请执行 npm run build:mobi-worker 后重试", { cause });
+  }
+  if (options.signal?.aborted) throw new Error("MOBI解析已取消");
   // WHY：不继承NODE_OPTIONS、模型密钥等环境；Node权限仅允许读依赖和写本次私有目录。并非完整OS/网络沙箱。
   const env: NodeJS.ProcessEnv = { NODE_ENV: "production", ...Object.fromEntries(["SystemRoot", "WINDIR", "TEMP", "TMP"].flatMap(key => process.env[key] ? [[key, process.env[key]!]] : [])) };
   const child = spawn(process.execPath, ["--max-old-space-size=192", "--permission", `--allow-fs-read=${worker}`,
-    `--allow-fs-read=${fileURLToPath(new URL("./mobi-html.mjs", import.meta.url))}`, `--allow-fs-read=${fileURLToPath(new URL("../../vendor/mobi/", import.meta.url))}`, `--allow-fs-read=${nodeModules}`, `--allow-fs-read=${input.resourceDir}`, `--allow-fs-write=${input.resourceDir}`, worker], {
+    `--allow-fs-read=${input.resourceDir}`, `--allow-fs-write=${input.resourceDir}`, worker], {
     cwd: input.resourceDir, env, windowsHide: true, serialization: "advanced", stdio: ["ignore", "ignore", "ignore", "ipc"],
   });
   const pending = collectMobiWorker(child, options);
