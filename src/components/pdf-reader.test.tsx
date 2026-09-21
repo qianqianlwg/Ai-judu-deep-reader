@@ -74,6 +74,17 @@ async function select(start: Node, startOffset: number, end: Node, endOffset: nu
     document.dispatchEvent(new Event("selectionchange"));
   });
 }
+function clampViewport(height: number) {
+  const element = viewport(); let top = element.scrollTop;
+  const contentHeight = () => parseFloat(element.querySelector<HTMLElement>(".pdf-scroll-space")!.style.height);
+  // WHY：jsdom没有布局或滚动钳制；只补浏览器scrollTop范围，不mock导航、目录解析及onScroll业务。
+  const max = () => Math.max(0, contentHeight() - height);
+  Object.defineProperties(element, {
+    clientHeight: { configurable: true, get: () => height }, scrollHeight: { configurable: true, get: contentHeight },
+    scrollTop: { configurable: true, get: () => top, set: (value: number) => { top = Math.max(0, Math.min(value, max())); } },
+  });
+  element.scrollTop = top; return max;
+}
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.stubGlobal("CSS", { highlights }); vi.stubGlobal("Highlight", TestHighlight);
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("组件验收禁止联网或调用真实AI"); }));
@@ -287,6 +298,134 @@ describe("PdfReader 切版本与迟到任务清理", () => {
   it("销毁任务失败显式记录，不能产生未处理拒绝", async () => {
     h.task.destroy.mockRejectedValue(new Error("controlled cleanup failure")); await render(); await unmount();
     expect(console.warn).toHaveBeenCalledWith("释放PDF资源失败", expect.any(Error));
+  });
+});
+
+
+describe("PdfReader 末页导航与滚动钳制", () => {
+  it("目录第2页在150%旋转90度缩短后，钳制scroll不能回第1页且刷新仍保留", async () => {
+    h = fixture(2); h.documentProxy.getOutline.mockResolvedValue([{ title: "第二章", dest: [1, { name: "Fit" }], items: [] }]);
+    await render({ book: h.book }); const max = clampViewport(750);
+    await change('[aria-label="PDF目录"]', "0"); await act(async () => viewport().dispatchEvent(new Event("scroll"))); expect(currentPage()).toBe(2);
+    await change('[aria-label="PDF缩放"]', "150"); await act(async () => viewport().dispatchEvent(new Event("scroll"))); expect(currentPage()).toBe(2);
+    await act(async () => button("旋转").click()); expect(currentPage()).toBe(2); expect(viewport().scrollTop).toBe(max());
+    await act(async () => viewport().dispatchEvent(new Event("scroll")));
+    expect(currentPage()).toBe(2); expect(button("上一页").disabled).toBe(false); expect(stored()).toMatchObject({ page: 2, zoom: 150, rotation: 90 });
+    await unmount(); root = createRoot(host); mounted = true; await render(); clampViewport(750);
+    await act(async () => viewport().dispatchEvent(new Event("scroll"))); expect(currentPage()).toBe(2); expect(stored()?.page).toBe(2);
+  });
+  it.each([900, 1800].flatMap(height => ["下一页", "目录", "锚点"].map(via => ({ height, via }))))("窗口高$height时$via到末页，钳制scroll事件不改回第1页", async ({ height, via }) => {
+    h = fixture(2); h.documentProxy.getOutline.mockResolvedValue([{ title: "第二章", dest: [{ num: 42, gen: 0 }, { name: "Fit" }], items: [] }]);
+    await render({ book: h.book, anchor: { paragraphId: "p1", offset: 0 } }); const max = clampViewport(height);
+    if (via === "下一页") await act(async () => button("下一页").click());
+    else if (via === "目录") { await change('[aria-label="PDF目录"]', "0"); expect(h.documentProxy.getPageIndex).toHaveBeenCalledWith({ num: 42, gen: 0 }); }
+    else await render({ anchor: { paragraphId: "p2", offset: 1 } });
+    expect(currentPage()).toBe(2); expect(viewport().scrollTop).toBe(max());
+    expect(viewport().scrollTop).toBeLessThan(parseFloat(host.querySelector<HTMLElement>('.pdf-page-slot[data-pdf-page="2"]')!.style.top));
+    await act(async () => { viewport().dispatchEvent(new Event("scroll")); viewport().dispatchEvent(new Event("scroll")); });
+    expect(currentPage()).toBe(2); expect(stored()?.page).toBe(2);
+    expect(props.onPosition).toHaveBeenLastCalledWith({ paragraphId: "p2", offset: 0 }); expect(host.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => button("上一页").click()); await act(async () => viewport().dispatchEvent(new Event("scroll")));
+    expect(currentPage()).toBe(1); expect(stored()?.page).toBe(1);
+  });
+  it("手动滚离末页后不粘住导航目标，滚到底部重新认出末页", async () => {
+    h = fixture(2); await render({ book: h.book }); const max = clampViewport(900);
+    await act(async () => button("下一页").click()); await act(async () => viewport().dispatchEvent(new Event("scroll")));
+    await act(async () => { viewport().scrollTop = max() / 2; viewport().dispatchEvent(new Event("scroll")); }); expect(currentPage()).toBe(1);
+    await act(async () => { viewport().scrollTop = max(); viewport().dispatchEvent(new Event("scroll")); }); expect(currentPage()).toBe(2);
+    expect(stored()?.page).toBe(2);
+  });
+});
+
+describe("PdfReader 非空精读锚点与原版页恢复", () => {
+  const save = (value: Record<string, unknown>, edition = "edition") => localStorage.setItem(
+    `judu:pdf-position:${edition}`, JSON.stringify({ version: 1, hash: "a".repeat(64), page: 2, zoom: 150, rotation: 90, ...value }),
+  );
+
+  it("第1页非空锚点下缩放旋转再翻至第2页，刷新仍恢复第2页", async () => {
+    await render({ anchor: { paragraphId: "p1", offset: 0 } });
+    await change('[aria-label="PDF缩放"]', "150");
+    await act(async () => button("旋转").click());
+    await act(async () => button("下一页").click());
+    expect(currentPage()).toBe(2); expect(stored()).toMatchObject({ page: 2, zoom: 150, rotation: 90 });
+    // WHY：重新挂载模拟刷新，保留localStorage及宿主旧锚点，不用scroll事件替产品同步位置。
+    await unmount(); root = createRoot(host); mounted = true;
+    await render();
+    expect(currentPage()).toBe(2);
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="PDF缩放"]')?.value).toBe("150");
+    expect(pageProbe.latest.get(2)?.rotation).toBe(90);
+    expect(stored()).toMatchObject({ page: 2, zoom: 150, rotation: 90 });
+    await unmount(); root = createRoot(host); mounted = true;
+    await render({ anchor: { paragraphId: "p4", offset: 2 } });
+    expect(currentPage()).toBe(4); expect(stored()).toMatchObject({ page: 4, zoom: 150, rotation: 90 });
+  });
+
+  it("同hash旧位置记录没有anchor字段也不会被初始非空锚点覆盖", async () => {
+    save({}); await render({ anchor: { paragraphId: "p1", offset: 0 } });
+    expect(currentPage()).toBe(2); expect(viewport().scrollTop).toBeGreaterThan(0);
+    await render({ anchor: { paragraphId: "p1", offset: 0 } });
+    await change('[aria-label="PDF缩放"]', "200");
+    expect(currentPage()).toBe(2); expect(stored()).toMatchObject({ page: 2, zoom: 200, rotation: 90 });
+  });
+
+  it("恢复后主动换anchor仍导航，原版翻页后的同值重渲染不拉回", async () => {
+    save({}); await render({ anchor: { paragraphId: "p1", offset: 0 } });
+    expect(currentPage()).toBe(2);
+    await render({ anchor: { paragraphId: "p4", offset: 3 } }); expect(currentPage()).toBe(4);
+    await act(async () => button("上一页").click());
+    await render({ anchor: { paragraphId: "p4", offset: 3 } }); expect(currentPage()).toBe(3);
+    await render({ anchor: { paragraphId: "p1", offset: 1 } }); expect(currentPage()).toBe(1);
+    expect(stored()?.page).toBe(1); expect(loader.openPdf).toHaveBeenCalledOnce();
+  });
+
+  it("加载期间主动换anchor优先于保存页，不把新请求当作初始旧锚点", async () => {
+    save({}); const gate = deferred<PdfTextPage[]>(); loader.indexPdfPages.mockReturnValueOnce(gate.promise);
+    await render({ anchor: { paragraphId: "p1", offset: 0 } });
+    await render({ anchor: { paragraphId: "p3", offset: 2 } });
+    await act(async () => gate.resolve(h.pages));
+    expect(currentPage()).toBe(3); expect(stored()?.page).toBe(3); expect(loader.openPdf).toHaveBeenCalledOnce();
+  });
+
+  it("新会话显式anchor不同于保存时锚点，不能无条件使用保存页", async () => {
+    save({ anchor: { paragraphId: "p1", offset: 0 } });
+    await render({ anchor: { paragraphId: "p4", offset: 2 } });
+    expect(currentPage()).toBe(4); expect(stored()).toMatchObject({ page: 4, zoom: 150, rotation: 90 });
+  });
+
+  it.each([
+    { hash: "b".repeat(64), page: 2 },
+    { hash: "a".repeat(64), page: 999 },
+    { hash: "a".repeat(64), page: null },
+  ])("无可恢复页时仍定位非空anchor：%j", async value => {
+    save(value); await render({ anchor: { paragraphId: "p3", offset: 2 } });
+    expect(currentPage()).toBe(3); expect(stored()?.hash).toBe("a".repeat(64));
+    if (value.hash !== "a".repeat(64)) expect(stored()).toMatchObject({ zoom: 100, rotation: 0 });
+  });
+
+  it("A索引迟到不能覆盖B的保存页或消费B的新锚点请求", async () => {
+    save({}); save({ hash: "b".repeat(64), page: 3 }, "edition-b");
+    const first = h, gate = deferred<PdfTextPage[]>(); loader.indexPdfPages.mockReturnValueOnce(gate.promise);
+    await render({ anchor: { paragraphId: "p1", offset: 0 } });
+    h = fixture(); h.book = { ...h.book, id: "book-b", editionId: "edition-b", edition: { ...h.book.edition!, id: "edition-b", originalHash: "b".repeat(64) } };
+    await render({ book: h.book, anchor: { paragraphId: "p1", offset: 0 } }); expect(currentPage()).toBe(3);
+    await act(async () => gate.resolve(first.pages));
+    expect(currentPage()).toBe(3); expect(stored()).toMatchObject({ hash: "b".repeat(64), page: 3 });
+    await render({ anchor: { paragraphId: "p4", offset: 2 } }); expect(currentPage()).toBe(4);
+    expect(first.task.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("切书各自恢复有效保存页，不因相同段落ID的非空初始anchor串书", async () => {
+    const first = h; save({});
+    save({ hash: "b".repeat(64), page: 4, zoom: 75, rotation: 180 }, "edition-b");
+    await render({ anchor: { paragraphId: "p1", offset: 0 } }); expect(currentPage()).toBe(2);
+    h = fixture(); h.book = { ...h.book, id: "book-b", editionId: "edition-b", edition: { ...h.book.edition!, id: "edition-b", originalHash: "b".repeat(64) } };
+    const second = h;
+    await render({ book: h.book, anchor: { paragraphId: "p1", offset: 0 } });
+    expect(currentPage()).toBe(4); expect(stored()).toMatchObject({ hash: "b".repeat(64), page: 4, zoom: 75, rotation: 180 });
+    await render({ anchor: { paragraphId: "p2", offset: 2 } }); expect(currentPage()).toBe(2);
+    h = first; await render({ book: h.book, anchor: { paragraphId: "p1", offset: 0 } });
+    expect(currentPage()).toBe(2); expect(stored()).toMatchObject({ hash: "a".repeat(64), page: 2, zoom: 150, rotation: 90 });
+    expect(first.task.destroy).toHaveBeenCalledOnce(); expect(second.task.destroy).toHaveBeenCalledOnce();
   });
 });
 

@@ -14,10 +14,15 @@ import'./pdf-reader.css';
 type Session={book:EpubReaderProps["book"];runtime:PdfRuntime;document:PDFDocumentProxy;index:PdfDocumentIndex;active:boolean;links:IPDFLinkService};
 type Outline={title:string;destination:unknown;depth:number};
 function outlineItems(value:unknown,depth=0):Outline[]{if(!Array.isArray(value)||depth>12)return [];return value.slice(0,2000).flatMap(item=>item&&typeof item==='object'&&'title'in item&&typeof item.title==='string'?[{title:item.title,destination:'dest'in item?item.dest:null,depth},...outlineItems('items'in item?item.items:[],depth+1)]:[]);}
+function sameSavedAnchor(value:unknown,anchor:EpubReaderProps["anchor"]):boolean {
+ if(anchor===null)return value===null;
+ return value!==null&&typeof value==="object"&&"paragraphId"in value&&value.paragraphId===anchor.paragraphId&&"offset"in value&&value.offset===anchor.offset;
+}
 export function PdfReader(props:EpubReaderProps){
  const interactionHost=useRef<HTMLDivElement>(null),viewport=useRef<HTMLDivElement>(null),latest=useRef(props),dom=useRef(new Map<number,PdfDomPage>()),goRef=useRef<(page:number)=>void>(()=>{}),current=useRef(1),navigated=useRef('');
  const[sessionState,setSession]=useState<Session|null>(null),[error,setError]=useState(''),[status,setStatus]=useState('正在读取 PDF 原件…'),[retry,setRetry]=useState(0),[page,setPage]=useState(1),[zoom,setZoom]=useState(100),[rotation,setRotation]=useState(0),[width,setWidth]=useState(600),[scroll,setScroll]=useState(0),[height,setHeight]=useState(700),[outline,setOutline]=useState<Outline[]>([]),[revision,setRevision]=useState(0),[selection,setSelection]=useState<ReadingSelection|null>(null);
  const [interactionPages,setInteractionPages]=useState<PdfDomPage[]>([]);
+ const navigationScroll=useRef<{page:number;top:number}|null>(null);
  const session=sessionState?.book===props.book?sessionState:null;
  const key='judu:pdf-position:'+props.book.editionId;
  useEffect(()=>{latest.current=props;});
@@ -26,9 +31,9 @@ export function PdfReader(props:EpubReaderProps){
  },[]);
  useEffect(()=>{
   let owned:Session|undefined,task:ReturnType<typeof openPdf>|undefined;const controller=new AbortController();
-  const pagesDom=dom.current;
+  const pagesDom=dom.current,initialAnchor=latest.current.anchor;
   void(async()=>{
-   setSession(null);setError('');setStatus('正在读取 PDF 原件…');pagesDom.clear();setInteractionPages([]);navigated.current='';setSelection(null);setOutline([]);current.current=1;setPage(1);setScroll(0);setZoom(100);setRotation(0);latest.current.onClearSelection?.();
+   navigationScroll.current=null;setSession(null);setError('');setStatus('正在读取 PDF 原件…');pagesDom.clear();setInteractionPages([]);navigated.current='';setSelection(null);setOutline([]);current.current=1;setPage(1);setScroll(0);setZoom(100);setRotation(0);latest.current.onClearSelection?.();
    const runtime=await loadPdfRuntime();if(controller.signal.aborted)return;
    task=openPdf(runtime,'/api/books/'+encodeURIComponent(props.book.id)+'/original?editionId='+encodeURIComponent(props.book.editionId??''));
    const document=await task.promise;controller.signal.throwIfAborted();
@@ -36,19 +41,47 @@ export function PdfReader(props:EpubReaderProps){
    const index=mapPdfDocument(pages,props.book);const links=createPdfLinkService(document,{getPage:()=>current.current,goToPage:value=>goRef.current(value),onNotice:message=>latest.current.onNotice(message),isActive:()=>!controller.signal.aborted},index.pages);owned={book:props.book,runtime,document,index,active:true,links};
    const tree=await document.getOutline();controller.signal.throwIfAborted();setOutline(outlineItems(tree));setSession(owned);setStatus('');
    if(!index.complete)latest.current.onNotice('PDF第 '+index.pages.filter(p=>!p.mapped).map(p=>p.pageNumber).join('、')+' 页文字与精读索引不一致：可看原版，但未猜测这些页的句读位置。');
-   try{const raw=localStorage.getItem(key);const saved:unknown=raw?JSON.parse(raw):null;if(saved&&typeof saved==='object'&&'hash'in saved&&saved.hash===props.book.edition?.originalHash){if('page'in saved&&Number.isInteger(saved.page)&&Number(saved.page)>0&&Number(saved.page)<=document.numPages){current.current=Number(saved.page);setPage(Number(saved.page));}if('zoom'in saved&&typeof saved.zoom==='number'&&saved.zoom>=50&&saved.zoom<=250)setZoom(saved.zoom);if('rotation'in saved&&[0,90,180,270].includes(Number(saved.rotation)))setRotation(Number(saved.rotation));}}
+   try{
+    const raw=localStorage.getItem(key);const saved:unknown=raw?JSON.parse(raw):null;
+    if(saved&&typeof saved==='object'&&'hash'in saved&&saved.hash===props.book.edition?.originalHash){
+     if('page'in saved&&Number.isInteger(saved.page)&&Number(saved.page)>0&&Number(saved.page)<=document.numPages){
+      current.current=Number(saved.page);setPage(Number(saved.page));
+      // WHY：同一初始精读锚点不是新导航，不能覆盖刚恢复的PDF页；加载中及就绪后的新锚点仍由导航effect处理。
+      // 旧记录无anchor时仅消费本次初始值；新记录用保存时锚点区分刷新和从另一精读位置主动打开。
+      if(initialAnchor&&(!('anchor'in saved)||sameSavedAnchor(saved.anchor,initialAnchor)))navigated.current=initialAnchor.paragraphId+':'+initialAnchor.offset;
+     }
+     if('zoom'in saved&&typeof saved.zoom==='number'&&saved.zoom>=50&&saved.zoom<=250)setZoom(saved.zoom);
+     if('rotation'in saved&&[0,90,180,270].includes(Number(saved.rotation)))setRotation(Number(saved.rotation));
+    }
+   }
    catch(cause:unknown){console.warn('PDF位置恢复失败',cause);latest.current.onNotice('PDF阅读位置无法恢复，已保留书籍和标注。');}
   })().catch((cause:unknown)=>{if(controller.signal.aborted)return;console.error('PDF原版加载失败',cause);setError(cause instanceof Error?cause.message:'PDF原版加载失败');setStatus('');});
   return()=>{controller.abort();if(owned)owned.active=false;pagesDom.clear();if(task)void task.destroy().catch((cause:unknown)=>console.warn('释放PDF资源失败',cause));};
  },[props.book,retry,key]);
  const layout=useMemo(()=>{let top=0;return session?.index.pages.map(item=>{const swapped=rotation%180!==0,w=swapped?item.height:item.width,h=swapped?item.width:item.height,scale=Math.max(.1,Math.min(1,(width-32)/w))*zoom/100;const result={page:item,top,width:w*scale,height:h*scale,scale};top+=result.height+24;return result;})??[];},[session,width,zoom,rotation]);
- const goToPage=useCallback((target:number)=>{const item=layout[target-1],element=viewport.current;if(!item||!element)return;current.current=target;setPage(target);element.scrollTop=item.top;setScroll(item.top);},[layout]);
+ const goToPage=useCallback((target:number)=>{
+  const item=layout[target-1],element=viewport.current;if(!item||!element)return;
+  current.current=target;setPage(target);element.scrollTop=item.top;
+  // WHY：短末页无法滚到视口顶部；记录浏览器钳制后的实际位置，不能把导航/重排产生的scroll误判为回到前页。
+  navigationScroll.current={page:target,top:element.scrollTop};setScroll(element.scrollTop);
+ },[layout]);
+ function scrolled(element:HTMLDivElement){
+  if(!session||!layout.length)return;
+  const value=element.scrollTop;setScroll(value);
+  const target=navigationScroll.current,held=target&&Math.abs(value-target.top)<1?target:null;
+  if(!held)navigationScroll.current=null;
+  // WHY：离开导航落点后恢复滚动判页；有滚动范围且到底时应识别末页，而不是视口顶部仍露出的前页。
+  const maximum=element.scrollHeight-element.clientHeight,atBottom=element.clientHeight>0&&maximum>0&&value>=maximum-1;
+  const next=held?.page??(atBottom?layout[layout.length-1].page.pageNumber:layout.find(item=>item.top+item.height>value+40)?.page.pageNumber??1);
+  current.current=next;setPage(next);
+  const first=session.index.pages[next-1]?.runs[0];if(first){navigated.current=first.paragraphId+':'+first.startOffset;latest.current.onPosition({paragraphId:first.paragraphId,offset:first.startOffset});}
+ }
  useEffect(()=>{goRef.current=goToPage;},[goToPage]);
  const links=session?.links??null;
  useEffect(()=>{if(session&&layout.length)goToPage(current.current);},[session,layout,goToPage]);
  useEffect(()=>{if(!session||!layout.length)return;const anchor=props.anchor;const identity=anchor?anchor.paragraphId+':'+anchor.offset:'';if(identity&&identity!==navigated.current){const found=session.index.pages.find(p=>p.runs.some(run=>run.paragraphId===anchor!.paragraphId&&run.startOffset<=anchor!.offset&&run.endOffset>anchor!.offset));if(found){navigated.current=identity;goToPage(found.pageNumber);return;}}},[session,layout,props.anchor,goToPage]);
  const ready=useCallback((loaded:PdfDomPage)=>{dom.current.set(loaded.pageNumber,loaded);setInteractionPages([...dom.current.values()]);setRevision(n=>n+1);},[]),removed=useCallback((number:number)=>{dom.current.delete(number);setInteractionPages([...dom.current.values()]);setRevision(n=>n+1);},[]);
- useEffect(()=>{if(!session)return;try{localStorage.setItem(key,JSON.stringify({version:1,hash:props.book.edition?.originalHash,page,zoom,rotation}));}catch(cause:unknown){console.warn('保存PDF位置失败',cause);latest.current.onNotice('PDF阅读位置保存失败，请检查浏览器存储。');}},[session,key,props.book.edition?.originalHash,page,zoom,rotation]);
+ useEffect(()=>{if(!session)return;try{localStorage.setItem(key,JSON.stringify({version:1,hash:props.book.edition?.originalHash,page,zoom,rotation,anchor:props.anchor}));}catch(cause:unknown){console.warn('保存PDF位置失败',cause);latest.current.onNotice('PDF阅读位置保存失败，请检查浏览器存储。');}},[session,key,props.book.edition?.originalHash,page,zoom,rotation,props.anchor]);
  useEffect(()=>{
   const root=viewport.current;if(!root||!session)return;const document=root.ownerDocument;let last='';
   const changed=()=>{if(latest.current.disabled)return;const selected=document.getSelection();if(!selected||selected.isCollapsed||!selected.rangeCount)return;const range=selected.getRangeAt(0);if(!range.intersectsNode(root))return;
@@ -79,7 +112,7 @@ export function PdfReader(props:EpubReaderProps){
   {status&&<p role="status">{status}</p>}{error&&<div role="alert"><p>{error}</p><button onClick={()=>setRetry(n=>n+1)}>重试原版</button><button onClick={props.onFallback}>切回精读</button></div>}
   {unknownGlyph&&<p className="pdf-capability-note" role="status">本页含无法识别的文字或公式字符，选文用 � 标明；请对照原版，不把占位符当作原公式。</p>}
   {textless&&<p className="pdf-capability-note" role="status">本页没有可提取的文字层，可查看原版；OCR 尚未启用，不能直接文字句读。</p>}
-  <div ref={interactionHost} className="pdf-document-surface"><div ref={viewport} className="pdf-viewport" data-reading-viewport="" onScroll={event=>{const value=event.currentTarget.scrollTop;setScroll(value);const next=layout.find(item=>item.top+item.height>value+40)?.page.pageNumber??1;current.current=next;setPage(next);const first=session?.index.pages[next-1]?.runs[0];if(first){navigated.current=first.paragraphId+':'+first.startOffset;latest.current.onPosition({paragraphId:first.paragraphId,offset:first.startOffset});}}}>
+  <div ref={interactionHost} className="pdf-document-surface"><div ref={viewport} className="pdf-viewport" data-reading-viewport="" onScroll={event=>scrolled(event.currentTarget)}>
    <div className="pdf-scroll-space" style={{height:total,width:layout.reduce((maximum,item)=>Math.max(maximum,item.width+32),width)}}>{session&&links&&visible.map(item=><div className="pdf-page-slot" data-pdf-page={item.page.pageNumber} data-source-mapped={item.page.mapped} key={item.page.pageNumber} style={{top:item.top,width:item.width,height:item.height}}><PdfPage document={session.document} runtime={session.runtime} page={item.page} scale={item.scale} rotation={rotation} linkService={links} onReady={ready} onRemove={removed}/></div>)}</div>
   </div>
   {session&&<PdfInteractionLayer host={interactionHost} book={props.book} document={session.document} index={session.index} pages={interactionPages} annotations={props.annotations} concepts={props.concepts} disabled={props.disabled} onOpenAnnotation={props.onOpenAnnotation} onNotice={props.onNotice} onJump={goToPage}/>}
