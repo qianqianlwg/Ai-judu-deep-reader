@@ -69,6 +69,15 @@ it("MOBI6跨pagebreak保留嵌套section的class/style/lang/dir上下文", async
   }
 }, 20_000);
 
+it("MOBI6列表项内分页时续文和下一项编号不偏移", async () => {
+  const publication = await publishMobiFile(makeMobiFixture({ text: '<html><body><ol start="4"><li>第四项前半<mbp:pagebreak/>第四项后半</li><li>第五项</li></ol></body></html>' }));
+  expect(publication.chapters).toHaveLength(2);
+  const second = chapterRoot(publication, 1);
+  const list = second.localName === "ol" ? second : second.querySelector("ol");
+  expect(list?.getAttribute("start")).toBe("4");
+  expect([...list?.querySelectorAll("li") ?? []].map(item => item.textContent)).toEqual(["第四项后半", "第五项"]);
+}, 20_000);
+
 it("MOBI6跨pagebreak保持ol列表并从start序号继续", async () => {
   const publication = await publishMobiFile(makeMobiFixture({
     text: '<html><body><ol start="4"><li>第四项</li><mbp:pagebreak/><li>第五项</li></ol></body></html>',

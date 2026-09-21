@@ -18,7 +18,8 @@ function nextListOrdinal(list,at){
  while(stack.length){const node=stack.pop();if(!node)break;if("tagName"in node&&node.tagName==="li"&&logicalParent(node.parentNode)===list)items.push(node);if("childNodes"in node)for(const child of node.childNodes)stack.push(child);}
  items.sort((a,b)=>(a.sourceCodeLocation?.startOffset??Infinity)-(b.sourceCodeLocation?.startOffset??Infinity));
  const declared=integer(list.attrs.find(a=>a.name==="start")?.value??"");let ordinal=declared??(reversed?items.length:1);
- for(const item of items){const start=item.sourceCodeLocation?.startOffset;if(start===undefined||start>=at)continue;const value=integer(item.attrs.find(a=>a.name==="value")?.value??"");if(value!==null)ordinal=value;ordinal+=step;}
+ // WHY：分页点位于li内部时是同一序号的续文；只有已经闭合的直属li才推进到下一序号。
+ for(const item of items){const location=item.sourceCodeLocation,start=location?.startOffset;if(start===undefined||start>=at)continue;const value=integer(item.attrs.find(a=>a.name==="value")?.value??"");if(value!==null)ordinal=value;const continues=typeof location?.endOffset==="number"&&at<location.endOffset;if(!continues)ordinal+=step;}
  return Number.isSafeInteger(ordinal)?ordinal:null;
 }
 /** @param {Element} element @param {number} at */

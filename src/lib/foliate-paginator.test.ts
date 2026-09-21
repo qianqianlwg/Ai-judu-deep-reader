@@ -112,17 +112,35 @@ async function flushNavigation() { for (let i = 0; i < 20; i++) await Promise.re
 
 describe("实际分发Paginator的外层销毁边界", () => {
   const paginators: TestPaginator[] = [];
-  async function makePaginator(section: TestSection) {
+  async function makePaginator(input: TestSection | TestSection[]) {
+    const sections = Array.isArray(input) ? input : [input];
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal("matchMedia", () => ({ addEventListener() {}, removeEventListener() {} }));
     // WHY：直接导入完整分发模块，只桩浏览器平台API；不打开shadow，也不改写iframe运输。
     const path = "../../public/vendor/foliate/paginator.js";
     const { Paginator } = await import(path) as { Paginator: new () => TestPaginator };
-    const paginator = new Paginator(); paginator.open({ sections: [section] });
+    const paginator = new Paginator(); paginator.open({ sections });
     paginators.push(paginator);
     return paginator;
   }
   afterEach(() => { for (const paginator of paginators.splice(0)) paginator.destroy(); vi.unstubAllGlobals(); });
+
+  it("后发导航B优先提交，迟到A不得覆盖B", async () => {
+    const a = deferred<string>(), b = deferred<string>();
+    const sections = [a, b].map(item => ({ load: vi.fn(() => item.promise), unload: vi.fn() }));
+    const paginator = await makePaginator(sections);
+    const first = paginator.goTo({ index: 0 });
+    const second = paginator.goTo({ index: 1 });
+    await flushNavigation();
+    b.resolve("blob:http://localhost/newer-B"); await flushNavigation();
+    const before = paginator.getContents().map(item => item.index);
+    a.resolve("blob:http://localhost/older-A"); await flushNavigation();
+    const after = paginator.getContents().map(item => item.index);
+    expect(before).toEqual([1]); expect(after).toEqual([1]);
+    paginator.destroy();
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await expect(second).rejects.toMatchObject({ name: "AbortError" });
+  });
 
   it.each(["resolve", "reject"])("等待section.load时销毁立即拒绝导航，迟到%s不能复活iframe/contents", async outcome => {
     const work = deferred<string>(), section = { load: vi.fn(() => work.promise), unload: vi.fn() };

@@ -217,3 +217,14 @@ UMD候选本批最终：子agent发现正文块ID表错序问题后已修复，�
 - 上传选择器已支持 `.mobi`；`.azw`/`.azw3` 仍保持 415，不用改后缀绕过格式门禁。
 - 不把未净化的 MOBI HTML、图片、CSS、字体或原版布局快照直接注入浏览器。Foliate/PDF.js 及已有概念浮窗、句后历史标识、引用概览继续复用 EPUB/PDF 原版通道；MOBI 原版布局另列为下一批。
 - 隔离端口 3308 已验证首页、书库、MOBI 导入、正文读回、原件下载与 SHA-256 一致性；详细命令和结果留在本次开发记录，不代表整个第二阶段完成。
+## 2026-09-21 内置浏览器环境结论补充
+
+- 主项目与最小对照页均证明：Codex 内置浏览器无法把同源 blob URL 导航进 iframe；普通 light DOM、sandbox、open shadow 和 closed shadow 四种变体在 5 秒后都保持 `about:blank`。
+- 这将“内置浏览器自身 blob iframe 导航异常”从推测提升为可重复证据；不再把该环境中的 20 秒超时当作 EPUB/MOBI 产品代码缺陷继续打补丁。
+- 仍未获得普通 Chrome/Edge 的 EPUB/MOBI 实机证据，所以第二阶段不标记完成。按 AGENTS.md，用户确认普通浏览器表现前，不改变 blob/srcdoc、shadow root、sandbox 或 CSP 方案。
+
+## 2026-09-21 独立验收追加修复
+
+- 子agent发现正文内链导航竞态和 MOBI `li` 内分页序号偏移，两项均已保留失败探针并修复：Paginator 使用后发导航序号拒绝迟到提交；MOBI 只对已闭合列表项推进序号。
+- 代码级全量现为 206 文件、3508 项通过，包含真实 EPUB/PDF；Foliate 与 MOBI 固定 vendor 校验通过。同一子agent原失败探针 2/2、定向 13 文件 213 项及发布链列表矩阵 7/7 均通过。
+- 这两项修复不改变内置浏览器 blob iframe 环境结论，也不关闭普通 Chrome/Edge 实机验收要求。

@@ -454,6 +454,8 @@ class View {
 // NOTE: everything here assumes the so-called "negative scroll type" for RTL
 export class Paginator extends HTMLElement {
     #lifecycle = new AbortController()
+    // WHY：正文内链可绕过组件操作队列；序号保证后发导航不被迟到章节覆盖。
+    #navigation = 0
     static observedAttributes = [
         'flow', 'gap', 'margin',
         'max-inline-size', 'max-block-size', 'max-column-count',
@@ -1019,13 +1021,15 @@ export class Paginator extends HTMLElement {
         })
     }
     async #display(promise) {
-        const { index, src, anchor, onLoad, select } = await this.#waitFor(promise)
+        const { index, src, anchor, onLoad, select, navigation } = await this.#waitFor(promise)
         this.#lifecycle.signal.throwIfAborted()
+        if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')
         this.#index = index
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
             const view = this.#createView()
             const afterLoad = doc => {
+                if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')
                 if (doc.head) {
                     const $styleBefore = doc.createElement('style')
                     doc.head.prepend($styleBefore)
@@ -1038,6 +1042,7 @@ export class Paginator extends HTMLElement {
             const beforeRender = this.#beforeRender.bind(this)
             await this.#waitFor(view.load(src, afterLoad, beforeRender))
             this.#lifecycle.signal.throwIfAborted()
+            if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: {
                     doc: view.document, index,
@@ -1045,6 +1050,7 @@ export class Paginator extends HTMLElement {
                 },
             }))
             this.#lifecycle.signal.throwIfAborted()
+            if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')
             this.#view = view
         }
         const target = (typeof anchor === 'function' ? anchor(this.#view.document) : anchor) ?? 0
@@ -1056,9 +1062,9 @@ export class Paginator extends HTMLElement {
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
-    async #goTo({ index, anchor, select}) {
+    async #goTo({ index, anchor, select, navigation}) {
         this.#lifecycle.signal.throwIfAborted()
-        if (index === this.#index) await this.#display({ index, anchor, select })
+        if (index === this.#index) await this.#display({ index, anchor, select, navigation })
         else {
             const oldIndex = this.#index
             const onLoad = detail => {
@@ -1067,14 +1073,15 @@ export class Paginator extends HTMLElement {
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
             await this.#display(Promise.resolve(this.sections[index].load())
-                .then(src => ({ index, src, anchor, onLoad, select })))
+                .then(src => ({ index, src, anchor, onLoad, select, navigation })))
         }
     }
     async goTo(target) {
         if (this.#locked && !this.#lifecycle.signal.aborted) return
+        const navigation = ++this.#navigation
         const resolved = await this.#waitFor(target)
         this.#lifecycle.signal.throwIfAborted()
-        if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
+        if (this.#canGoToIndex(resolved.index)) return this.#goTo({ ...resolved, navigation })
     }
     #scrollPrev(distance) {
         if (!this.#view?.document?.body) return true
@@ -1119,6 +1126,7 @@ export class Paginator extends HTMLElement {
             this.#lifecycle.signal.throwIfAborted()
             if (shouldGo) await this.#goTo({
                 index: this.#adjacentIndex(dir),
+                navigation: ++this.#navigation,
                 anchor: prev ? () => 1 : () => 0,
             })
             if (shouldGo || !this.hasAttribute('animated')) await this.#waitFor(wait(100))

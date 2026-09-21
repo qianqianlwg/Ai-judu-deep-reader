@@ -70,3 +70,18 @@ AI 自测端口 3289，隔离生产端口 3290，均使用独立 .verify-phase2-
 - 最终全量170文件2500项通过，lint、严格类型和生产构建通过。3300/3301生产隔离HTTP各16项通过（主要为同批UMD存储/书库/下载回归，不冒充概念/引用视觉测试），临时端口均已释放。主项目3000、.next、正式data已重启，首页及两个书库API均200，正式记录摘要全部保持不变。
 - 第二阶段仍未完成；UMD内部双份持久化不等于公开导入/转换版UI，MOBI/AZW/AZW3以及实机环境待确认项仍保留。
 独立复核补记：修补后的EPUB引用预览由子agent再次只读核对两文件，独立8/8通过，原P2已关闭；未发现新增阻断，不扩大实机环境结论。
+
+## 2026-09-21 Codex 内置浏览器 blob iframe 最小对照
+
+- 在主项目 `http://localhost:3000/` 复现 EPUB 恢复位置超时后，临时给 Foliate paginator 增加只读阶段日志：iframe 已连接，`src` 已成功赋为同源 `blob:http://localhost:3000/...`，但 1 秒和 5 秒后 `contentDocument.URL` 仍为 `about:blank`，没有目标文档 `load` 或 `error` 事件。
+- 另建临时最小页面，不经过 EPUB、Foliate、closed shadow、sandbox 或书籍净化链路，分别验证普通 iframe、带 `sandbox="allow-same-origin"` 的普通 iframe、open shadow iframe 和 closed shadow iframe。四种情况均在赋值 blob URL 后 5 秒仍停留 `about:blank`；只有元素插入时的初始空白页 load。
+- 因此，当前内置浏览器超时可明确归因到该环境的 blob iframe 导航能力，而不是 sandbox、closed shadow、CFI、具体 EPUB 内容或应用事件监听。临时日志和对照页已删除，产品 blob 运输、安全策略和 Foliate shadow root 未修改。
+- 当前 Codex 浏览器清单没有可用 Chrome/Edge 自动化连接；本机虽安装浏览器，但按环境约定不绕过受控浏览器工具启动。下一步仍须由用户在普通 Chrome/Edge 主项目中确认 EPUB/MOBI；确认前不新增 srcdoc、服务端章节运输或放宽 sandbox/CSP。
+
+## 2026-09-21 子agent新增缺陷与修复
+
+- 独立子agent在原有绿测试之外新增两个失败探针：普通正文内链可绕过组件操作队列，后发导航 B 先完成后仍可能被迟到的 A 覆盖；MOBI6 在同一个 `li` 内跨 `mbp:pagebreak` 时，会把续文错误推进一个有序列表编号。
+- Foliate paginator 现在为每次公开导航和翻页分配单调序号，在章节资源返回、iframe 文档回调、排版后以及提交当前 view 前核对；过期导航以 `AbortError` 终止，不能销毁新 iframe、回退章节或写入旧历史。原生 blob、sandbox、closed shadow root 不变，补丁生成脚本和 PROVENANCE 同步更新。
+- MOBI pagebreak 上下文只对分页点前已经闭合的直属 `li` 推进序号；分页点仍位于当前 `li` 内时，续章恢复当前 `start/value`。新增普通项间、项内、`value`、`reversed` 和嵌套列表回归，并通过真实发布链确认续文与下一完整项均不偏移。
+- 修复后 EPUB/MOBI 定向 6 文件 107 项通过；带真实 EPUB 与 50 页 PDF 样本的全量回归为 206 文件、3508 项通过，无跳过。同一子agent原失败探针 2/2、生命周期/CFI/导航/MOBI 定向 13 文件 213 项和真实发布链列表矩阵 7/7 均通过，两个具体缺陷已关闭。
+- 当前 HEAD 的隔离生产构建通过；3314 端口完成 EPUB/MOBI/PDF 导入、原件字节、MOBI 布局、固定 Foliate 分发和私有路径边界共 15 项 HTTP 检查，随后已释放。构建仍只有既有 `::highlight` 与动态文件追踪警告。

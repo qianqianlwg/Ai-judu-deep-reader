@@ -135,7 +135,9 @@ function patch(name, source) {
       text = text.replace(before, after);
     };
     replacePaginator(`export class Paginator extends HTMLElement {`, `export class Paginator extends HTMLElement {
-    #lifecycle = new AbortController()`);
+    #lifecycle = new AbortController()
+    // WHY：正文内链可绕过组件操作队列；序号保证后发导航不被迟到章节覆盖。
+    #navigation = 0`);
     replacePaginator(`    #createView() {`, `    #createView() {
         this.#lifecycle.signal.throwIfAborted()`);
     replacePaginator(`    async #display(promise) {
@@ -157,11 +159,16 @@ function patch(name, source) {
         })
     }
     async #display(promise) {
-        const { index, src, anchor, onLoad, select } = await this.#waitFor(promise)
-        this.#lifecycle.signal.throwIfAborted()`);
+        const { index, src, anchor, onLoad, select, navigation } = await this.#waitFor(promise)
+        this.#lifecycle.signal.throwIfAborted()
+        if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')`);
+    replacePaginator(`            const afterLoad = doc => {`, `            const afterLoad = doc => {
+                if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')`);
     replacePaginator(`            await view.load(src, afterLoad, beforeRender)`, `            await this.#waitFor(view.load(src, afterLoad, beforeRender))
-            this.#lifecycle.signal.throwIfAborted()`);
+            this.#lifecycle.signal.throwIfAborted()
+            if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')`);
     replacePaginator(`            this.#view = view`, `            this.#lifecycle.signal.throwIfAborted()
+            if (navigation !== this.#navigation) throw new DOMException('阅读导航已被更新', 'AbortError')
             this.#view = view`);
     replacePaginator(`        await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(this.#view.document) : anchor) ?? 0, select)
@@ -170,20 +177,25 @@ function patch(name, source) {
         await this.#waitFor(this.scrollToAnchor(target, select))
         this.#lifecycle.signal.throwIfAborted()
         if (hasFocus) this.focusView()`);
-    replacePaginator(`    async #goTo({ index, anchor, select}) {`, `    async #goTo({ index, anchor, select}) {
+    replacePaginator(`    async #goTo({ index, anchor, select}) {`, `    async #goTo({ index, anchor, select, navigation}) {
         this.#lifecycle.signal.throwIfAborted()`);
+    replacePaginator(`        if (index === this.#index) await this.#display({ index, anchor, select })`,
+      `        if (index === this.#index) await this.#display({ index, anchor, select, navigation })`);
     replacePaginator(`                .then(src => ({ index, src, anchor, onLoad, select }))
                 .catch(e => {
                     console.warn(e)
                     console.warn(new Error(\`Failed to load section \${index}\`))
                     return {}
-                }))`, `                .then(src => ({ index, src, anchor, onLoad, select })))`);
+                }))`, `                .then(src => ({ index, src, anchor, onLoad, select, navigation })))`);
     replacePaginator(`    async goTo(target) {
         if (this.#locked) return
         const resolved = await target`, `    async goTo(target) {
         if (this.#locked && !this.#lifecycle.signal.aborted) return
+        const navigation = ++this.#navigation
         const resolved = await this.#waitFor(target)
         this.#lifecycle.signal.throwIfAborted()`);
+    replacePaginator(`        if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)`,
+      `        if (this.#canGoToIndex(resolved.index)) return this.#goTo({ ...resolved, navigation })`);
     replacePaginator(`    async #turnPage(dir, distance) {
         if (this.#locked) return
         this.#locked = true
@@ -205,6 +217,7 @@ function patch(name, source) {
             this.#lifecycle.signal.throwIfAborted()
             if (shouldGo) await this.#goTo({
                 index: this.#adjacentIndex(dir),
+                navigation: ++this.#navigation,
                 anchor: prev ? () => 1 : () => 0,
             })
             if (shouldGo || !this.hasAttribute('animated')) await this.#waitFor(wait(100))
