@@ -32,7 +32,7 @@ npm run dev -- --port 3000
 - **默认没有启用向量检索。** 当前书籍导入写入 SQLite，尚无自动 embedding 生成及全书入索引流程。迁移 SQL / 查询适配的存在不等于已建好向量；未配置 PostgreSQL 时显示关键词回退。不能将契约测试通过当作真实 pgvector 环境已验证。
 - 上下文设置提供 **200K、400K、1M** 三档输入预算；模型工具生成阅读记忆、按 Token 分批并保存检查点，不按最近条数或消息比例截取。新消息追加在检查点之后，显式调整预算可原位重试。**并非 Codex 内部压缩服务的一比一实现**。
 - 不含扫描 PDF OCR、章节级批量异步句读、知识包或语音。扫描PDF及图片型FB2可看原版，但没有文字来源就不开放伪文字句读。
-- EPUB/MOBI 的 Foliate 基础原版通路已有本机 Chrome 153 验收记录，用户也确认主项目 EPUB 正文及翻页正常。内置浏览器自动化的新标签加载仍超时，正文点击受 closed shadow root 工具限制；不能将该结果泛化为用户浏览器均不支持。EPUB 引用正文已在主页面核对，用户于 2026-09-21 确认同一脚注的“跳转到原文”立即完成且无超时；精确页内 CFI 恢复与新增 MOBI 复杂版式视觉验收仍待完成，详见 `docs/reader-phase2-verification.md`。不为工具修改 blob、shadow root、sandbox 或 CSP；FB2 边界另见 `docs/reader-fb2-verification.md`。
+- EPUB/MOBI 的 Foliate 基础原版通路已有本机 Chrome 153 验收记录，用户也确认主项目 EPUB 正文及翻页正常。内置浏览器自动化的新标签加载仍超时，正文点击受 closed shadow root 工具限制；不能将该结果泛化为用户浏览器均不支持。EPUB 引用正文已在主页面核对，用户于 2026-09-21 确认同一脚注的“跳转到原文”立即完成且无超时；用户进一步确认刷新后仍为同一句，当前页内位置恢复手动验收通过；新增 MOBI 复杂版式视觉验收仍待完成，详见 `docs/reader-phase2-verification.md`。不为工具修改 blob、shadow root、sandbox 或 CSP；FB2 边界另见 `docs/reader-fb2-verification.md`。
 - `.mobi` 已开放文本导入、原件保存、受控布局和 Foliate 原版阅读，并在本机 Chrome 完成加载、翻页、目录、切书恢复、原版选区和 1000 字上限验收；完整复杂版式矩阵仍是明确边界。AZW/AZW3 仍未开放，UMD 等其他候选不能按扩展名推定已支持。CBZ 已实现图片原版，但没有 OCR 和文字句读。
 - 模型在原文中没有逐字出现的概念名称不会被强行标注；只有已保存且属于当前版本的概念参与匹配。
 
