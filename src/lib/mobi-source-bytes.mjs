@@ -1,6 +1,6 @@
 // @ts-check
 /** @typedef {{fid:number;start:number;end:number;targetStart:number}} FragmentSpan */
-/** @typedef {{id:string;encoding:number;bytes:Uint8Array;fileStart?:number;spans?:FragmentSpan[]}} MobiSourceChapter */
+/** @typedef {{id:string;encoding:number;bytes:Uint8Array;fileStart?:number;spans?:FragmentSpan[],contextPrefix?:string,contextSuffix?:string,contextDepth?:number}} MobiSourceChapter */
 const LIMIT=20_000_000;
 /** @param {unknown} value @param {number} max @returns {number} */
 function integer(value,max){if(typeof value!=='number'||!Number.isSafeInteger(value)||value<0||value>max)throw new Error('MOBI来源整数无效');return value;}

@@ -196,3 +196,11 @@
 - **3312** 用独立data-audit书库再次完成EPUB/MOBI/PDF导入、原件完整性、安全边界与分发脚本一致性共 **15项HTTP检查**；这些检查仍不等同原生渲染实机验收。
 - 3312已释放，3311未重启且保持释放。主项目使用默认.next和正式data重新启动在 **3000**；首页/书库200、3本书仍在，paginator分发内容一致。重启前后13张业务表内容摘要一致。
 - 此批关闭了独立审查指出的两个具体缺陷。第二阶段未标记完成：EPUB/MOBI原生iframe及交互实机验收仍需用户确认环境后继续，MOBI跨pagebreak祖先版式矩阵仍单列待补。
+
+## 2026-09-21 MOBI 跨 pagebreak 祖先上下文修复
+
+- 确认并修复 MOBI6 以 `mbp:pagebreak` 分章时丢失开放祖先的问题：跨页的 `section/div/ol/hidden/lang/dir/style` 等父级上下文会在下一章节恢复；有序列表按真实分页前 `start/value` 继续编号。
+- 祖先上下文来自完整解码正文与真实 pagebreak DOM 位置，不凭正文文字或重复段落猜测；原始字节区间和 filepos locator 保持不变。source map 为合成包装调整 DOM 路径，但偏移仍由原始字节转换并逐节点结构校验。
+- KF8 不接收 MOBI6 pagebreak 上下文，继续使用原有 skeleton/fragment 来源映射；原始书籍字节、脚本禁用、资源净化和 iframe sandbox 未改变。
+- 新增上下文模块及同级测试；跨 section、ordered list、hidden ancestor、重复 Unicode/实体 filepos、平面分页均覆盖。固定 MOBI vendor provenance 新增 `pagebreak-context` 补丁项。
+- 当前隔离证据：pagebreak 专项5项、上下文4项，MOBI布局/来源/渲染/worker48项通过；四个真实样本的17/5段映射与2/4导航点复验通过。仍不把这些 jsdom/HTTP 证据当作原版浏览器实机验收。

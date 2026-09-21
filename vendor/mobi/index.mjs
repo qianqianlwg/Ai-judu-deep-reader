@@ -1,6 +1,7 @@
 // Vendored from @lingo-reader/mobi-parser@0.4.6 (MIT); see LICENSE and PROVENANCE.json.
 import { projectMobiDocument } from "../../src/lib/mobi-document-projection.mjs";
-import { reconstructKf8Source } from "../../src/lib/mobi-source-bytes.mjs";
+import { mobiPagebreakContexts } from "../../src/lib/mobi-pagebreak-context.mjs";
+import { reconstructKf8Source, decodeMobiSource } from "../../src/lib/mobi-source-bytes.mjs";
 import { rewriteMobiResourceMarkup, rewriteMobiResourceCss, rewriteMobiLegacyMarkup } from "../../src/lib/mobi-layout-rewrite.mjs";
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlink } from 'node:fs';
 import path, { resolve } from 'node:path';
@@ -1211,7 +1212,7 @@ class Mobi {
   getSourceChapter(id) {
     const chapter = this.chapters.find(item => item.id === id);
     if (!chapter) return undefined;
-    return { id, encoding: this.mobiFile.mobiHeader.encoding, bytes: chapter.sourceBytes.slice(), fileStart: chapter.fileStart };
+    return { id, encoding: this.mobiFile.mobiHeader.encoding, bytes: chapter.sourceBytes.slice(), fileStart: chapter.fileStart, contextPrefix: chapter.contextPrefix, contextSuffix: chapter.contextSuffix, contextDepth: chapter.contextDepth };
   }
   getSpine() {
     return this.chapters;
@@ -1272,6 +1273,13 @@ class Mobi {
     const idToChapter = /* @__PURE__ */ new Map();
     let id = 0;
     const matches = Array.from(str.matchAll(mbpPagebreakRegex));
+    const decodedSource = decodeMobiSource(array, this.mobiFile.mobiHeader.encoding);
+    const pagebreakContexts = mobiPagebreakContexts(decodedSource.text, matches.map(match => {
+      const start = decodedSource.characterOffset(match.index);
+      const end = decodedSource.characterOffset(match.index + match[0].length);
+      if (start === null || end === null) throw new Error("MOBI pagebreak cuts encoded character");
+      return { start, end };
+    }));
     matches.unshift({ index: 0, input: "", groups: void 0, 0: "" });
     for (let i = 0; i < matches.length; i++) {
       const match = matches[i];
@@ -1288,7 +1296,10 @@ class Mobi {
         end,
         size: buffer.length,
         sourceBytes: buffer,
-        fileStart: start + matched.length
+        fileStart: start + matched.length,
+        contextPrefix: i === 0 ? "" : pagebreakContexts[i - 1].prefix,
+        contextSuffix: i === 0 ? "" : pagebreakContexts[i - 1].suffix,
+        contextDepth: i === 0 ? 0 : pagebreakContexts[i - 1].depth
       };
       chapters.push(chapter);
       idToChapter.set(id, chapter);
@@ -1297,7 +1308,10 @@ class Mobi {
     const firstChapterText = chapters[0].text;
     const firstProjection = projectMobiDocument(firstChapterText);
     const bodyOpenTagIndex = firstProjection.prefixEnd;
-    for (const chapter of chapters) chapter.text = chapter.id === "0" ? firstProjection.body : projectMobiDocument(chapter.text).body;
+    for (const chapter of chapters) {
+      // WHY：后续片段保留原始关闭标签；它们可能在pagebreak之后关闭父容器，不能先投影后再统一包裹。
+      chapter.text = chapter.id === "0" ? firstProjection.body : chapter.contextPrefix + chapter.text;
+    }
     this.chapters = chapters;
     this.idToChapter = idToChapter;
     const referenceStr = firstChapterText.slice(0, bodyOpenTagIndex);

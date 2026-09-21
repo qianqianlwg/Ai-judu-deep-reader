@@ -11,7 +11,7 @@ export function buildMobiSourceIndex(kind,sources,layouts,resources=new Map()){
  if(!(resources instanceof Map)||resources.size>20000)throw new Error("MOBI资源来源映射无效");
  for(const [key,value]of resources)if(typeof key!=="string"||key.length>4096||typeof value!=="string"||value.length>512||/^mobi-resource-v1\/[A-Za-z0-9_-]+\.[a-z0-9]+$/u.exec(value)?.[0]!==value)throw new Error("MOBI资源来源映射无效");
  if(!['mobi','kf8'].includes(kind)||!Array.isArray(sources)||!Array.isArray(layouts)||sources.length!==layouts.length||sources.length>10000)throw new Error('MOBI来源章节不一致');
- /** @type {Map<string,{bodyAllowed:boolean;htmlHash:string;start:number;end:number;decoded:ReturnType<typeof decodeMobiSource>;html:ReturnType<typeof indexMobiSourceHtml>;expected:ReturnType<typeof indexMobiSourceHtml>;rendered:ReturnType<typeof indexMobiSourceHtml>}>} */
+ /** @type {Map<string,{bodyAllowed:boolean;htmlHash:string;start:number;end:number;decoded:ReturnType<typeof decodeMobiSource>;html:ReturnType<typeof indexMobiSourceHtml>;expected:ReturnType<typeof indexMobiSourceHtml>;rendered:ReturnType<typeof indexMobiSourceHtml>;contextDepth:number}>} */
  const chapters=new Map();
  /** @type {Map<number,{chapterId:string;start:number;end:number;targetStart:number}[]>} */
  const fragments=new Map();
@@ -47,8 +47,12 @@ export function buildMobiSourceIndex(kind,sources,layouts,resources=new Map()){
    for(let i=1;i<destinations.length;i++)if(destinations[i].start<destinations[i-1].end)throw new Error('KF8片段目标区间重叠');
   }
   const projection=projectMobiDocument(decoded.text);
-  const expected=kind==="kf8"?rewriteMobiResourceMarkup(projection.body,uri=>resources.get(uri)??uri):rewriteMobiLegacyMarkup(projection.body,index=>resources.get(String(index)));
-  chapters.set(source.id,{bodyAllowed:projection.bodyAllowed,htmlHash:createHash("sha256").update(layout.html).digest("hex"),expected:indexMobiSourceHtml(expected,"body-fragment"),start:projection.start,end:projection.end,decoded,html:indexMobiSourceHtml(projection.body,"body-fragment"),rendered:indexMobiSourceHtml(layout.html,"body-fragment")});
+  const contextPrefix=source.contextPrefix??"",contextSuffix=source.contextSuffix??"",contextDepth=source.contextDepth??0;
+  if(typeof contextPrefix!=="string"||typeof contextSuffix!=="string"||contextPrefix.length+contextSuffix.length>64*1024||!Number.isSafeInteger(contextDepth)||contextDepth<0||contextDepth>128)throw new Error("MOBI分页上下文无效");
+  if(kind!=="mobi"&&(contextPrefix||contextSuffix||contextDepth))throw new Error("KF8不接受MOBI分页上下文");
+  const sourceBody=kind==="kf8"?rewriteMobiResourceMarkup(projection.body,uri=>resources.get(uri)??uri):rewriteMobiLegacyMarkup(projection.body,index=>resources.get(String(index)));
+  const expected=contextPrefix?contextPrefix+sourceBody:sourceBody;
+  chapters.set(source.id,{bodyAllowed:projection.bodyAllowed,htmlHash:createHash("sha256").update(layout.html).digest("hex"),expected:indexMobiSourceHtml(expected,"body-fragment"),start:projection.start,end:projection.end,decoded,html:indexMobiSourceHtml(projection.body,"body-fragment"),rendered:indexMobiSourceHtml(layout.html,"body-fragment"),contextDepth});
  }
  files.sort((a,b)=>a.start-b.start);
  for(let i=1;i<files.length;i++)if(files[i].start<files[i-1].end)throw new Error('MOBI来源区间重叠');
@@ -79,7 +83,8 @@ export function buildMobiSourceIndex(kind,sources,layouts,resources=new Map()){
    const chapter=chapters.get(chapterId);if(!chapter||!chapter.bodyAllowed||!bookBodyAllowed){cache.set(href,null);return null;}
    const htmlOffset=chapter.decoded.characterOffset(byteOffset);
    if(htmlOffset===null||htmlOffset<chapter.start||htmlOffset>=chapter.end){cache.set(href,null);return null;}
-   const point=chapter.html.locate(htmlOffset-chapter.start);
+   const located=chapter.html.locate(htmlOffset-chapter.start);
+   const point=located?{...located,path:[...Array(chapter.contextDepth).fill(0),...located.path]}:null;
    // WHY：根容器不属于正文子节点协议，不能以首段冒充；局部path/tag相同也不够；还须核对正文结构签名，避免删段后跳到同路径的另一段。
    if(!point||!point.path.length||typeof chapter.html.structureHash!=='string'||chapter.expected.structureHash!==chapter.rendered.structureHash||!chapter.expected.matches(point)||!chapter.rendered.matches(point)){cache.set(href,null);return null;}
    /** @type {Target} */

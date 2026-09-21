@@ -50,6 +50,7 @@ export function applyMobiPatches(input) {
   source = once(source, '  loadRaw(start, end) {', '  loadRaw(start, end) {\n    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end > this.fullRawLength) throw new Error("KF8 raw range outside text");');
   // WHY：原版locator属于字节区间，最后一章也必须具有真实end，不能用undefined或只找第一个更大的end。
   source = once(source, '      const end = matches[i + 1]?.index;', '      const end = matches[i + 1]?.index ?? str.length;');
+  source = once(source, '    const matches = Array.from(str.matchAll(mbpPagebreakRegex));\n    matches.unshift({ index: 0, input: "", groups: void 0, 0: "" });', '    const matches = Array.from(str.matchAll(mbpPagebreakRegex));\n    const decodedSource = decodeMobiSource(array, this.mobiFile.mobiHeader.encoding);\n    const pagebreakContexts = mobiPagebreakContexts(decodedSource.text, matches.map(match => {\n      const start = decodedSource.characterOffset(match.index);\n      const end = decodedSource.characterOffset(match.index + match[0].length);\n      if (start === null || end === null) throw new Error("MOBI pagebreak cuts encoded character");\n      return { start, end };\n    }));\n    matches.unshift({ index: 0, input: "", groups: void 0, 0: "" });');
   source = once(source, 'const chapter = this.chapters.find((ch) => ch.end > fileposNum);', 'const chapter = this.chapters.find((ch) => ch.start <= fileposNum && fileposNum < ch.end);');
   // WHY：合法HTML可有body属性/大写标签；缺失结束标签不能slice(0,-1)吞掉最后一个字符。
   source = once(source, 'chapters[chapters.length - 1].text = lastChapterText.slice(0, lastChapterText.indexOf("</body>"));', 'const bodyEnd = lastChapterText.search(/<\\/body\\s*>/i);\n    chapters[chapters.length - 1].text = bodyEnd < 0 ? lastChapterText : lastChapterText.slice(0, bodyEnd);');
@@ -75,15 +76,15 @@ export function applyMobiPatches(input) {
   source = once(source, 'const bodyReplaced = this.replaceResources(body);', 'const bodyReplaced = rewriteMobiResourceMarkup(body, value => this.replaceResources(value));');
   source = once(source, 'head: this.replaceResources(head),', 'head: rewriteMobiResourceMarkup(head, value => this.replaceResources(value)),');
   // WHY：额外公开只读原始章节字节与片段来源，用于精确定位；不依赖猜测下一个id的resolveHref。
-  source = 'import { reconstructKf8Source } from "../../src/lib/mobi-source-bytes.mjs";\n' + source;
-  source = once(source, '        size: buffer.length', '        size: buffer.length,\n        sourceBytes: buffer,\n        fileStart: start + matched.length');
+  source = 'import { reconstructKf8Source, decodeMobiSource } from "../../src/lib/mobi-source-bytes.mjs";\n' + source;
+  source = once(source, '        size: buffer.length', '        size: buffer.length,\n        sourceBytes: buffer,\n        fileStart: start + matched.length,\n        contextPrefix: i === 0 ? "" : pagebreakContexts[i - 1].prefix,\n        contextSuffix: i === 0 ? "" : pagebreakContexts[i - 1].suffix,\n        contextDepth: i === 0 ? 0 : pagebreakContexts[i - 1].depth');
   const mobiClass = source.indexOf('class Mobi {');
   const methodAt = source.indexOf('  getSpine() {', mobiClass);
   if (methodAt < 0) throw new Error("MOBI source method anchor drift");
   source = source.slice(0, methodAt) + `  getSourceChapter(id) {
     const chapter = this.chapters.find(item => item.id === id);
     if (!chapter) return undefined;
-    return { id, encoding: this.mobiFile.mobiHeader.encoding, bytes: chapter.sourceBytes.slice(), fileStart: chapter.fileStart };
+    return { id, encoding: this.mobiFile.mobiHeader.encoding, bytes: chapter.sourceBytes.slice(), fileStart: chapter.fileStart, contextPrefix: chapter.contextPrefix, contextSuffix: chapter.contextSuffix, contextDepth: chapter.contextDepth };
   }
 ` + source.slice(methodAt);
   const loadStart = source.indexOf('  loadText(chapter) {');
@@ -109,13 +110,13 @@ export function applyMobiPatches(input) {
 ` + source.slice(loadEnd);
 
   // WHY：渲染与定位共享同一真实body源码窗口；不再用正则裁剪带引号或伪标签的文档。
-  source = 'import { projectMobiDocument } from "../../src/lib/mobi-document-projection.mjs";\n' + source;
+  source = 'import { projectMobiDocument } from "../../src/lib/mobi-document-projection.mjs";\nimport { mobiPagebreakContexts } from "../../src/lib/mobi-pagebreak-context.mjs";\n' + source;
   source = once(source, '    const head = str.match(/<head[^>]*>([\\s\\S]*)<\\/head>/i)[1];', '    const projection = projectMobiDocument(str);\n    const head = projection.head;');
   source = once(source, '    const body = str.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i)[1];', '    const body = projection.body;');
   const cropStart = source.indexOf('    const lastChapterText = chapters[chapters.length - 1].text;');
   const cropEnd = source.indexOf('    this.chapters = chapters;', cropStart);
   if (cropStart < 0 || cropEnd < cropStart) throw new Error('MOBI body projection patch anchor drift');
-  source = source.slice(0, cropStart) + '    const firstChapterText = chapters[0].text;\n    const firstProjection = projectMobiDocument(firstChapterText);\n    const bodyOpenTagIndex = firstProjection.prefixEnd;\n    for (const chapter of chapters) chapter.text = chapter.id === "0" ? firstProjection.body : projectMobiDocument(chapter.text).body;\n' + source.slice(cropEnd);
+  source = source.slice(0, cropStart) + '    const firstChapterText = chapters[0].text;\n    const firstProjection = projectMobiDocument(firstChapterText);\n    const bodyOpenTagIndex = firstProjection.prefixEnd;\n    for (const chapter of chapters) {\n      // WHY：后续片段保留原始关闭标签；它们可能在pagebreak之后关闭父容器，不能先投影后再统一包裹。\n      chapter.text = chapter.id === "0" ? firstProjection.body : chapter.contextPrefix + chapter.text;\n    }\n' + source.slice(cropEnd);
 
   const legacyStart = source.indexOf('  replace(html) {', source.indexOf('class Mobi {'));
   const legacyEnd = source.indexOf('  resolveHref(href) {', legacyStart);
