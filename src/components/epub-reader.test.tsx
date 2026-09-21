@@ -16,7 +16,7 @@ const mobiloader=vi.hoisted(()=>({loadMobiPublication:vi.fn()}));
 vi.mock("@/lib/mobi-loader",()=>mobiloader);
 let root:Root,host:HTMLDivElement,frame:HTMLIFrameElement,doc:Document,view:FoliateView,original:FoliateBook,props:EpubReaderProps;
 function deferred<T>(){let resolve!:(value:T|PromiseLike<T>)=>void,reject!:(reason?:unknown)=>void;const promise=new Promise<T>((done,fail)=>{resolve=done;reject=fail});return {promise,resolve,reject};}
-function makeView():FoliateView{const raw=document.createElement("div"),renderer=document.createElement("div");Object.assign(renderer,{setStyles:vi.fn(),goTo:vi.fn(async(target:{anchor:(doc:Document)=>unknown})=>{target.anchor(doc)}),getContents:()=>[{doc,index:0}]});Object.assign(raw,{renderer,open:vi.fn(async()=>{}),init:vi.fn(async()=>{}),next:vi.fn(),prev:vi.fn(),close:vi.fn(),getCFI:()=>"epubcfi(/6/2!/4)",resolveCFI:()=>({index:0}),lastLocation:{cfi:"epubcfi(/6/2!/4)"}});return raw as unknown as FoliateView;}
+function makeView():FoliateView{const raw=document.createElement("div"),renderer=document.createElement("div");Object.assign(renderer,{setStyles:vi.fn(),goTo:vi.fn(async(target:{anchor:(doc:Document)=>unknown})=>{target.anchor(doc)}),getContents:()=>[{doc,index:0}]});Object.assign(raw,{renderer,open:vi.fn(async()=>{}),init:vi.fn(async()=>{}),next:vi.fn(),prev:vi.fn(),close:vi.fn(),getCFI:()=>"epubcfi(/6/2!/4)",resolveCFI:()=>({index:0,anchor:(target:Document)=>target.body}),lastLocation:{cfi:"epubcfi(/6/2!/4)"}});return raw as unknown as FoliateView;}
 function makeBook(id:string):FoliateBook{return {...original,positionIdentity:id,sections:original.sections.map(section=>({...section})),destroy:vi.fn()};}
 function makeSourceBook(id:string,editionId:string):EpubReaderProps["book"]{return {...props.book,id,editionId,edition:{...props.book.edition!,id:editionId,fileName:`${id}.epub`}};}
 async function render(next:Partial<EpubReaderProps>={}){props={...props,...next};await act(async()=>{root.render(<EpubReader {...props}/>);});}
@@ -38,7 +38,7 @@ beforeEach(()=>{
  Object.assign(raw,{renderer,open:vi.fn(),init:vi.fn(async()=>{
    raw.dispatchEvent(new CustomEvent("load",{detail:{doc,index:0}}));
    raw.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},fraction:0.1,range:contentRange,cfi:"epubcfi(/6/2!/4)"}}));
- }),next:vi.fn(),prev:vi.fn(),close:vi.fn(),getCFI:()=>"epubcfi(/6/2!/4)",resolveCFI:()=>({index:0}),lastLocation:{cfi:"epubcfi(/6/2!/4)"}});
+ }),next:vi.fn(),prev:vi.fn(),close:vi.fn(),getCFI:()=>"epubcfi(/6/2!/4)",resolveCFI:()=>({index:0,anchor:(target:Document)=>target.body}),lastLocation:{cfi:"epubcfi(/6/2!/4)"}});
  view=raw as unknown as FoliateView;
  original={sections:[{id:"OEBPS/ch.xhtml",createDocument:async()=>doc,load:async()=>null,unload:()=>{}}],destroy:vi.fn(),toc:[{label:"第一章",href:"OEBPS/ch.xhtml"}],resolveHref:()=>({index:0,anchor:doc=>doc.body})};
  loader.loadEpub.mockResolvedValue(original);loader.createFoliateView.mockResolvedValue(view);fb2loader.loadFb2.mockResolvedValue(original);mobiloader.loadMobiPublication.mockResolvedValue({book:original,warnings:[]});
@@ -420,4 +420,44 @@ it("合法CFI的文档加载异常不能误报位置失效或重入初始化",as
  expect(view.init).toHaveBeenCalledExactlyOnceWith({lastLocation:cfi,showTextStart:true});
  expect(host.querySelector('[role="alert"]')?.textContent).toContain("章节文档加载失败");
  expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(view.close).toHaveBeenCalledOnce();
+});
+it("CFI章节有效但正文偏移越界时，清理坏记录并回退精读锚点",async()=>{
+ vi.spyOn(console,"warn").mockImplementation(()=>{});const cfi="epubcfi(/6/2!/4/2/1:999)",anchor={paragraphId:"p",offset:1};
+ const vendorPath="../../public/vendor/foliate/view.js";const {View:RealView}=await import(vendorPath) as {View:new()=>FoliateView};
+ const real=new RealView();Object.assign(real,{book:original});vi.spyOn(view,"resolveCFI").mockImplementation(value=>real.resolveCFI(value));
+ const target=real.resolveCFI(cfi);expect(target.index).toBe(0);expect(()=>target.anchor(doc)).toThrow();
+ localStorage.setItem(originalPositionKey("e"),JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor}));
+ const remove=vi.spyOn(Storage.prototype,"removeItem");await render({anchor});
+ expect(view.init).toHaveBeenCalledExactlyOnceWith({showTextStart:true});expect(props.onNotice).toHaveBeenCalledWith("原版位置已失效，已回退到精读锚点。");
+ expect(remove).toHaveBeenCalledWith(originalPositionKey("e"));expect(host.querySelector('[role="alert"]')).toBeNull();
+ expect(view.renderer.goTo).toHaveBeenCalledOnce();expect(JSON.parse(localStorage.getItem(originalPositionKey("e"))!).cfi).not.toBe(cfi);
+});
+it.each(["reject","timeout"])("核验CFI文档%s不是位置失效，不得回退重入或删除有效记录",async kind=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});vi.useFakeTimers();const cfi="epubcfi(/6/2!/4)",anchor={paragraphId:"p",offset:1};
+ const stored=JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor});localStorage.setItem(originalPositionKey("e"),stored);
+ original.sections[0].createDocument=vi.fn(()=>kind==="reject"?Promise.reject(new Error("章节文档损坏")):new Promise<Document>(()=>{}));
+ await render({anchor});if(kind==="timeout")await act(async()=>{await vi.advanceTimersByTimeAsync(20000);});
+ expect(view.init).not.toHaveBeenCalled();expect(view.close).toHaveBeenCalledOnce();expect(localStorage.getItem(originalPositionKey("e"))).toBe(stored);
+ expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));
+ expect(host.querySelector('[role="alert"]')?.textContent).toContain(kind==="reject"?"章节文档损坏":"核验原版位置");
+});
+it("CFI文档核验途中切书，迟到的坏位置不能清除记录或通知新会话",async()=>{
+ const cfi="epubcfi(/6/2!/4)",anchor={paragraphId:"p",offset:1},body=deferred<Document>();
+ const stored=JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor});localStorage.setItem(originalPositionKey("e"),stored);
+ const nextView=makeView(),nextBook=makeBook("next"),nextSource=makeSourceBook("b-next","e-next");
+ original.sections[0].createDocument=vi.fn(()=>body.promise);vi.spyOn(view,"resolveCFI").mockReturnValue({index:0,anchor:()=>{throw new Error("过期正文偏移");}});
+ loader.loadEpub.mockResolvedValueOnce(original).mockResolvedValueOnce(nextBook);loader.createFoliateView.mockResolvedValueOnce(view).mockResolvedValueOnce(nextView);
+ await render({anchor});expect(view.init).not.toHaveBeenCalled();await render({book:nextSource,anchor:null});await act(async()=>body.resolve(doc));
+ expect(nextView.init).toHaveBeenCalledOnce();expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));
+ expect(localStorage.getItem(originalPositionKey("e"))).toBe(stored);expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it("真实有效CFI正文偏移通过预检，仍使用原位置而不回退",async()=>{
+ const vendorPath="../../public/vendor/foliate/view.js";const {View:RealView}=await import(vendorPath) as {View:new()=>FoliateView};
+ const real=new RealView();Object.assign(real,{book:original});vi.spyOn(view,"resolveCFI").mockImplementation(value=>real.resolveCFI(value));
+ const cfi="epubcfi(/6/2!/4/2/1:1)",anchor={paragraphId:"p",offset:1};
+ const range=real.resolveCFI(cfi).anchor(doc) as Range;expect(range.startOffset).toBe(1);expect(range.startContainer).toBe(doc.querySelector('p')!.firstChild);
+ const stored=JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor});localStorage.setItem(originalPositionKey("e"),stored);
+ await render({anchor});expect(view.init).toHaveBeenCalledExactlyOnceWith({lastLocation:cfi,showTextStart:true});
+ expect(view.renderer.goTo).not.toHaveBeenCalled();expect(localStorage.getItem(originalPositionKey("e"))).toBe(stored);
+ expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(host.querySelector('[role="alert"]')).toBeNull();
 });

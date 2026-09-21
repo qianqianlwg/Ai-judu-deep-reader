@@ -453,6 +453,7 @@ class View {
 
 // NOTE: everything here assumes the so-called "negative scroll type" for RTL
 export class Paginator extends HTMLElement {
+    #lifecycle = new AbortController()
     static observedAttributes = [
         'flow', 'gap', 'margin',
         'max-inline-size', 'max-block-size', 'max-column-count',
@@ -695,6 +696,7 @@ export class Paginator extends HTMLElement {
         })
     }
     #createView() {
+        this.#lifecycle.signal.throwIfAborted()
         if (this.#view) {
             this.#view?.destroy()
             this.#container.removeChild(this.#view.element)
@@ -999,8 +1001,26 @@ export class Paginator extends HTMLElement {
         }
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
+    // WHY：销毁立即结束外层导航等待，并消费底层迟到拒绝；不改变原生blob/iframe运输。
+    #waitFor(work) {
+        const { signal } = this.#lifecycle
+        return new Promise((resolve, reject) => {
+            let settled = false
+            const finish = (callback, value) => {
+                if (settled) return
+                settled = true
+                signal.removeEventListener('abort', abort)
+                callback(value)
+            }
+            const abort = () => finish(reject, signal.reason)
+            Promise.resolve(work).then(value => finish(resolve, value), error => finish(reject, error))
+            if (signal.aborted) abort()
+            else signal.addEventListener('abort', abort, { once: true })
+        })
+    }
     async #display(promise) {
-        const { index, src, anchor, onLoad, select } = await promise
+        const { index, src, anchor, onLoad, select } = await this.#waitFor(promise)
+        this.#lifecycle.signal.throwIfAborted()
         this.#index = index
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
@@ -1016,23 +1036,28 @@ export class Paginator extends HTMLElement {
                 onLoad?.({ doc, index })
             }
             const beforeRender = this.#beforeRender.bind(this)
-            await view.load(src, afterLoad, beforeRender)
+            await this.#waitFor(view.load(src, afterLoad, beforeRender))
+            this.#lifecycle.signal.throwIfAborted()
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: {
                     doc: view.document, index,
                     attach: overlayer => view.overlayer = overlayer,
                 },
             }))
+            this.#lifecycle.signal.throwIfAborted()
             this.#view = view
         }
-        await this.scrollToAnchor((typeof anchor === 'function'
-            ? anchor(this.#view.document) : anchor) ?? 0, select)
+        const target = (typeof anchor === 'function' ? anchor(this.#view.document) : anchor) ?? 0
+        this.#lifecycle.signal.throwIfAborted()
+        await this.#waitFor(this.scrollToAnchor(target, select))
+        this.#lifecycle.signal.throwIfAborted()
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
     async #goTo({ index, anchor, select}) {
+        this.#lifecycle.signal.throwIfAborted()
         if (index === this.#index) await this.#display({ index, anchor, select })
         else {
             const oldIndex = this.#index
@@ -1042,17 +1067,13 @@ export class Paginator extends HTMLElement {
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
             await this.#display(Promise.resolve(this.sections[index].load())
-                .then(src => ({ index, src, anchor, onLoad, select }))
-                .catch(e => {
-                    console.warn(e)
-                    console.warn(new Error(`Failed to load section ${index}`))
-                    return {}
-                }))
+                .then(src => ({ index, src, anchor, onLoad, select })))
         }
     }
     async goTo(target) {
-        if (this.#locked) return
-        const resolved = await target
+        if (this.#locked && !this.#lifecycle.signal.aborted) return
+        const resolved = await this.#waitFor(target)
+        this.#lifecycle.signal.throwIfAborted()
         if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
     }
     #scrollPrev(distance) {
@@ -1089,16 +1110,22 @@ export class Paginator extends HTMLElement {
             if (this.sections[index]?.linear !== 'no') return index
     }
     async #turnPage(dir, distance) {
+        this.#lifecycle.signal.throwIfAborted()
         if (this.#locked) return
         this.#locked = true
-        const prev = dir === -1
-        const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
-        if (shouldGo) await this.#goTo({
-            index: this.#adjacentIndex(dir),
-            anchor: prev ? () => 1 : () => 0,
-        })
-        if (shouldGo || !this.hasAttribute('animated')) await wait(100)
-        this.#locked = false
+        try {
+            const prev = dir === -1
+            const shouldGo = await this.#waitFor(prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
+            this.#lifecycle.signal.throwIfAborted()
+            if (shouldGo) await this.#goTo({
+                index: this.#adjacentIndex(dir),
+                anchor: prev ? () => 1 : () => 0,
+            })
+            if (shouldGo || !this.hasAttribute('animated')) await this.#waitFor(wait(100))
+        } finally {
+            // WHY：章节错误现在向上传播，锁必须在失败/取消时一并释放。
+            this.#locked = false
+        }
     }
     prev(distance) {
         return this.#turnPage(-1, distance)
@@ -1152,10 +1179,12 @@ export class Paginator extends HTMLElement {
         this.#view.document.defaultView.focus()
     }
     destroy() {
-        this.#observer.unobserve(this)
+        if (this.#lifecycle.signal.aborted) return
+        this.#lifecycle.abort(new DOMException('阅读分页器已关闭', 'AbortError'))
+        this.#observer.disconnect()
         this.#view?.destroy()
         this.#view = null
-        this.sections[this.#index]?.unload?.()
+        this.sections?.[this.#index]?.unload?.()
         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
     }
 }

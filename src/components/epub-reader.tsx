@@ -174,9 +174,21 @@ export function EpubReader(props:EpubReaderProps) {
       let saved=null;
       try{saved=artifact?readConvertedPosition(localStorage.getItem(convertedPositionKey(book.editionId!)),artifact.conversion):readOriginalPosition(localStorage.getItem(originalPositionKey((epub.positionIdentity?"mobi:":"")+book.editionId!)),epub.positionIdentity ?? book.edition?.originalHash ?? "");}catch(cause:unknown){console.warn("无法读取原版位置",cause);}
       if(saved&&sameReadingAnchor(saved.anchor,latest.current.anchor)) {
-        // WHY：只将CFI解析失败视为旧位置失效；文档/排版失败必须退出会话，不能在同一个失败视图重入init。
-        try { const target=view.resolveCFI(saved.cfi);if(!epub.sections[target.index])throw new Error("位置不属于本书"); }
-        catch(cause:unknown){console.warn("原版位置已失效，回退精读锚点",cause);latest.current.onNotice("原版位置已失效，已回退到精读锚点。");saved=null;}
+        const invalidPosition=(cause:unknown)=>{
+          console.warn("原版位置已失效，回退精读锚点",cause);
+          const key=artifact?convertedPositionKey(book.editionId!):originalPositionKey((epub.positionIdentity?"mobi:":"")+book.editionId!);
+          try{localStorage.removeItem(key);}catch(storageError:unknown){console.warn("无法清理失效的原版位置",storageError);}
+          latest.current.onNotice("原版位置已失效，已回退到精读锚点。");saved=null;
+        };
+        let target:ReturnType<View["resolveCFI"]>|null=null;
+        try { const resolved=view.resolveCFI(saved.cfi);if(!epub.sections[resolved.index])throw new Error("位置不属于本书");target=resolved; }
+        catch(cause:unknown){invalidPosition(cause);}
+        if(target){
+          // WHY：CFI正文偏移在anchor(doc)才解析；文档IO必须放在位置校验catch之外，避免将损坏/超时误当旧位置失效。
+          const positionDocument=await operations.run("核验原版位置",()=>epub.sections[target!.index].createDocument());
+          if(cancelled||!currentSession(s))return;
+          try{target.anchor(positionDocument);}catch(cause:unknown){invalidPosition(cause);}
+        }
       } else saved=null;
       const restored=saved;
       await operations.run(restored?"恢复原版位置":"加载原版首章",()=>view.init(restored?{lastLocation:restored.cfi,showTextStart:true}:{showTextStart:true}));

@@ -129,6 +129,96 @@ function patch(name, source) {
       .replace('        if (!layout) return', '        if (this.#destroyed || !this.#loaded || !layout || !this.document?.body) return')
       .replace('    expand() {\n        const { documentElement }', '    expand() {\n        if (this.#destroyed || !this.#loaded || !this.document?.body) return\n        const { documentElement }')
       .replace('    destroy() {\n        if (this.document) this.#observer.unobserve(this.document.body)\n    }', '    destroy() {\n        this.#destroyed = true\n        this.#loaded = false\n        this.#cancelLoad?.()\n        this.#observer.disconnect()\n    }');
+    // WHY：外层可能还在等section.load，内部iframe的destroy无法取消这段等待；每个await后也须防止迟到续行。
+    const replacePaginator = (before, after) => {
+      if (!text.includes(before)) throw new Error('Paginator lifecycle patch no longer matches: ' + before.slice(0, 80));
+      text = text.replace(before, after);
+    };
+    replacePaginator(`export class Paginator extends HTMLElement {`, `export class Paginator extends HTMLElement {
+    #lifecycle = new AbortController()`);
+    replacePaginator(`    #createView() {`, `    #createView() {
+        this.#lifecycle.signal.throwIfAborted()`);
+    replacePaginator(`    async #display(promise) {
+        const { index, src, anchor, onLoad, select } = await promise`, `    // WHY：销毁立即结束外层导航等待，并消费底层迟到拒绝；不改变原生blob/iframe运输。
+    #waitFor(work) {
+        const { signal } = this.#lifecycle
+        return new Promise((resolve, reject) => {
+            let settled = false
+            const finish = (callback, value) => {
+                if (settled) return
+                settled = true
+                signal.removeEventListener('abort', abort)
+                callback(value)
+            }
+            const abort = () => finish(reject, signal.reason)
+            Promise.resolve(work).then(value => finish(resolve, value), error => finish(reject, error))
+            if (signal.aborted) abort()
+            else signal.addEventListener('abort', abort, { once: true })
+        })
+    }
+    async #display(promise) {
+        const { index, src, anchor, onLoad, select } = await this.#waitFor(promise)
+        this.#lifecycle.signal.throwIfAborted()`);
+    replacePaginator(`            await view.load(src, afterLoad, beforeRender)`, `            await this.#waitFor(view.load(src, afterLoad, beforeRender))
+            this.#lifecycle.signal.throwIfAborted()`);
+    replacePaginator(`            this.#view = view`, `            this.#lifecycle.signal.throwIfAborted()
+            this.#view = view`);
+    replacePaginator(`        await this.scrollToAnchor((typeof anchor === 'function'
+            ? anchor(this.#view.document) : anchor) ?? 0, select)
+        if (hasFocus) this.focusView()`, `        const target = (typeof anchor === 'function' ? anchor(this.#view.document) : anchor) ?? 0
+        this.#lifecycle.signal.throwIfAborted()
+        await this.#waitFor(this.scrollToAnchor(target, select))
+        this.#lifecycle.signal.throwIfAborted()
+        if (hasFocus) this.focusView()`);
+    replacePaginator(`    async #goTo({ index, anchor, select}) {`, `    async #goTo({ index, anchor, select}) {
+        this.#lifecycle.signal.throwIfAborted()`);
+    replacePaginator(`                .then(src => ({ index, src, anchor, onLoad, select }))
+                .catch(e => {
+                    console.warn(e)
+                    console.warn(new Error(\`Failed to load section \${index}\`))
+                    return {}
+                }))`, `                .then(src => ({ index, src, anchor, onLoad, select })))`);
+    replacePaginator(`    async goTo(target) {
+        if (this.#locked) return
+        const resolved = await target`, `    async goTo(target) {
+        if (this.#locked && !this.#lifecycle.signal.aborted) return
+        const resolved = await this.#waitFor(target)
+        this.#lifecycle.signal.throwIfAborted()`);
+    replacePaginator(`    async #turnPage(dir, distance) {
+        if (this.#locked) return
+        this.#locked = true
+        const prev = dir === -1
+        const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
+        if (shouldGo) await this.#goTo({
+            index: this.#adjacentIndex(dir),
+            anchor: prev ? () => 1 : () => 0,
+        })
+        if (shouldGo || !this.hasAttribute('animated')) await wait(100)
+        this.#locked = false
+    }`, `    async #turnPage(dir, distance) {
+        this.#lifecycle.signal.throwIfAborted()
+        if (this.#locked) return
+        this.#locked = true
+        try {
+            const prev = dir === -1
+            const shouldGo = await this.#waitFor(prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
+            this.#lifecycle.signal.throwIfAborted()
+            if (shouldGo) await this.#goTo({
+                index: this.#adjacentIndex(dir),
+                anchor: prev ? () => 1 : () => 0,
+            })
+            if (shouldGo || !this.hasAttribute('animated')) await this.#waitFor(wait(100))
+        } finally {
+            // WHY：章节错误现在向上传播，锁必须在失败/取消时一并释放。
+            this.#locked = false
+        }
+    }`);
+    replacePaginator(`    destroy() {
+        this.#observer.unobserve(this)`, `    destroy() {
+        if (this.#lifecycle.signal.aborted) return
+        this.#lifecycle.abort(new DOMException('阅读分页器已关闭', 'AbortError'))
+        this.#observer.disconnect()`);
+    replacePaginator(`        this.sections[this.#index]?.unload?.()`, `        this.sections?.[this.#index]?.unload?.()`);
     text = text.replaceAll('        if (!this.#view) return', '        if (!this.#view?.document?.body) return')
       .replaceAll('        if (!layout) return', '        if (!layout || !this.document?.body) return')
       .replaceAll('then(() => this.#view.expand())', 'then(() => this.#view?.expand())')
