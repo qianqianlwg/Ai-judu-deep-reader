@@ -41,7 +41,9 @@ it('late decoded previous book is destroyed without creating a stale view',async
 });
 it('late view.open failure cannot fail the replacement hash session',async()=>{
  const a=variant('A'),b=variant('B'),open=deferred<void>();vi.mocked(a.view.open).mockReturnValueOnce(open.promise);queue(a);queue(b);
- await render({book:a.book});await act(async()=>{await vi.waitFor(()=>expect(a.view.open).toHaveBeenCalledOnce())});await render({book:b.book});await ready(b);await act(async()=>open.reject(new Error('old open failed')));expect(host.querySelector('[role="alert"]')).toBeNull();expect(a.view.close).toHaveBeenCalledOnce();
+ await render({book:a.book});await act(async()=>{await vi.waitFor(()=>expect(a.view.open).toHaveBeenCalledOnce())});await render({book:b.book});await ready(b);await act(async()=>open.reject(new Error('old open failed')));expect(host.querySelector('[role="alert"]')).toBeNull();
+ // WHY：取消时先清理，open迟到结束后再次清理它晚创建的renderer；不能只断言close调用次数为1。
+ expect(a.view.close).toHaveBeenCalledTimes(2);expect(a.fbook.destroy).toHaveBeenCalledOnce();
 });
 it('stale anchor document failure must not put the new converted edition into an error state',async()=>{
  const a=variant('A'),b=variant('B'),documentWork=deferred<Document>();queue(a);queue(b);await render({book:a.book});await ready(a);

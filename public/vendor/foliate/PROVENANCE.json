@@ -25,7 +25,7 @@
     {
       "path": "view.js",
       "sourceSha256": "e0093af921feb03bb58fb51aeedc321fa108a4158d215f6913ecf7925415c945",
-      "distributedSha256": "1feb2a808571cf1d8ea92202aa70ac2cf6a429cde7897047031ee494f457588f",
+      "distributedSha256": "2e4ae2a18b206ad000a6518436653929da35cdfea9bc6d748349d779f6f19e88",
       "patched": true
     },
     {
@@ -49,7 +49,7 @@
     {
       "path": "paginator.js",
       "sourceSha256": "51cec81572d5d182e231fe68ce9c3b5489a0976b36172060516336ba893565ea",
-      "distributedSha256": "32250571bcd75cd94039042694bf0e63124d000da9b6a0e2a7dc49238e295aff",
+      "distributedSha256": "3a78a5e91155b737a291d2d70026d1993c0dc3ed8db8a47bb8fc279291569695",
       "patched": true
     },
     {

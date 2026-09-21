@@ -56,3 +56,11 @@ section.id 是包内 href。原版 DOM 与精读 canonical 段落通过明确映
 - 应用自有bridge.createView对非空文字Range先做完全同文的Text端点规范化，修复真实固定版getCFI在元素端点时的空选区往返。原Range、书内节点和固定上游源码不变，纯图片/折叠范围保留原行为；真实模块测试覆盖这一区别。
 - destroy/unload仅释放本书拥有的URL且幂等，跨文件原件身份与来源匹配继续严格校验。
 - 固定上游14文件PROVENANCE校验通过；FB2真实浏览器视觉效果仍待环境确认，不把jsdom专项等同实机。
+
+## 2026-09-21 生命周期修复补充
+
+- paginator 原生章节加载补齐目标文档校验、事件异常上抛、error/同步导航失败清理、destroy 取消等待；未就绪和已关闭状态禁止 ResizeObserver 排版。
+- view.goTo 不再吞掉 renderer 错误，首章初始化失败可以传回应用显示可恢复提示。
+- 以上补丁由 vendor-foliate.mjs 从相同固定提交复现，并更新 PROVENANCE；iframe.src、sandbox 与 closed shadow root 不变。
+- 同级于应用加载器的 foliate-paginator.test.ts / foliate-view.test.ts 覆盖实际分发代码。前者在测试 VM 暴露内部 View 并模拟 iframe 事件，仅证明控制流，不证明浏览器加载成功。
+- 最新原版浏览器验收仍未完成；参见 reader-followup.md 的 2026-09-21 记录，不能使用此前撤销的 srcdoc 结果作验收证据。

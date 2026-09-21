@@ -16,12 +16,13 @@ import type { EpubLinkPreview } from "@/lib/epub-link-preview";
 import { EpubInteractionLayer, type EpubInteractionDocument } from "./epub-interaction-layer";
 import "./epub-reader.css";
 import {mapMobiDocument} from "@/lib/mobi-browser-source-map";
+import {createReaderOperationQueue,runReaderOperation,ReaderOperationTimeout} from "@/lib/reader-operation";
 import {isFb2Format} from "@/lib/fb2-format";
 
 type View = Awaited<ReturnType<typeof createFoliateView>>;
 type EpubBook = Awaited<ReturnType<typeof loadEpub>>;
 type LoadedDocument = { doc: Document; index: number; maps: EpubParagraphMap[]; cleanup(): void; paintCleanup(): void };
-type Session = { sourceBook: LibraryBookContent; artifact: ConvertedEpubArtifact | null; view: View; book: EpubBook; documents: Map<number, LoadedDocument>; anchor: ReadingAnchor | null; shouldSave: boolean; navigating: number; closed: boolean };
+type Session = { sourceBook: LibraryBookContent; artifact: ConvertedEpubArtifact | null; view: View; book: EpubBook; documents: Map<number, LoadedDocument>; anchor: ReadingAnchor | null; shouldSave: boolean; navigating: number; closed: boolean; stop():void; signal:AbortSignal; operations:ReturnType<typeof createReaderOperationQueue> };
 export type EpubReaderProps = {
   book: LibraryBookContent; anchor: ReadingAnchor | null; appearance: ReadingAppearancePreferences;
   annotations: readonly TextAnnotation[]; concepts: readonly ConceptDetail[]; disabled?: boolean;
@@ -31,11 +32,6 @@ export type EpubReaderProps = {
 };
 const chapterFor = (book: LibraryBookContent, href: string | undefined): LibraryChapter | undefined => book.chapters.find(chapter => sameEpubResource(chapter.sourceHref, href));
 
-async function bounded<T>(work:Promise<T>, milliseconds=20000):Promise<T> {
-  let timer:ReturnType<typeof setTimeout>|undefined;
-  try { return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("原版渲染超时，请重试或切回精读。")),milliseconds);})]); }
-  finally {clearTimeout(timer);}
-}
 function documentMaps(doc:Document, index:number, session:Session, book:LibraryBookContent):EpubParagraphMap[] {
   const section=session.book.sections[index];
   const chapter=chapterFor(book,section?.id ?? section?.href);
@@ -62,7 +58,7 @@ export function EpubReader(props:EpubReaderProps) {
   function fail(cause:unknown) { setReady(false); console.error(readerLabel+"阅读失败",cause); setError(cause instanceof Error ? cause.message : modeLabel+"阅读暂不可用，请切回精读或重试。"); }
   // WHY：异步任务完成/失败时再次核对会话；旧派生版本不能覆盖新版本UI、目录或位置。
   const currentSession=(s:Session)=>!s.closed&&sessionRef.current===s;
-  function failSession(s:Session,cause:unknown){if(currentSession(s))fail(cause);else console.warn("已忽略过期阅读会话的错误",cause);}
+  function failSession(s:Session,cause:unknown){if(currentSession(s)){fail(cause);s.stop();}else console.warn("已忽略过期阅读会话的错误",cause);}
   function savePosition(s:Session,cfi:string) {
     if(!currentSession(s))return;
     const source=s.sourceBook;
@@ -78,21 +74,24 @@ export function EpubReader(props:EpubReaderProps) {
   useEffect(()=>{
     let cancelled=false, owned:Session|null=null, pendingBook:EpubBook|null=null;
     const controller=new AbortController();
+    const operations=createReaderOperationQueue(controller.signal);
     const display=host.current;
     if(!display || !book.editionId)return;
     const teardown=()=>{
+      cancelled=true;controller.abort();
       if(!owned){pendingBook?.destroy?.();pendingBook=null;return;}if(owned.closed)return;owned.closed=true;
       for(const loaded of owned.documents.values()){loaded.cleanup();loaded.paintCleanup();}
       owned.documents.clear(); owned.view.close();owned.view.remove();owned.book.destroy?.();
       if(sessionRef.current===owned)sessionRef.current=null;
     };
     void (async()=>{
-      setReady(false);setError("");setStatus("正在加载 "+readerLabel+"…");setDocuments([]);
+      setReady(false);setError("");setStatus("正在加载 "+readerLabel+"…");setDocuments([]);setProgress("");setSession(null);
       const source=resolveConvertedEpub(book);
       if(source.kind==="invalid")throw new Error(source.message);
       const artifact=source.kind==="ready"?source.artifact:null;
       const mobi=book.edition?.fileType===".mobi";
       const response=await fetch(artifact?.url ?? `/api/books/${encodeURIComponent(book.id)}/${mobi?"mobi-layout":"original"}?editionId=${encodeURIComponent(book.editionId!)}`,{signal:controller.signal,cache:"no-store"});
+      if(cancelled)return;
       if(!response.ok) {
         let message=(artifact?"转换文件":"原文件")+"读取失败（HTTP "+response.status+"），可切回精读。";
         if(response.headers.get("content-type")?.includes("json")) {const body:unknown=await response.json();if(body&&typeof body==="object"&&"error"in body&&typeof body.error==="string")message=body.error;}
@@ -115,13 +114,13 @@ export function EpubReader(props:EpubReaderProps) {
       if(cancelled){epub.destroy?.();return;}
       const view=await createFoliateView();
       if(cancelled){epub.destroy?.();view.close();return;}
-      const s:Session={sourceBook:book,artifact,view,book:epub,documents:new Map(),anchor:latest.current.anchor,shouldSave:false,navigating:0,closed:false};
+      const s:Session={sourceBook:book,artifact,view,book:epub,documents:new Map(),anchor:latest.current.anchor,shouldSave:false,navigating:0,closed:false,stop:teardown,signal:controller.signal,operations};
       owned=s;pendingBook=null;sessionRef.current=s;
       view.style.cssText="display:block;width:100%;height:100%;";view.setAttribute("aria-label",readerLabel+"内容");display.append(view);
       view.addEventListener("external-link",event=>{event.preventDefault();latest.current.onNotice("为保护本地书库，已阻止书籍打开外部链接。");});
       view.addEventListener("load",event=>{
         const {doc,index}=(event as CustomEvent<{doc:Document;index:number}>).detail;
-        if(cancelled || !doc?.body || !Number.isInteger(index))return;
+        if(cancelled || !currentSession(s) || !doc?.body || !Number.isInteger(index))return;
         const old=s.documents.get(index);old?.cleanup();old?.paintCleanup();
         const maps=documentMaps(doc,index,s,book);
         if(isFb2Format(book.edition?.fileType??"")&&!chapterFor(book,s.book.sections[index]?.id)?.paragraphs.length)latest.current.onNotice("本章为图片内容，可查看原版；没有文字来源时不能直接句读，OCR尚未启用。");
@@ -152,7 +151,7 @@ export function EpubReader(props:EpubReaderProps) {
         setDocuments([...s.documents.values()]);
       });
       view.addEventListener("relocate",event=>{
-        if(cancelled)return;
+        if(cancelled||!currentSession(s))return;
         const detail=(event as CustomEvent<{cfi?:string;index?:number;section?:{current:number};fraction?:number;range?:Range}>).detail;
         const section=detail.section?.current ?? detail.index ?? [...s.documents.values()].find(loaded=>loaded.doc===detail.range?.startContainer.ownerDocument)?.index ?? 0;
         setProgress(`章节 ${section+1} / ${epub.sections.length}${typeof detail.fraction==="number"&&Number.isFinite(detail.fraction)?" · "+Math.round(detail.fraction*100)+"%":""}`);
@@ -163,22 +162,26 @@ export function EpubReader(props:EpubReaderProps) {
         if(detail.cfi)savePosition(s,detail.cfi);
       });
       setStatus("正在装配原版阅读器…");
-      await bounded(view.open(epub)); if(cancelled)return;
+      await operations.run("装配原版阅读器",async()=>{try{await view.open(epub);}finally{if(!currentSession(s))view.close();}}); if(cancelled)return;
       view.renderer?.setStyles(appearanceCss(latest.current.appearance));
       // WHY：触摸/滚动翻页来自 renderer 而非工具栏。只记录主动位移，字体 reflow 不覆盖 canonical 锚点。
       view.renderer.addEventListener("relocate",event=>{
         const reason=(event as CustomEvent<{reason?:string}>).detail?.reason;
+        if(!currentSession(s))return;
         if(reason && ["page","snap","scroll"].includes(reason))s.shouldSave=true;
       },true);
       setStatus("正在加载"+modeLabel+"章节…");
       let saved=null;
       try{saved=artifact?readConvertedPosition(localStorage.getItem(convertedPositionKey(book.editionId!)),artifact.conversion):readOriginalPosition(localStorage.getItem(originalPositionKey((epub.positionIdentity?"mobi:":"")+book.editionId!)),epub.positionIdentity ?? book.edition?.originalHash ?? "");}catch(cause:unknown){console.warn("无法读取原版位置",cause);}
       if(saved&&sameReadingAnchor(saved.anchor,latest.current.anchor)) {
-        try { const target=view.resolveCFI(saved.cfi);if(!epub.sections[target.index])throw new Error("位置不属于本书");await bounded(view.init({lastLocation:saved.cfi,showTextStart:true})); }
-        catch(cause:unknown){if(cancelled||!currentSession(s)){console.warn("已关闭的阅读会话初始化失败，未重试旧视图",cause);return;}console.warn("原版位置已失效，回退精读锚点",cause);latest.current.onNotice("原版位置已失效，已回退到精读锚点。");saved=null;await bounded(view.init({showTextStart:true}));}
-      } else await bounded(view.init({showTextStart:true}));
+        // WHY：只将CFI解析失败视为旧位置失效；文档/排版失败必须退出会话，不能在同一个失败视图重入init。
+        try { const target=view.resolveCFI(saved.cfi);if(!epub.sections[target.index])throw new Error("位置不属于本书"); }
+        catch(cause:unknown){console.warn("原版位置已失效，回退精读锚点",cause);latest.current.onNotice("原版位置已失效，已回退到精读锚点。");saved=null;}
+      } else saved=null;
+      const restored=saved;
+      await operations.run(restored?"恢复原版位置":"加载原版首章",()=>view.init(restored?{lastLocation:restored.cfi,showTextStart:true}:{showTextStart:true}));
       if(cancelled)return;
-      if(!saved || !sameReadingAnchor(saved.anchor,latest.current.anchor))await bounded(navigateToAnchor(s,latest.current.anchor));
+      if(!saved || !sameReadingAnchor(saved.anchor,latest.current.anchor))await navigateToAnchor(s,latest.current.anchor);
       if(cancelled||!currentSession(s))return;
       setStatus("");setReady(true);setSession(s);
     })().catch(cause=>{if(!cancelled){fail(cause);teardown();}});
@@ -196,14 +199,14 @@ export function EpubReader(props:EpubReaderProps) {
     const sequence=++s.navigating;
     const current=()=>currentSession(s)&&sequence===s.navigating;
     try {
-      const doc=await s.book.sections[index].createDocument();
+      const doc=await runReaderOperation(s.book.sections[index].createDocument(),{signal:s.signal,phase:"核验精读锚点"});
       if(!current())return;
       if(!rangeForEpubPosition(documentMaps(doc,index,s,source),anchor.paragraphId,anchor.offset)) {latest.current.onNotice("该段排版与精读文本无法精确映射，请切回精读定位。");return;}
       s.anchor=anchor;
-      await s.view.renderer!.goTo({index,anchor:(target:Document)=>{
+      await s.operations.run("定位精读锚点",async()=>{if(!current())return;await s.view.renderer!.goTo({index,anchor:(target:Document)=>{
         const range=rangeForEpubPosition(documentMaps(target,index,s,source),anchor.paragraphId,anchor.offset);
         if(!range)throw new Error("阅读锚点在渲染后失效，请切回精读");return range;
-      }});
+      }});});
       if(!current())return;
       const cfi=s.view.lastLocation?.cfi;if(cfi)savePosition(s,cfi);
     } catch(cause:unknown) {
@@ -220,21 +223,21 @@ export function EpubReader(props:EpubReaderProps) {
     if(!s||!currentSession(s)||preview?.index===undefined)return;
     try {
       s.shouldSave=true;
-      await s.view.renderer.goTo({index:preview.index,anchor:doc=>{
+      await s.operations.run("跳转引用",()=>s.view.renderer.goTo({index:preview.index!,anchor:doc=>{
         if(preview.navigationHref){const resolved=s.book.resolveHref?.(preview.navigationHref);if(!resolved||resolved.index!==preview.index)throw new Error("引用目标已失效");const target=resolved.anchor(doc);if(typeof target==="number")throw new Error("引用缺少精确位置");return target;}
         const target=preview.fragment?doc.getElementById(preview.fragment):doc.body;
         if(!target)throw new Error("引用目标不可用");return target;
-      }});
+      }}));
 
-    } catch(cause:unknown){console.warn("引用跳转失败",cause);if(currentSession(s))latest.current.onNotice("引用跳转失败，请从原书目录重试。");}
+    } catch(cause:unknown){console.warn("引用跳转失败",cause);if(cause instanceof ReaderOperationTimeout){failSession(s,cause);return;}if(currentSession(s))latest.current.onNotice("引用跳转失败，请从原书目录重试。");}
   }
-  async function turn(direction:"next"|"prev") {const s=sessionRef.current;if(!s||!currentSession(s)||props.disabled)return;try{s.shouldSave=true;await s.view[direction]();}catch(cause:unknown){failSession(s,cause);}}
+  async function turn(direction:"next"|"prev") {const s=sessionRef.current;if(!s||!currentSession(s)||props.disabled)return;try{s.shouldSave=true;await s.operations.run("翻页",()=>s.view[direction]());}catch(cause:unknown){failSession(s,cause);}}
   const toc:FoliateTocItem[]=[];
   const collect=(items:FoliateTocItem[])=>{for(const item of items){toc.push(item);if(item.subitems)collect(item.subitems);}};
   collect(session?.book.toc ?? []);
   async function openToc(href:string) {
     const s=session;if(!s||!currentSession(s))return;
-    try{const target=s.book.resolveHref?.(href);if(!target)throw new Error("目录目标无效");s.shouldSave=true;await s.view.renderer.goTo({index:target.index,anchor:doc=>{const anchor=target.anchor(doc);return typeof anchor==="number"?doc.body:anchor;}});}
+    try{const target=s.book.resolveHref?.(href);if(!target)throw new Error("目录目标无效");s.shouldSave=true;await s.operations.run("跳转目录",()=>s.view.renderer.goTo({index:target.index,anchor:doc=>{const anchor=target.anchor(doc);return typeof anchor==="number"?doc.body:anchor;}}));}
     catch(cause:unknown){failSession(s,cause);}
   }
   return <section className="epub-reader" aria-label={readerLabel+"阅读器"} aria-busy={!ready&&!error}>

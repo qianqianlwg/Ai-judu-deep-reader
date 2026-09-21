@@ -15,6 +15,10 @@ vi.mock("@/lib/fb2-loader",()=>fb2loader);
 const mobiloader=vi.hoisted(()=>({loadMobiPublication:vi.fn()}));
 vi.mock("@/lib/mobi-loader",()=>mobiloader);
 let root:Root,host:HTMLDivElement,frame:HTMLIFrameElement,doc:Document,view:FoliateView,original:FoliateBook,props:EpubReaderProps;
+function deferred<T>(){let resolve!:(value:T|PromiseLike<T>)=>void,reject!:(reason?:unknown)=>void;const promise=new Promise<T>((done,fail)=>{resolve=done;reject=fail});return {promise,resolve,reject};}
+function makeView():FoliateView{const raw=document.createElement("div"),renderer=document.createElement("div");Object.assign(renderer,{setStyles:vi.fn(),goTo:vi.fn(async(target:{anchor:(doc:Document)=>unknown})=>{target.anchor(doc)}),getContents:()=>[{doc,index:0}]});Object.assign(raw,{renderer,open:vi.fn(async()=>{}),init:vi.fn(async()=>{}),next:vi.fn(),prev:vi.fn(),close:vi.fn(),getCFI:()=>"epubcfi(/6/2!/4)",resolveCFI:()=>({index:0}),lastLocation:{cfi:"epubcfi(/6/2!/4)"}});return raw as unknown as FoliateView;}
+function makeBook(id:string):FoliateBook{return {...original,positionIdentity:id,sections:original.sections.map(section=>({...section})),destroy:vi.fn()};}
+function makeSourceBook(id:string,editionId:string):EpubReaderProps["book"]{return {...props.book,id,editionId,edition:{...props.book.edition!,id:editionId,fileName:`${id}.epub`}};}
 async function render(next:Partial<EpubReaderProps>={}){props={...props,...next};await act(async()=>{root.render(<EpubReader {...props}/>);});}
 beforeEach(()=>{
  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",true);localStorage.clear();
@@ -40,7 +44,7 @@ beforeEach(()=>{
  loader.loadEpub.mockResolvedValue(original);loader.createFoliateView.mockResolvedValue(view);fb2loader.loadFb2.mockResolvedValue(original);mobiloader.loadMobiPublication.mockResolvedValue({book:original,warnings:[]});
  props={book:{id:"b",title:"书",author:"作者",editionId:"e",edition:{id:"e",fileName:"书.epub",fileType:"epub",createdAt:"now",hasOriginalFile:true,originalHash:"a".repeat(64)},chapters:[{id:"c",title:"第一章",sourceHref:"OEBPS/ch.xhtml",paragraphs:[{id:"p",text:"世界😀原版文字"},{id:"p2",text:"第二段"}]}]},anchor:null,appearance:DEFAULT_READING_APPEARANCE,annotations:[],concepts:[],onSelect:vi.fn(),onPosition:vi.fn(),onNotice:vi.fn(),onFallback:vi.fn()};
 });
-afterEach(async()=>{await act(async()=>root.unmount());host.remove();frame.remove();vi.restoreAllMocks();vi.unstubAllGlobals();vi.clearAllMocks();});
+afterEach(async()=>{await act(async()=>root.unmount());host.remove();frame.remove();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();vi.clearAllMocks();});
 it("按版本拉取原件，保留 DOM，展示目录与翻页",async()=>{
  await render();expect(fetch).toHaveBeenCalledWith("/api/books/b/original?editionId=e",expect.objectContaining({cache:"no-store"}));
  expect(host.textContent).toContain("章节 1 / 1");expect(host.querySelector('select[aria-label="原书目录"]')).not.toBeNull();
@@ -79,6 +83,31 @@ it("创建 viewer 失败也释放已展开的书籍",async()=>{
  expect(original.destroy).toHaveBeenCalledOnce();expect(host.textContent).toContain("viewer failed");
 });
 
+it("原版 view.open 延迟超过20秒后关闭资源且忽略迟到事件",async()=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});vi.useFakeTimers();const open=deferred<void>();vi.mocked(view.open).mockReturnValueOnce(open.promise);
+ await render();expect(view.open).toHaveBeenCalledOnce();await act(async()=>{await vi.advanceTimersByTimeAsync(20_000);});
+ expect(host.querySelector('[role="alert"]')?.textContent).toContain("原版渲染超时");expect(view.close).toHaveBeenCalledOnce();expect(original.destroy).toHaveBeenCalledOnce();vi.mocked(props.onNotice).mockClear();
+ await act(async()=>{open.resolve();await Promise.resolve();await Promise.resolve();await Promise.resolve();});
+ expect(view.init).not.toHaveBeenCalled();expect(props.onNotice).not.toHaveBeenCalled();
+});
+it("原版 view.init 延迟超过20秒后关闭资源且忽略迟到load",async()=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});vi.useFakeTimers();const init=deferred<void>();vi.mocked(view.init).mockImplementationOnce(async()=>{await init.promise;view.dispatchEvent(new CustomEvent("load",{detail:{doc,index:0}}));});
+ await render();expect(view.init).toHaveBeenCalledOnce();vi.mocked(props.onNotice).mockClear();await act(async()=>{await vi.advanceTimersByTimeAsync(20_000);});
+ expect(host.querySelector('[role="alert"]')?.textContent).toContain("原版渲染超时");expect(view.close).toHaveBeenCalledOnce();expect(original.destroy).toHaveBeenCalledOnce();
+ await act(async()=>{init.resolve();await Promise.resolve();await Promise.resolve();});expect(props.onNotice).not.toHaveBeenCalled();
+});
+it("原版 renderer.goTo 延迟超过20秒后关闭资源且忽略迟到load",async()=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});vi.useFakeTimers();const goTo=deferred<void>();vi.mocked(view.renderer.goTo).mockImplementationOnce(async target=>{await goTo.promise;target.anchor(doc);view.dispatchEvent(new CustomEvent("load",{detail:{doc,index:0}}));});
+ await render({anchor:{paragraphId:"p",offset:1}});expect(view.renderer.goTo).toHaveBeenCalledOnce();vi.mocked(props.onNotice).mockClear();await act(async()=>{await vi.advanceTimersByTimeAsync(20_000);});
+ expect(host.querySelector('[role="alert"]')?.textContent).toContain("原版渲染超时");expect(view.close).toHaveBeenCalledOnce();expect(original.destroy).toHaveBeenCalledOnce();
+ await act(async()=>{goTo.resolve();await Promise.resolve();await Promise.resolve();});expect(props.onNotice).not.toHaveBeenCalled();
+});
+it("切换书籍会取消旧的 view.open，迟到promise不污染新会话",async()=>{
+ const oldOpen=deferred<void>(),nextView=makeView(),nextBook=makeBook("book-2"),nextSource=makeSourceBook("b-2","e-2");vi.mocked(view.open).mockReturnValueOnce(oldOpen.promise);loader.loadEpub.mockResolvedValueOnce(original).mockResolvedValueOnce(nextBook);loader.createFoliateView.mockResolvedValueOnce(view).mockResolvedValueOnce(nextView);
+ await render();expect(view.open).toHaveBeenCalledOnce();await render({book:nextSource});await act(async()=>{await vi.waitFor(()=>expect(nextView.init).toHaveBeenCalledOnce());});
+ expect(host.querySelector('[aria-label="EPUB 原版内容"]')).toBe(nextView);vi.mocked(props.onNotice).mockClear();await act(async()=>{oldOpen.resolve();await Promise.resolve();await Promise.resolve();});
+ expect(view.close).toHaveBeenCalledTimes(2);expect(original.destroy).toHaveBeenCalledOnce();expect(nextView.close).not.toHaveBeenCalled();expect(nextBook.destroy).not.toHaveBeenCalled();expect(host.querySelector('[aria-label="EPUB 原版内容"]')).toBe(nextView);expect(props.onNotice).not.toHaveBeenCalled();
+});
 it("手势翻页记录位置，排版重流不把段中锚点改为页首",async()=>{
  await render();const range=doc.createRange();range.selectNodeContents(doc.querySelectorAll('p')[1]);
  await act(async()=>{view.renderer.dispatchEvent(new CustomEvent('relocate',{detail:{reason:'snap'}}));view.dispatchEvent(new CustomEvent('relocate',{detail:{section:{current:0},range,cfi:'epubcfi(/6/2!/4)'}}));});
@@ -359,4 +388,36 @@ it("MOBI延迟loaded在卸载后完成只释放资源，不发出过期warning�
  await render({book:assembleMobi()});expect(mobiloader.loadMobiPublication).toHaveBeenCalledOnce();await act(async()=>root.render(null));
  const late={...original,destroy:vi.fn()};await act(async()=>finish({book:late,warnings:["过期提醒"]}));
  expect(late.destroy).toHaveBeenCalledOnce();expect(props.onNotice).not.toHaveBeenCalledWith("过期提醒");expect(loader.createFoliateView).not.toHaveBeenCalled();expect(host.childNodes).toHaveLength(0);
+});
+it("恢复CFI超时不能当作位置失效再次初始化同一view",async()=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});vi.useFakeTimers();const cfi="epubcfi(/6/2!/4)",anchor={paragraphId:"p",offset:1};
+ localStorage.setItem(originalPositionKey("e"),JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor}));
+ vi.mocked(view.init).mockImplementationOnce(()=>new Promise(()=>{}));await render({anchor});
+ expect(view.init).toHaveBeenCalledExactlyOnceWith({lastLocation:cfi,showTextStart:true});
+ await act(async()=>{await vi.advanceTimersByTimeAsync(20000);});
+ expect(host.querySelector('[role="alert"]')?.textContent).toContain("恢复原版位置");expect(view.init).toHaveBeenCalledOnce();
+ expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(view.close).toHaveBeenCalledOnce();
+});
+it("目录与翻页串行，前一导航失败超时后取消所有排队导航",async()=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});vi.useFakeTimers();await render();
+ vi.mocked(view.renderer.goTo).mockImplementationOnce(()=>new Promise(()=>{}));
+ const select=host.querySelector('select')!;const next=[...host.querySelectorAll('button')].find(button=>button.textContent==="原版下一页")!;
+ await act(async()=>{select.value="OEBPS/ch.xhtml";select.dispatchEvent(new Event("change",{bubbles:true}));next.click();});
+ expect(view.renderer.goTo).toHaveBeenCalledOnce();expect(view.next).not.toHaveBeenCalled();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(20000);});expect(view.next).not.toHaveBeenCalled();
+ expect(host.querySelector('[role="alert"]')?.textContent).toContain("跳转目录");expect(view.close).toHaveBeenCalledOnce();
+});
+it("正常导航连续点击时依次完成，不丢失用户翻页",async()=>{
+ await render();const navigation=deferred<void>();vi.mocked(view.renderer.goTo).mockReturnValueOnce(navigation.promise);
+ const select=host.querySelector('select')!;const next=[...host.querySelectorAll('button')].find(button=>button.textContent==="原版下一页")!;
+ await act(async()=>{select.value="OEBPS/ch.xhtml";select.dispatchEvent(new Event("change",{bubbles:true}));next.click();});
+ expect(view.next).not.toHaveBeenCalled();await act(async()=>navigation.resolve());expect(view.next).toHaveBeenCalledOnce();
+});
+it("合法CFI的文档加载异常不能误报位置失效或重入初始化",async()=>{
+ vi.spyOn(console,"error").mockImplementation(()=>{});const cfi="epubcfi(/6/2!/4)",anchor={paragraphId:"p",offset:1};
+ localStorage.setItem(originalPositionKey("e"),JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor}));
+ vi.mocked(view.init).mockRejectedValueOnce(new Error("原版章节文档加载失败"));await render({anchor});
+ expect(view.init).toHaveBeenCalledExactlyOnceWith({lastLocation:cfi,showTextStart:true});
+ expect(host.querySelector('[role="alert"]')?.textContent).toContain("章节文档加载失败");
+ expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(view.close).toHaveBeenCalledOnce();
 });

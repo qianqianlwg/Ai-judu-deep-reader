@@ -208,6 +208,9 @@ const setStylesImportant = (el, styles) => {
 }
 
 class View {
+    #cancelLoad
+    #loaded = false
+    #destroyed = false
     #observer = new ResizeObserver(() => this.expand())
     #element = document.createElement('div')
     #iframe = document.createElement('iframe')
@@ -252,38 +255,62 @@ class View {
     }
     async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(`${src} is not string`)
-        return new Promise(resolve => {
-            this.#iframe.addEventListener('load', () => {
-                const doc = this.document
-                afterLoad?.(doc)
-
-                // it needs to be visible for Firefox to get computed style
-                this.#iframe.style.display = 'block'
-                const { vertical, rtl } = getDirection(doc)
-                const background = getBackground(doc)
-                this.#iframe.style.display = 'none'
-
-                this.#vertical = vertical
-                this.#rtl = rtl
-
-                this.#contentRange.selectNodeContents(doc.body)
-                const layout = beforeRender?.({ vertical, rtl, background })
-                this.#iframe.style.display = 'block'
-                this.render(layout)
-                this.#observer.observe(doc.body)
-
-                // the resize observer above doesn't work in Firefox
-                // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
-                // until the bug is fixed we can at least account for font load
-                doc.fonts.ready.then(() => this.expand())
-
-                resolve()
-            }, { once: true })
-            this.#iframe.src = src
+        if (this.#destroyed) throw new DOMException('阅读文档已关闭', 'AbortError')
+        this.#cancelLoad?.()
+        this.#loaded = false
+        return new Promise((resolve, reject) => {
+            let settled = false
+            const cleanup = () => {
+                settled = true
+                this.#iframe.removeEventListener('load', loaded)
+                this.#iframe.removeEventListener('error', failed)
+                this.#cancelLoad = null
+            }
+            const fail = error => { cleanup(); reject(error) }
+            const failed = () => fail(new Error('原版章节文档加载失败，请重试。'))
+            const loaded = () => {
+                try {
+                    const doc = this.document
+                    // WHY：插入iframe时的about:blank事件不代表目标章节就绪，不能提前消耗一次性监听。
+                    if (!doc || doc.URL === 'about:blank') return
+                    if (doc.URL.split('#')[0] !== src.split('#')[0]) return
+                    if (!doc.body) throw new Error('原版章节缺少可渲染正文')
+                    afterLoad?.(doc)
+                    if (settled) return
+                    this.#iframe.style.display = 'block'
+                    const { vertical, rtl } = getDirection(doc)
+                    const background = getBackground(doc)
+                    this.#iframe.style.display = 'none'
+                    this.#vertical = vertical
+                    this.#rtl = rtl
+                    this.#contentRange.selectNodeContents(doc.body)
+                    const layout = beforeRender?.({ vertical, rtl, background })
+                    if (settled) return
+                    this.#iframe.style.display = 'block'
+                    this.#loaded = true
+                    this.render(layout)
+                    if (settled) return
+                    this.#observer.observe(doc.body)
+                    doc.fonts.ready.then(() => {
+                        if (!this.#destroyed && this.#loaded) this.expand()
+                    }).catch(error => console.error('原版字体布局失败', error))
+                    cleanup()
+                    resolve()
+                } catch (error) {
+                    // WHY：DOM事件内的异常不会自动拒绝外层Promise；必须传回调用方，不能等20秒假超时。
+                    this.#loaded = false
+                    fail(error)
+                }
+            }
+            this.#cancelLoad = () => fail(new DOMException('阅读文档加载已取消', 'AbortError'))
+            this.#iframe.addEventListener('load', loaded)
+            this.#iframe.addEventListener('error', failed)
+            try { this.#iframe.src = src }
+            catch (error) { fail(error) }
         })
     }
     render(layout) {
-        if (!layout || !this.document?.body) return
+        if (this.#destroyed || !this.#loaded || !layout || !this.document?.body) return
         this.#column = layout.flow !== 'scrolled'
         this.#layout = layout
         if (this.#column) this.columnize(layout)
@@ -360,6 +387,7 @@ class View {
         }
     }
     expand() {
+        if (this.#destroyed || !this.#loaded || !this.document?.body) return
         const { documentElement } = this.document
         if (this.#column) {
             const side = this.#vertical ? 'height' : 'width'
@@ -416,7 +444,10 @@ class View {
         return this.#overlayer
     }
     destroy() {
-        if (this.document?.body) this.#observer.unobserve(this.document.body)
+        this.#destroyed = true
+        this.#loaded = false
+        this.#cancelLoad?.()
+        this.#observer.disconnect()
     }
 }
 

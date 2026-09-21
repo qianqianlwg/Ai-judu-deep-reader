@@ -354,6 +354,7 @@ export class View extends HTMLElement {
         } catch(e) {
             console.error(e)
             console.error(`Could not go to ${target}`)
+            throw e
         }
     }
     async goToFraction(frac) {
