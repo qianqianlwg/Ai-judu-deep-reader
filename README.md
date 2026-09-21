@@ -32,8 +32,8 @@ npm run dev -- --port 3000
 - **默认没有启用向量检索。** 当前书籍导入写入 SQLite，尚无自动 embedding 生成及全书入索引流程。迁移 SQL / 查询适配的存在不等于已建好向量；未配置 PostgreSQL 时显示关键词回退。不能将契约测试通过当作真实 pgvector 环境已验证。
 - 上下文设置提供 **200K、400K、1M** 三档输入预算；模型工具生成阅读记忆、按 Token 分批并保存检查点，不按最近条数或消息比例截取。新消息追加在检查点之后，显式调整预算可原位重试。**并非 Codex 内部压缩服务的一比一实现**。
 - 不含扫描 PDF OCR、章节级批量异步句读、知识包或语音。扫描PDF及图片型FB2可看原版，但没有文字来源就不开放伪文字句读。
-- EPUB/MOBI/FB2原生Foliate通路在 Codex 内置浏览器中遇到 blob iframe 停留 `about:blank`；最小对照页也能复现，不能把该环境结果当作普通浏览器产品缺陷或实机通过。代码/API/CFI回归不等于 Chrome/Edge 视觉验收，详见 `docs/reader-phase2-verification.md`、`docs/reader-fb2-verification.md`。
-- `.mobi` 已开放文本导入、原件保存、受控布局和 Foliate 原版候选，但普通 Chrome/Edge 实机与完整复杂版式矩阵尚未关闭；AZW/AZW3 仍未开放。UMD等其他候选不能按文件扩展名推定已支持。CBZ已实现图片原版，但没有OCR和文字句读。
+- EPUB/MOBI 的 Foliate 原版通路已在本机 Chrome 153（非 Codex 内置浏览器）完成真实页面验收；Codex 内置浏览器仍会让 blob iframe 停在 `about:blank`，最小对照页已证明这是工具环境限制，不应据此修改产品的 blob、shadow root、sandbox 或 CSP。FB2 的独立验收边界见 `docs/reader-fb2-verification.md`。
+- `.mobi` 已开放文本导入、原件保存、受控布局和 Foliate 原版阅读，并在本机 Chrome 完成加载、翻页、目录、切书恢复、原版选区和 1000 字上限验收；完整复杂版式矩阵仍是明确边界。AZW/AZW3 仍未开放，UMD 等其他候选不能按扩展名推定已支持。CBZ 已实现图片原版，但没有 OCR 和文字句读。
 - 模型在原文中没有逐字出现的概念名称不会被强行标注；只有已保存且属于当前版本的概念参与匹配。
 
 ## 测试与隔离验证
@@ -62,7 +62,7 @@ npm run build
 - `npm run dev`、`npm test`、`npm run build` 会先执行 `npm run build:mobi-worker`，生成不经 HTTP 发布的 `runtime/mobi`。该目录是构建产物，不提交 Git。
 - 生产运行不从 `src` 或开发依赖目录动态加载 MOBI parser；部署需携带生成的 worker、清单和第三方许可。Next 导入路由的文件追踪已显式包含这三项。仅安装生产依赖时，应使用先前构建生成的运行时，而不是在启动时临时安装解析开发包。
 - `node --test scripts/build-mobi-worker.test.mjs` 验证可复现构建和许可，`src/lib/mobi-worker-deployment.test.ts` 验证独立目录真实子进程运行。直接调用 Vitest 前需先构建运行时，常规 `npm test` 会自动完成。
-- `.mobi` 导入、原件保存和受控布局 API 已开放；AZW/AZW3 仍返回 415。MOBI 普通浏览器原版实机、完整复杂版式矩阵及 UMD 转换尚未交付，不能把私有 worker 构建通过泛化为整个格式家族完整支持。
+- `.mobi` 导入、原件保存、受控布局 API 与 Foliate 原版阅读已开放，并已通过本机 Chrome 实机验收；AZW/AZW3 仍返回 415。完整复杂版式矩阵及 UMD 转换尚未交付，不能把 `.mobi` 的通过泛化为整个格式家族完整支持。
 
 ### UMD候选转换
 
