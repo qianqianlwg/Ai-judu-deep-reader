@@ -8,6 +8,7 @@ import {
   DEFAULT_READING_APPEARANCE, READING_APPEARANCE_STORAGE_KEYS, applyReadingAppearanceToRoot, readReadingAppearance, writeReadingAppearance,
   type ReadingAppearancePreferences,
 } from "@/lib/reading-appearance";
+import {EmbeddingSettings} from "@/components/embedding-settings";
 import { ReadingAppearanceSettings } from "@/components/reading-appearance-settings";
 import styles from "./settings.module.css";
 
@@ -33,6 +34,7 @@ export default function SettingsPage() {
   const [provider, setProvider] = useState("openai");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
+  const [models, setModels] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [aiNotice, setAiNotice] = useState("");
 
@@ -76,7 +78,7 @@ export default function SettingsPage() {
     let active = true;
     void fetch("/api/settings/ai")
       .then((response) => response.json() as Promise<unknown>)
-      .then((value) => { if (active && isRecord(value)) { const data = readAiResponse(value); setProvider(typeof value.provider === "string" ? value.provider : "openai"); setBaseUrl(typeof value.baseUrl === "string" ? value.baseUrl : ""); setModel(typeof value.model === "string" ? value.model : ""); if (data.error) setAiNotice(data.error); } })
+      .then((value) => { if (active && isRecord(value)) { const data = readAiResponse(value); setProvider(typeof value.provider === "string" ? value.provider : "openai"); setBaseUrl(typeof value.baseUrl === "string" ? value.baseUrl : ""); setModel(typeof value.model === "string" ? value.model : ""); setModels(Array.isArray(value.models) ? value.models.filter((item): item is string=>typeof item === "string").join("\n") : typeof value.model === "string" ? value.model : ""); if (data.error) setAiNotice(data.error); } })
       .catch((error: unknown) => { console.error("读取 AI 配置失败", { name: error instanceof Error ? error.name : "UnknownError" }); if (active) setAiNotice("暂时无法读取 AI 配置。"); });
     return () => { active = false; };
   }, []);
@@ -100,10 +102,10 @@ export default function SettingsPage() {
   async function saveAi(): Promise<void> {
     setAiNotice("保存中…");
     try {
-      const response = await fetch("/api/settings/ai", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, baseUrl, model, apiKey: apiKey || undefined }) });
+      const response = await fetch("/api/settings/ai", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, baseUrl, model, models:models.split(/[\n,，;；]+/u).map(value=>value.trim()).filter(Boolean), apiKey: apiKey || undefined }) });
       const data = readAiResponse(await response.json() as unknown);
       setAiNotice(response.ok ? "已保存 " + (data.maskedApiKey ?? "") : data.error ?? "保存失败");
-      if (response.ok) setApiKey("");
+      if (response.ok) { setApiKey(""); window.dispatchEvent(new Event("judu:settings-updated")); localStorage.setItem("judu:ai-settings",String(Date.now())); }
     } catch (error: unknown) { console.error("保存 AI 配置失败", { name: error instanceof Error ? error.name : "UnknownError" }); setAiNotice("保存失败，请检查网络或服务状态。"); }
   }
   async function testAi(): Promise<void> {
@@ -119,6 +121,7 @@ export default function SettingsPage() {
     <header className={styles.header}><Link href="/" className={styles.backLink}>← 返回阅读器</Link><div><span className={styles.kicker}>JUDU SETTINGS</span><h1>设置</h1></div></header>
     <ReadingAppearanceSettings value={appearance} ready={appearanceReady} error={appearanceError} onChange={saveAppearance} />
     <section className={styles.card}><h2>上下文</h2><label>最大输入 Token<select aria-label="最大输入 Token" value={contextTokens} onChange={(event) => saveContext(event.target.value)}>{CONTEXT_INPUT_TOKEN_OPTIONS.map((value) => <option key={value} value={value}>{value === 1000000 ? "1M" : value / 1000 + "K"}</option>)}</select></label><label>最大输出 Token<select aria-label="最大输出 Token" value={outputTokens} onChange={(event) => saveOutput(event.target.value)}><option value="1024">1K</option><option value="2048">2K</option><option value="4096">4K</option><option value="8192">8K</option><option value="16384">16K</option></select></label><label>压缩触发<select value={compression} onChange={(event) => saveCompression(event.target.value)}><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">激进</option></select></label><label>句读详细程度<select aria-label="句读详细程度" value={readingDetail} onChange={(event) => saveReadingDetail(event.target.value)}><option value="concise">精简（约 1:1.2）</option><option value="standard">标准（约 1:1.5）</option><option value="detailed">详细（约 1:2）</option></select></label><p className={styles.hint}>接近预算时将已有对话整理成阅读记忆，保留关键约定、概念和未解问题；不按最近条数截取。新消息追加在检查点之后。调整预算后，可在原消息上重试；选文和原问题不会改变。</p></section>
-    <section className={styles.card}><h2>AI 句读</h2><label>协议<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="claude">Claude</option></select></label><label>API URL<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label><label>模型<input value={model} onChange={(event) => setModel(event.target.value)} placeholder="模型名称" /></label><label>API Key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空则保留已保存 Key" /></label><div className={styles.actions}><button type="button" onClick={() => void testAi()}>测试连接</button><button type="button" onClick={() => void saveAi()}>保存</button></div>{aiNotice && <p className={styles.hint} role="status">{aiNotice}</p>}</section>
+    <section className={styles.card}><h2>AI 句读</h2><label>协议<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="claude">Claude</option></select></label><label>API URL<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label><label>模型列表<textarea aria-label="模型列表" rows={4} value={models} onChange={event=>{setModels(event.target.value);const first=event.target.value.split(/[\n,，;；]+/u).map(value=>value.trim()).filter(Boolean);if(!first.includes(model))setModel(first[0]??"");}} placeholder="每行一个模型名称，也可用逗号分隔" /></label><label>默认模型<select aria-label="默认模型" value={model} onChange={event=>setModel(event.target.value)}>{[...new Set(models.split(/[\n,，;；]+/u).map(value=>value.trim()).filter(Boolean))].map(value=><option key={value} value={value}>{value}</option>)}</select></label><p className={styles.hint}>多个模型共用此 API 地址、协议和密钥；聊天框可以逐次选择，默认模型用于未指定模型的请求。</p><label>API Key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空则保留已保存 Key" /></label><div className={styles.actions}><button type="button" onClick={() => void testAi()}>测试连接</button><button type="button" onClick={() => void saveAi()}>保存</button></div>{aiNotice && <p className={styles.hint} role="status">{aiNotice}</p>}</section>
+    <EmbeddingSettings/>
   </div></main>;
 }

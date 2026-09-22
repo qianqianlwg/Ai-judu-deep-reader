@@ -1,4 +1,5 @@
 "use client";
+import {bindSettledSelection} from "@/lib/settled-selection";
 import{useCallback,useEffect,useMemo,useRef,useState}from'react';
 import{loadPdfRuntime,openPdf,indexPdfPages,type PdfRuntime}from'@/lib/pdf-loader';
 import{mapPdfDocument,readLimitedPdfSelection,pdfRangesForSource,type PdfDocumentIndex,type PdfDomPage}from'@/lib/pdf-source-map';
@@ -89,10 +90,9 @@ export function PdfReader(props:EpubReaderProps){
    if(!snapshot){last='';setSelection(null);latest.current.onClearSelection?.();latest.current.onNotice('该选区没有完整可核验的PDF文字来源；扫描图片需OCR后才能文字句读。');return;}
    const identity=JSON.stringify(snapshot);if(identity===last)return;last=identity;setSelection(snapshot);const rect=selected.getRangeAt(0).getBoundingClientRect();latest.current.onSelect(snapshot,{left:rect.left+rect.width/2,top:Math.max(58,rect.top-8)});
   };
-  const start=(event:PointerEvent)=>{if((event.target as Element|null)?.closest?.('.annotationLayer,button'))return;last='';setSelection(null);latest.current.onStartSelection?.();};
+  const start=()=>{last='';setSelection(null);latest.current.onStartSelection?.();};
   const keyed=()=>{const selected=document.getSelection();if(selected?.isCollapsed&&selected.anchorNode&&root.contains(selected.anchorNode)){last='';setSelection(null);latest.current.onClearSelection?.();return;}changed();};
-  document.addEventListener('selectionchange',changed);root.addEventListener('pointerdown',start);root.addEventListener('mouseup',changed);root.addEventListener('keyup',keyed);
-  return()=>{document.removeEventListener('selectionchange',changed);root.removeEventListener('pointerdown',start);root.removeEventListener('mouseup',changed);root.removeEventListener('keyup',keyed);};
+  return bindSettledSelection(root,{onCommit:keyed,onStart:start,onCancel:()=>{last='';setSelection(null);latest.current.onClearSelection?.();}});
  },[session]);
  useEffect(()=>{
   const view=window as Window&{CSS?:{highlights?:{set(name:string,value:unknown):void;delete(name:string):boolean}};Highlight?:new(...ranges:Range[])=>unknown};const registry=view.CSS?.highlights,H=view.Highlight;if(!registry||!H)return;

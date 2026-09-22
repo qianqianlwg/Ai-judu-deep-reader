@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
+import {useShelfHistoryRecorder} from "@/hooks/use-shelf-history-recorder";
+import { useBookshelfAssistant } from "@/hooks/use-bookshelf-assistant";
 import { ReaderModeSwitch, useReaderMode } from "@/components/reader-mode";
 import "@/components/epub-reader.css";
 import { ChatPanelResizer } from "@/components/chat-panel-resizer";
@@ -10,9 +12,13 @@ import { AnalysisPanel } from "@/components/analysis-panel";
 import { type Analysis, type ChatMessage, type MessageAnchor, type TokenUsage } from "@/lib/chat-stream";
 import { createReadingRequest, restoreReadingRequest, withRetryContextSettings, beginReadingRequest, applyReadingRequest, executeReadingRequest, prepareReadingEdit, type ReadingRequestState } from "@/lib/reading-request";
 import { WorkspaceNav, type WorkspaceView } from "@/components/workspace-nav";
+import {BOOK_RESUME_CHANGED} from "@/lib/book-resume";
+import {importFileSizeError,IMPORT_TOO_LARGE} from "@/lib/import-limits";
 import { Bookshelf } from "@/components/bookshelf";
 import { useWorkspaceLibrary } from "@/components/workspace-library";
 import { bookEditionUrl, readBookResponse, rememberedEdition, type LibraryBookContent as Book } from "@/lib/library";
+import {BookSearchPanel,type SearchResult,type SearchStatus} from "@/components/book-search-panel";
+import {useNavCollapse} from "@/hooks/use-nav-collapse";
 import { useWorkspaceModel } from "@/components/workspace-model";
 import { useWorkspaceSelection } from "@/components/workspace-selection";
 import { restoreWorkspaceReadingAnchor, selectionFromSearchResult } from "@/components/workspace-reading-location";
@@ -35,17 +41,6 @@ import { countReadingCharacters, readingSelectionError } from "@/lib/reading-det
 import { SelectionActions } from "@/components/selection-actions";
 import { DEFAULT_READING_APPEARANCE, applyReadingAppearanceToRoot, getReadingAppearanceVariables, getReadingTextStyle, readReadingAppearance, writeReadingAppearance, type ReadingAppearancePreferences } from "@/lib/reading-appearance";
 
-type SearchResult = {
-  paragraphId: string;
-  chapterId: string;
-  chapterTitle: string;
-  excerpt: string;
-  matchedText?: string;
-  startOffset?: number;
-  sourceId?: string;
-  retrieval?: { backend: "postgres" | "sqlite"; keywordScore: number; vectorSimilarity: number; rrfScore: number; vectorUsed: boolean };
-};
-type SearchStatus = { backend: "postgres" | "sqlite"; editionId: string; paragraphCount: number; indexedCount: number; vectorIndexed: boolean; note: string };
 type RestoredMessage = { id: string; role: "user" | "assistant"; content: string; structuredOutput?: string | null; status?: "streaming" | "completed" | "error" };
 
 import {useImageChapters} from "@/hooks/use-image-chapters";
@@ -56,17 +51,19 @@ function flatten(book: Book): PaginatedParagraph[] {
   return book.chapters.flatMap((chapter) => chapter.paragraphs.map((paragraph) => ({ ...paragraph, chapterId: chapter.id, chapterTitle: chapter.title })));
 }
 
-const maxChatWidth = (width: number) => Math.min(760, width - (width > 1180 ? 220 : width > 960 ? 190 : 0) - 360);
+const maxChatWidth = (width: number,collapsed=false) => Math.min(760, width - (width>960 && collapsed?44:width > 1180 ? 220 : width > 960 ? 190 : 0) - 360);
 
 export default function Home() {
   const layoutRef=useRef<HTMLElement>(null);
   const [chatWidth,setChatWidth]=useState(390);
   const model = useWorkspaceModel();
+  const navigation=useNavCollapse();
+  const bookshelfAssistant = useBookshelfAssistant();
   const [book, setBook] = useState<Book>(emptyBook);
   const readerMode = useReaderMode(book);
   const imageChapters=useImageChapters(book);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("reader");
-  const { books, setBooks, loading: libraryLoading, restoring: restoringBook, error: libraryError, refresh: refreshLibrary } = useWorkspaceLibrary((bookId, editionId) => loadBook(bookId, editionId, true), () => setWorkspaceView("bookshelf"));
+  const { books, setBooks, loading: libraryLoading, restoring: restoringBook, error: libraryError, refresh: refreshLibrary } = useWorkspaceLibrary((bookId, editionId, fromBookLink) => loadBook(bookId, editionId, !fromBookLink), () => setWorkspaceView("bookshelf"));
   const [importing, setImporting] = useState(false);
   const [mobileTocOpen, setMobileTocOpen] = useState(false);
   const [mobileAnalysisOpen, setMobileAnalysisOpen] = useState(false);
@@ -86,6 +83,8 @@ export default function Home() {
   const theme = readingAppearance.theme;
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchRetrieval,setSearchRetrieval]=useState("keyword");
+  const [indexRevision,setIndexRevision]=useState(0);
   const [searchStatus, setSearchStatus] = useState<SearchStatus | null>(null);
   const [threadId, setThreadId] = useState("");
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -111,7 +110,8 @@ export default function Home() {
   const sourceParagraphs = useMemo(() => flatten(book), [book]);
   const readingTextStyle = useMemo(() => getReadingTextStyle(readingAppearance), [readingAppearance]);
   const { pages, pageIndex: safePageIndex, currentPage, setPageIndex, setAnchor: setReadingAnchor, anchor: readingAnchor, busy: paginating, error: paginationError, renderedScale } = useReaderPages(sourceParagraphs, readingRef, 1, readingTextStyle as Readonly<Record<string, string | number>>);
-  const shelfBooks = books.length ? books : book.editionId ? [book] : [];
+  // WHY：服务端书架列表是可见性的唯一来源，不能把已下架的当前书作为空列表兜底复活。
+  const shelfBooks = books;
   const { visibleConcepts, renderedAnnotations, saveAnnotation, openAnnotation, saveManualMark, resetAnnotations } = useReadingAnnotations({
     bookId: book.id, editionId: book.editionId, sourceParagraphs, bookConcepts, selectionAnchor, setNotice,
     setWorkspaceView, setSelected, setSelectionAnchor, setReadingAnchor, setActiveSource, setSelectionMenu, openConversation, openSourceConversation:(id,messageId)=>openConversation(id,messageId,true),
@@ -134,9 +134,8 @@ export default function Home() {
   // WHY：门户弹层与 body 不在 app-shell 内；等偏好读取完成后同步根主题，避免只给局部面板换色。
   useEffect(() => { if (appearanceReady) applyReadingAppearanceToRoot(document.documentElement, readingAppearance); }, [appearanceReady, readingAppearance]);
 
-  useEffect(() => {
-    if (book.editionId && !bookLoading && !restoringBook && readingAnchor) localStorage.setItem("judu:position:" + book.id + ":" + book.editionId, JSON.stringify(readingAnchor));
-  }, [book.id, book.editionId, bookLoading, restoringBook, readingAnchor]);
+  useShelfHistoryRecorder({bookId:book.id,editionId:book.editionId,active:!bookLoading&&!restoringBook&&workspaceView==="reader",anchor:readingAnchor,location:sourceParagraphs.find(item=>item.id===readingAnchor?.paragraphId)?.chapterTitle || "",onError:setNotice});
+
   useEffect(() => {
     if (!restoringBook) localStorage.setItem("judu:workspace-view", workspaceView);
   }, [workspaceView, restoringBook]);
@@ -145,7 +144,7 @@ export default function Home() {
     const editionId = book.editionId;
     if (!editionId) return;
     let disposed = false;
-    void fetch("/api/search/status?editionId=" + encodeURIComponent(editionId))
+    void fetch("/api/search/status?engine=local-vector&editionId=" + encodeURIComponent(editionId))
       .then(async (response) => {
         if (!response.ok) throw new Error("读取检索状态失败");
         return response.json() as Promise<SearchStatus>;
@@ -153,7 +152,7 @@ export default function Home() {
       .then((status) => { if (!disposed) setSearchStatus(status); })
       .catch((statusError: unknown) => { console.error("读取检索状态失败", statusError); if (!disposed) setSearchStatus(null); });
     return () => { disposed = true; };
-  }, [book.editionId]);
+  }, [book.editionId,indexRevision]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -269,7 +268,7 @@ export default function Home() {
       setConversationLoading(Boolean(savedThread));
       setThreadId(savedThread); setConversationRevision(value=>value+1);
       localStorage.setItem("judu:active-book", loaded.id);
-      if (loaded.editionId) localStorage.setItem("judu:edition:" + loaded.id, loaded.editionId);
+      if (loaded.editionId) { localStorage.setItem("judu:edition:" + loaded.id, loaded.editionId); window.dispatchEvent(new Event(BOOK_RESUME_CHANGED)); }
       if (restoreView) {
         const savedView = localStorage.getItem("judu:workspace-view");
         if (savedView === "bookshelf" || savedView === "knowledge") setWorkspaceView(savedView);
@@ -284,7 +283,7 @@ export default function Home() {
     if (!searchQuery.trim()) return;
     const currentBookSequence = bookLoadSequence.current;
     try {
-      const response = await fetch(`/api/search?editionId=${encodeURIComponent(book.editionId ?? "demo")}&q=${encodeURIComponent(searchQuery)}&context=1`);
+      const response = await fetch(`/api/search?editionId=${encodeURIComponent(book.editionId ?? "demo")}&q=${encodeURIComponent(searchQuery)}&context=1&retrieval=${searchRetrieval}`);
       if (!response.ok) throw new Error("搜索失败");
       const data = await response.json() as { results?: SearchResult[] };
       if (currentBookSequence !== bookLoadSequence.current) return;
@@ -309,6 +308,7 @@ export default function Home() {
     const input = event.currentTarget;
     const file = input.files?.[0];
     if (!file) return;
+    const sizeError=importFileSizeError(file.size);if(sizeError){setNotice(sizeError);input.value="";return;}
     if (activeRequestRef.current || conversationPendingRef.current || importing) { setNotice("请等待当前任务完成后再导入书籍。"); input.value = ""; return; }
     setImporting(true); setNotice("正在解析书籍…");
     try {
@@ -318,7 +318,7 @@ export default function Home() {
       const data = contentType.includes("application/json")
         ? await response.json() as Book & { error?: string }
         : undefined;
-      if (!response.ok) throw new Error(data?.error ?? ("导入失败（HTTP " + response.status + "）"));
+      if (!response.ok) throw new Error(data?.error ?? (response.status===413?IMPORT_TOO_LARGE:"导入失败（HTTP " + response.status + "）"));
       if (!data || !Array.isArray(data.chapters)) throw new Error("导入结果无效，请重试");
       const imported = readBookResponse(data, data.id, data.editionId);
       setBooks((previous) => [imported, ...previous.filter((item) => item.id !== imported.id)]);
@@ -370,7 +370,7 @@ export default function Home() {
     const detail = localStorage.getItem("judu:readingDetail");
     const savedOutput = Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096);
     const maxOutputTokens = Number.isSafeInteger(savedOutput) && savedOutput >= 1024 && savedOutput <= 16384 ? savedOutput : 4096;
-    const request = createReadingRequest({ mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, selectionAnchors:selectionAnchor ? selectionAnchors(selectionAnchor) : undefined, context:selectionAnchor ? selectionParts(selectionAnchor).map(part=>sourceParagraphs.find(p=>p.id===part.paragraphId)?.text??"").join("\n\n") : paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), detail: detail === "concise" || detail === "detailed" ? detail : "standard", contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
+    const request = createReadingRequest({ model:model.selectedModel, mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, selectionAnchors:selectionAnchor ? selectionAnchors(selectionAnchor) : undefined, context:selectionAnchor ? selectionParts(selectionAnchor).map(part=>sourceParagraphs.find(p=>p.id===part.paragraphId)?.text??"").join("\n\n") : paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), detail: detail === "concise" || detail === "detailed" ? detail : "standard", contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
     await runRequest(request);
   }
 
@@ -456,18 +456,17 @@ export default function Home() {
     const target = pages.findIndex(page => page.paragraphs.some(paragraph => paragraph.chapterId === chapterId));
     if (target >= 0) setPageIndex(target);
   }
+  const assistantMobileOpen=workspaceView==="bookshelf" ? bookshelfAssistant.open : mobileAnalysisOpen;
+  const toggleMobileAssistant=()=>workspaceView==="bookshelf" ? bookshelfAssistant.toggle() : setMobileAnalysisOpen(value=>!value);
   return <main className={`app-shell workspace-shell theme-${theme}`} style={getReadingAppearanceVariables(readingAppearance) as CSSProperties}>
-    <header className="workspace-mobilebar"><button type="button" aria-label="打开导航" aria-expanded={mobileTocOpen} onClick={() => setMobileTocOpen(value => !value)}>☰</button><strong>句读</strong><button type="button" aria-label={mobileAnalysisOpen ? "收起对话" : "打开对话"} aria-expanded={mobileAnalysisOpen} onClick={() => setMobileAnalysisOpen(value => !value)}>对话</button></header>
+    <header className="workspace-mobilebar"><button type="button" aria-label="打开导航" aria-expanded={mobileTocOpen} onClick={() => setMobileTocOpen(value => !value)}>☰</button><strong>句读</strong><button type="button" aria-label={assistantMobileOpen ? "收起对话" : "打开对话"} aria-expanded={assistantMobileOpen} onClick={toggleMobileAssistant}>对话</button></header>
     {notice && <div className="upload-toast" role="status"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={() => setNotice("")}>×</button></div>}
     <input ref={importRef} id="book-file" hidden type="file" accept=".mobi,.epub,.pdf,.fb2,.fbz,.fb2.zip,.cbz,.txt,.md" onChange={event => { void importBook(event); }} />
-    <section className="reader-layout" ref={layoutRef} style={{"--chat-panel-width":`${chatWidth}px`} as CSSProperties}>
-      <WorkspaceNav view={workspaceView} onNavigate={navigateWorkspace} books={shelfBooks} currentBookId={book.id} currentEditionId={book.editionId} chapters={book.chapters} currentChapterId={imageChapters.chapter?.id??currentPage?.chapterId}
+    {navigation.error && <p role="status">{navigation.error}</p>}
+    <section data-bookshelf-assistant-hidden={workspaceView === "bookshelf" && !bookshelfAssistant.open} data-nav-collapsed={navigation.collapsed} className="reader-layout" ref={layoutRef} style={{"--chat-panel-width":`${chatWidth}px`} as CSSProperties}>
+      <WorkspaceNav collapsed={navigation.collapsed} onToggleCollapse={navigation.toggle} view={workspaceView} onNavigate={navigateWorkspace} books={shelfBooks} currentBookId={book.id} currentEditionId={book.editionId} chapters={book.chapters} currentChapterId={imageChapters.chapter?.id??currentPage?.chapterId}
         busy={loading || conversationLoading || importing} importing={importing} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onOpenChapter={openChapter} onImport={requestImport} mobileOpen={mobileTocOpen} onDismiss={() => setMobileTocOpen(false)}>
-        <details className="workspace-book-search"><summary>书内搜索</summary>
-          <form onSubmit={event => { event.preventDefault(); void searchBook(); }}><label className="workspace-sr-only" htmlFor="workspace-book-query">搜索当前书籍原文</label><input id="workspace-book-query" type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="搜索本书" /><button type="submit">搜索</button></form>
-          {searchStatus && <div className="search-status" data-testid="search-status"><span className={searchStatus.vectorIndexed ? "index-ready" : "index-fallback"}>{searchStatus.vectorIndexed ? "向量检索可用" : "关键词检索"} · {searchStatus.indexedCount}/{searchStatus.paragraphCount} 段</span><small>{searchStatus.note}</small></div>}
-          {searchResults.length > 0 && <div className="search-results">{searchResults.map(result => <button type="button" key={result.paragraphId} onClick={() => jumpToResult(result)}>{result.chapterTitle}<span>{result.excerpt}</span><small>{result.retrieval?.vectorUsed ? "关键词 + 向量 · " : "关键词 · "}点击跳回原文</small></button>)}</div>}
-        </details>
+        <BookSearchPanel editionId={book.editionId} query={searchQuery} onQuery={setSearchQuery} retrieval={searchRetrieval} onRetrieval={setSearchRetrieval} status={searchStatus} results={searchResults} onSearch={()=>void searchBook()} onReady={()=>setIndexRevision(value=>value+1)} onResult={jumpToResult}/>
       </WorkspaceNav>
       <div className="workspace-main" data-workspace-view={workspaceView}>
       <article data-original-active={readerMode.original} className="reading-pane" data-workspace-hidden={workspaceView !== "reader"} aria-hidden={workspaceView !== "reader"} inert={workspaceView !== "reader"} aria-busy={bookLoading || restoringBook || paginating}>
@@ -486,15 +485,15 @@ export default function Home() {
         <div className="selection-bar"><div className="reading-settings" aria-label="阅读设置"><span>Aa</span><button aria-label="缩小字号" onClick={() => setReaderScale(-0.05)}>−</button><button aria-label="放大字号" onClick={() => setReaderScale(0.05)}>+</button></div><div className="selection-actions">{selected ? <span>已选 {countReadingCharacters(selected)} / 1000 字</span> : <span>{imageChapters.imageOnly?"图片页无文字来源，OCR尚未启用":"选择一句或一段原文开始句读"}</span>}</div></div>
         <div className="page-nav" style={readerMode.original ? {display:"none"} : undefined}><button disabled={paginating || safePageIndex === 0} onClick={() => setPageIndex(safePageIndex - 1)}>上一页</button><span>{pages.length ? safePageIndex + 1 : 0} / {pages.length}</span><button disabled={paginating || safePageIndex >= pages.length - 1} onClick={() => setPageIndex(safePageIndex + 1)}>下一页</button></div>
       </article>
-        {workspaceView === "bookshelf" && <Bookshelf books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={loading || conversationLoading || importing} error={libraryError} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
+        {workspaceView === "bookshelf" && <Bookshelf assistantOpen={bookshelfAssistant.open} onToggleAssistant={bookshelfAssistant.toggle} preferenceError={bookshelfAssistant.error} books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={loading || conversationLoading || importing} error={libraryError} onBookArchived={id=>{setBooks(items=>items.filter(item=>item.id!==id));setNotice("书籍已下架，文件和阅读记录已保留，可在已下架书籍中恢复。");}} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
         {workspaceView === "knowledge" && <KnowledgeWorkspace editionId={book.editionId ?? null} bookTitle={book.title + (book.edition ? " · " + book.edition.fileName : "")} refreshToken={knowledgeRevision} onRefreshRequested={() => setKnowledgeRevision(value => value + 1)} onReturnReading={() => navigateWorkspace("reader")} onOpenSource={openKnowledgeSource} onOpenMark={openKnowledgeSource} onOpenConversation={openConversation} />}
       </div>
-      <ChatPanelResizer containerRef={layoutRef} getMaxWidth={maxChatWidth} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
-      <AnalysisPanel id="chat-panel" className={mobileAnalysisOpen ? "analysis-panel mobile-open" : "analysis-panel"} selected={selected} analysis={analysis} loading={loading} error={error} messages={messages}
-        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook || importing} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.modelName}
+      <ChatPanelResizer containerRef={layoutRef} getMaxWidth={width=>maxChatWidth(width,navigation.collapsed)} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
+      <AnalysisPanel id="chat-panel" className={assistantMobileOpen ? "analysis-panel mobile-open" : "analysis-panel"} selected={selected} analysis={analysis} loading={loading} error={error} messages={messages}
+        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook || importing} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel}
         onNewConversation={book.editionId ? newConversation : undefined} onRenameConversation={renameConversation}
         onSelectConversation={id => { if (activeRequestRef.current || conversationPendingRef.current) return; if (!conversations.some(item => item.id === id && item.editionId === book.editionId)) throw new Error("这条会话不属于当前书籍版本"); setSelected(""); setSelectionAnchor(null); selectionExtensionRef.current=null; openConversation(id, null); }}
-        onClose={() => setMobileAnalysisOpen(false)} onBack={() => navigateWorkspace("reader")} onSend={question => void ask(question, "chat")} onEditMessage={(id, prompt) => void editMessage(id, prompt)} onRetry={() => void retryRequest()} onStop={() => requestAbortRef.current?.abort()} onOpenSource={openKnowledgeSource} onOpenCitation={openCitation} />
+        onClose={()=>{if(workspaceView==="bookshelf"&&bookshelfAssistant.open)bookshelfAssistant.toggle();else setMobileAnalysisOpen(false);}} onBack={() => navigateWorkspace("reader")} onSend={question => void ask(question, "chat")} onEditMessage={(id, prompt) => void editMessage(id, prompt)} onRetry={() => void retryRequest()} onStop={() => requestAbortRef.current?.abort()} onOpenSource={openKnowledgeSource} onOpenCitation={openCitation} />
     </section>
   </main>;
 }

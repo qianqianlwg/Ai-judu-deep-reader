@@ -15,7 +15,7 @@ const loadNodeModule = (specifier: string): unknown => Reflect.apply(nodeRequire
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 type PdfJsWorkerGlobal = { WorkerMessageHandler: unknown };
 let pdfjs: PdfJsModule | undefined;
-function loadPdfJs(): PdfJsModule {
+export function loadPdfJs(): PdfJsModule {
   if (pdfjs) return pdfjs;
   // WHY：只在 PDF 提取时加载 Node fake worker；PDF 引导失败不能阻断 EPUB/TXT/MD 的模块求值。
   const worker = loadNodeModule(["pdfjs-dist", "legacy", "build", "pdf.worker.mjs"].join("/"));

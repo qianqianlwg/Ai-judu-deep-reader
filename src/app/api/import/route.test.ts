@@ -157,3 +157,5 @@ it("精简导入不发送正文 base64 副本，数据库哈希和原件保持�
  expect(state.db!.prepare('SELECT text_hash FROM paragraphs WHERE id = ?').get(data.chapters[0].paragraphs[0].id)).toEqual({text_hash:hashText('加速不改变原文。')});
  expect(Buffer.from(await (await getOriginal(data.id,data.editionId)).arrayBuffer()).toString()).toBe('加速不改变原文。');
 });
+
+it('超限请求明确返回413与300MB上限，不生成书籍或文件',async()=>{const response=await POST(new NextRequest('http://localhost/api/import',{method:'POST',headers:{'content-type':'multipart/form-data; boundary=x','content-length':String(302*1024*1024)},body:'x'}));expect(response.status).toBe(413);expect(await response.json()).toMatchObject({code:'upload_too_large',error:expect.stringContaining('300 MB')});await expectEmpty();});

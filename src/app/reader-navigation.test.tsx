@@ -148,6 +148,7 @@ describe("多段选文真实页面装配",()=>{
    const first=element('[data-paragraph-id="'+firstId+'"] [data-reader-text]').firstChild!,last=element('[data-paragraph-id="'+lastId+'"] [data-reader-text]').firstChild!;
    if(pointer)first.parentElement!.dispatchEvent(new Event('pointerdown',{bubbles:true}));
    const range=document.createRange();range.setStart(first,start);range.setEnd(last,end);const selection=document.getSelection()!;selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new Event('selectionchange'));
+   if(pointer)document.dispatchEvent(new MouseEvent('pointerup',{button:0}));
   });await settle();
  }
  it("跨段选文提交全部片段、完整预览和第一段导航位置",async()=>{

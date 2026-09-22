@@ -1,10 +1,11 @@
+import {ensureBookShelf,ACTIVE_BOOKS_FILTER} from "@/lib/book-shelf";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { EDITION_COLUMNS, publicEdition, type EditionRow } from "./edition-metadata";
 export const runtime = "nodejs";
 export async function GET() {
-  const db = getDb();
-  const books = db.prepare("SELECT id, title, author FROM books ORDER BY created_at DESC, id").all() as { id: string; title: string; author: string }[];
+  const db = getDb(); ensureBookShelf(db);
+  const books = db.prepare(`SELECT id, title, author FROM books WHERE ${ACTIVE_BOOKS_FILTER} ORDER BY created_at DESC, id`).all() as { id: string; title: string; author: string }[];
   const result = books.map((book) => {
     const row = db.prepare(`SELECT ${EDITION_COLUMNS} FROM editions WHERE book_id = ? ORDER BY created_at DESC, id LIMIT 1`).get(book.id) as EditionRow | undefined;
     const edition = row ? publicEdition(row) : undefined;

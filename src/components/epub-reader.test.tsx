@@ -461,3 +461,5 @@ it("真实有效CFI正文偏移通过预检，仍使用原位置而不回退",as
  expect(view.renderer.goTo).not.toHaveBeenCalled();expect(localStorage.getItem(originalPositionKey("e"))).toBe(stored);
  expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(host.querySelector('[role="alert"]')).toBeNull();
 });
+
+it("拖选过程中即使停顿也不弹菜单，iframe外释放后提交",async()=>{await render();Object.defineProperty(doc.createRange().constructor.prototype,'getBoundingClientRect',{configurable:true,value:()=>({left:10,top:60,width:30})});await act(async()=>{doc.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0}));const range=doc.createRange();range.selectNodeContents(doc.querySelector('p')!);doc.getSelection()!.removeAllRanges();doc.getSelection()!.addRange(range);doc.dispatchEvent(new Event('selectionchange'));await new Promise(resolve=>setTimeout(resolve,150));});expect(props.onSelect).not.toHaveBeenCalled();await act(async()=>document.dispatchEvent(new MouseEvent('pointerup',{button:0})));expect(props.onSelect).toHaveBeenCalledTimes(1);});

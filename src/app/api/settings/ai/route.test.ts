@@ -37,7 +37,7 @@ describe("AI settings · 保存与公开配置", () => {
     const response = await GET();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ provider: "openai", baseUrl: "https://api.openai.com/v1",
-      model: "gpt-4o-mini", hasApiKey: false, maskedApiKey: "" });
+      model: "gpt-4o-mini", models:["gpt-4o-mini"], hasApiKey: false, maskedApiKey: "" });
     expect(fetcher).not.toHaveBeenCalled();
   });
   it("GET 仅返回掩码和公开字段，不返回完整 Key", async () => {
@@ -158,3 +158,5 @@ describe("AI settings · mock 连接测试与密钥保护", () => {
     expect(JSON.stringify(value)).not.toContain(key);
   });
 });
+
+it("多模型列表保存和读取，旧客户端保存时不丢弃列表",async()=>{seed();const response=await PUT(request('PUT',{model:'stored-model',models:['stored-model','second-model']}));expect(await response.json()).toMatchObject({models:['stored-model','second-model']});await PUT(request('PUT',{model:'stored-model'}));expect(await (await GET()).json()).toMatchObject({models:['stored-model','second-model']});});

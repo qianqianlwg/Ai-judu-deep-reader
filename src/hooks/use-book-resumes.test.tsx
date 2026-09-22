@@ -1,0 +1,8 @@
+// @vitest-environment jsdom
+import {act} from 'react';import {createRoot,type Root} from 'react-dom/client';import {beforeEach,afterEach,it,expect,vi} from 'vitest';import {useBookResumes} from './use-book-resumes';import {BOOK_RESUME_CHANGED} from '@/lib/book-resume';
+const books=[{id:'a',title:'甲书',author:''},{id:'b',title:'乙书',author:''}];
+let host:HTMLDivElement,root:Root;
+function View(){const state=useBookResumes(books);return <output>{state.error||JSON.stringify(state.editions)}</output>;}
+beforeEach(()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);localStorage.clear();host=document.createElement('div');document.body.append(host);root=createRoot(host);});afterEach(()=>{act(()=>root.unmount());host.remove();localStorage.clear();vi.unstubAllGlobals();vi.restoreAllMocks();});
+it('挂载读取所有书记录，同页新阅读和跨标签变更分别同步',async()=>{localStorage.setItem('judu:edition:a','a-old');await act(async()=>root.render(<View/>));expect(host.textContent).toBe(JSON.stringify({a:'a-old'}));await act(async()=>{localStorage.setItem('judu:edition:b','b-v1');window.dispatchEvent(new Event(BOOK_RESUME_CHANGED));});expect(JSON.parse(host.textContent!)).toEqual({a:'a-old',b:'b-v1'});await act(async()=>{localStorage.setItem('judu:edition:a','a-new');window.dispatchEvent(new StorageEvent('storage',{key:'judu:edition:a'}));});expect(JSON.parse(host.textContent!)).toEqual({a:'a-new',b:'b-v1'});});
+it('浏览器存储受限时显示错误而不是覆盖记录',async()=>{vi.spyOn(Storage.prototype,'getItem').mockImplementation(()=>{throw new Error('denied');});vi.spyOn(console,'warn').mockImplementation(()=>{});await act(async()=>root.render(<View/>));expect(host.textContent).toContain('无法读取阅读记录');expect(console.warn).toHaveBeenCalled();});

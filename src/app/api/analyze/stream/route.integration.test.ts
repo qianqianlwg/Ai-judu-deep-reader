@@ -420,3 +420,6 @@ describe("完整SDK的旧工具迟到与新attempt交错",()=>{
 });
 
 it.each([{threadId:"thread-1\n"},{clientAssistantMessageId:"assistant-1\n"},{editionId:"edition-1\n"}])("流式入口也拒绝尾换行ID，不再制造不可打开的新会话 %j",async input=>{expect((await call(input)).status).toBe(400);expect(count()).toBe(0);expect(fetcher).not.toHaveBeenCalled();});
+
+it("请求模型来自允许列表，并真实传入上游且落库",async()=>{fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('second-model',0)");const result=await call({model:'second-model'});expect(result.status).toBe(200);expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).model).toBe('second-model');expect(fixture.db!.prepare("SELECT model_name FROM chat_messages WHERE id='assistant-1'").get()).toMatchObject({model_name:'second-model'});});
+it("未知模型在请求上游和保存消息之前拒绝",async()=>{const result=await call({model:'not-configured'});expect(result.status).toBe(400);expect(fetcher).not.toHaveBeenCalled();expect(count()).toBe(0);});

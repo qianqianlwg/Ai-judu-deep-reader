@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import {vectorIndexStatus} from "@/lib/vector-index";
+import {readEmbeddingConfig} from "@/lib/embedding-store";
 import { getDb } from "@/lib/db";
 import { getPostgresSearchIndexStatus } from "@/lib/postgres-search-client";
 import { buildSearchIndexStatus } from "@/lib/search-status";
@@ -6,6 +8,7 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const editionId = request.nextUrl.searchParams.get("editionId")?.trim() ?? "";
   if (!editionId) return NextResponse.json({ error: "缺少 editionId" }, { status: 400 });
+  if (request.nextUrl.searchParams.get("engine")==="local-vector") {const db=getDb();return NextResponse.json({...vectorIndexStatus(db,editionId),configured:Boolean(readEmbeddingConfig(db).apiKey)});}
   if (process.env.DATABASE_URL) {
     try {
       const result = await getPostgresSearchIndexStatus(editionId);

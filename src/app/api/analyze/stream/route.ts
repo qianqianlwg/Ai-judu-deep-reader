@@ -12,6 +12,7 @@ import { createBookSources } from "@/lib/agent/book-sources";
 import { readingAgentFailure, runReadingAgent } from "@/lib/agent/runtime";
 import type { SavedReadingAnalysis } from "@/lib/agent/tools";
 import { isTokenUsage, type TokenUsage } from "@/lib/token-usage";
+import {readModelChoices,selectRequestModel} from "@/lib/model-choices";
 import type { ProviderConfig, ProviderMessage } from "@/lib/ai-provider";
 import { isAnalysis, isRecord, type Analysis } from "@/lib/chat-stream";
 import { captureReadingContext, readReadingContextSnapshot, readRetryContextSettings, type RetryContextSettings, type ReadingAnchor, type ReadingContextSnapshot } from "@/lib/reading-request";
@@ -25,6 +26,7 @@ import { verifySelectionAnchors } from "@/lib/reading-anchor-validation";
 export const runtime = "nodejs";
 type Db = ReturnType<typeof getDb>;
 type Input = {
+  model?: string;
   mode: "chat" | "analyze"; detail: ReadingDetail; question: string; selectedText: string;
   editionId: string; bookId: string | null; chapterId: string | null; paragraphId: string | null;
   selectionStart: number | null; selectionEnd: number | null; selectionAnchors?: ReadingAnchorPart[];
@@ -148,6 +150,7 @@ export async function POST(request: NextRequest) {
     if (userId === assistantId) throw new RequestError("用户和助手消息 ID 不能相同", 400, "invalid_id");
     const mode = body.mode === "chat" ? "chat" : "analyze";
     const input: Input = { mode, detail: normalizeReadingDetail(body.detail), question: typeof body.question === "string" ? body.question : mode === "analyze" ? "请句读这一段" : "", selectedText: typeof body.selectedText === "string" ? body.selectedText : "", editionId: nullableString(body.editionId) ?? "demo", bookId: nullableString(body.bookId), chapterId: nullableString(body.chapterId), paragraphId: nullableString(body.paragraphId), selectionStart: typeof body.selectionStart === "number" ? body.selectionStart : null, selectionEnd: typeof body.selectionEnd === "number" ? body.selectionEnd : null };
+    if(body.model !== undefined) { if(typeof body.model!=="string")throw new RequestError("模型名称无效",400,"invalid_model");input.model=body.model; }
     if(body.selectionAnchors !== undefined) { const parts=readAnchorParts(body.selectionAnchors); if(!parts)throw new RequestError("选文来源格式无效",400,"invalid_selection"); input.selectionAnchors=parts; }
     if (!isConversationId(input.editionId)) throw new RequestError("书籍版本 ID 不合法", 400, "invalid_id");
     if (!input.question.trim() || (mode === "analyze" && !input.selectedText.trim())) throw new RequestError("问题或选中文本不能为空", 400, "invalid_input");
@@ -157,7 +160,8 @@ export async function POST(request: NextRequest) {
     db = getDb();
     if(input.selectionAnchors && !verifiedAnchor(db,input)) throw new RequestError("选文来源与当前版本不一致，或选区不是连续正文，请重新划选",409,"anchor_mismatch");
     meta.contextSnapshot = { ...meta.contextSnapshot, chatHistory: attachSavedToolContext(db, threadId, meta.contextSnapshot.chatHistory) };
-    const config = readConfig(db);
+    let config=readConfig(db);
+    try {config=selectRequestModel(config,body.model,body.model===undefined?[]:readModelChoices(db,config.model));}catch(error:unknown){throw new RequestError(error instanceof Error?error.message:"模型未配置",400,"invalid_model");}
     let retrySettings: RetryContextSettings | undefined;
     if (body.retryContextSettings !== undefined) { try { retrySettings = readRetryContextSettings(body.retryContextSettings); } catch { throw new RequestError("重试预算不合法", 400, "invalid_budget"); } }
     const replay = reserveMessages(db, threadId, meta, config.model, retrySettings);

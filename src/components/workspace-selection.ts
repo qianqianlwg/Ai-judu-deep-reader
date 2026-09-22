@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
+import { bindSettledSelection } from "@/lib/settled-selection";
 import { readReadingSelection, type ReadingSelection } from "@/lib/reader-selection";
 
 export function useWorkspaceSelection(viewport: RefObject<HTMLElement | null>, onSelection: (selection: ReadingSelection) => void, enabled = true, onLimit?: () => void, onInvalid?: () => void, onStart?: () => void): void {
@@ -25,9 +26,7 @@ export function useWorkspaceSelection(viewport: RefObject<HTMLElement | null>, o
       // WHY：先捕获 UTF-16 选文，再合并帧更新；不能到下一帧才读已被按钮点击折叠的 Range。
       frame = requestAnimationFrame(() => { frame = undefined; callback.current(snapshot); });
     };
-    const started = (event: Event) => {
-      const target=event.target;
-      if(target instanceof Element && target.closest("[data-reader-decoration],button,input,textarea,[role='dialog']"))return;
+    const started = () => {
       lastKey=""; if(frame!==undefined){cancelAnimationFrame(frame);frame=undefined;} (start.current??invalid.current)?.();
     };
     const keyed = () => {
@@ -35,12 +34,7 @@ export function useWorkspaceSelection(viewport: RefObject<HTMLElement | null>, o
       if(selection?.isCollapsed && selection.anchorNode && element.contains(selection.anchorNode)){lastKey="";invalid.current?.();return;}
       changed();
     };
-    document.addEventListener("selectionchange", changed);
-    element.addEventListener("pointerdown",started);
-    element.addEventListener("keyup", keyed);
-    return () => {
-      document.removeEventListener("selectionchange", changed); element.removeEventListener("keyup", keyed); element.removeEventListener("pointerdown",started);
-      if (frame !== undefined) cancelAnimationFrame(frame);
-    };
+    const cleanup=bindSettledSelection(element,{onCommit:keyed,onStart:started,onCancel:()=>{if(frame!==undefined)cancelAnimationFrame(frame);lastKey="";invalid.current?.();}});
+    return () => { cleanup(); if(frame!==undefined)cancelAnimationFrame(frame); };
   }, [enabled, viewport]);
 }

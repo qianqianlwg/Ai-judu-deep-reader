@@ -1,3 +1,5 @@
+import {MAX_IMPORT_FILE_BYTES,IMPORT_TOO_LARGE} from "@/lib/import-limits";
+import {readImportForm,ImportFormError} from "@/lib/import-form";
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -10,7 +12,6 @@ import { documentAdapterFor, type DocumentAdapter, type ExtractedDocument } from
 import { getJuduDataDir, removeStoredOriginalFile, storeOriginalFile } from "@/lib/data-storage";
 
 export const runtime = "nodejs";
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const headers = { "Cache-Control": "no-store" };
 class ImportError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -44,9 +45,7 @@ export async function POST(request: NextRequest) {
   let committed = false;
   try {
     if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "multipart/form-data") throw new ImportError(415, "请使用文件上传表单");
-    let form: FormData;
-    try { form = await request.formData(); }
-    catch (error: unknown) { console.warn("上传表单无法解析", error); throw new ImportError(400, "上传表单不完整或已损坏"); }
+    const form=await readImportForm(request);
     const file = form.get("file");
     if (form.getAll("file").length !== 1 || !(file instanceof File)) throw new ImportError(400, "请上传一个 MOBI、EPUB、PDF、FB2/FBZ、CBZ、TXT 或 Markdown 文件");
     if (!file.name.trim() || /[\\/\u0000-\u001f\u007f]/u.test(file.name) || file.name.length > 255) throw new ImportError(400, "上传文件名不合法");
@@ -56,7 +55,7 @@ export async function POST(request: NextRequest) {
     if (!adapter && path.extname(file.name).toLowerCase() === ".umd") throw new ImportError(415, "UMD 转换正在验收，尚未开放导入；请先使用 EPUB 或已支持格式。");
     if (!adapter) throw new ImportError(415, "当前支持 MOBI、EPUB、PDF、FB2/FBZ、CBZ、TXT 和 Markdown");
     if (!file.size) throw new ImportError(422, "文件为空，未导入任何内容");
-    if (file.size > MAX_UPLOAD_BYTES) throw new ImportError(413, "文件过大，最大支持 100 MiB");
+    if (file.size > MAX_IMPORT_FILE_BYTES) throw new ImportError(413, IMPORT_TOO_LARGE);
     let buffer: Buffer;
     try { buffer = Buffer.from(await file.arrayBuffer()); }
     catch (error: unknown) { console.warn("上传内容读取失败", error); throw new ImportError(400, "上传文件不完整，请重新上传"); }
@@ -109,6 +108,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "导入失败且原文件清理失败，请检查数据目录权限后重试" }, { status: 500, headers });
       }
     }
-    return NextResponse.json({ error: error instanceof ImportError || error instanceof EpubImportSecurityError ? error.message : "书籍保存失败，请检查存储权限和可用空间后重试" }, { status: error instanceof ImportError ? error.status : error instanceof EpubImportSecurityError ? 422 : 500, headers });
+    return NextResponse.json({ ...(error instanceof ImportFormError&&error.status===413||error instanceof ImportError&&error.status===413?{code:"upload_too_large",maxFileBytes:MAX_IMPORT_FILE_BYTES}:{}), error: error instanceof ImportError || error instanceof ImportFormError || error instanceof EpubImportSecurityError ? error.message : "书籍保存失败，请检查存储权限和可用空间后重试" }, { status: error instanceof ImportError || error instanceof ImportFormError ? error.status : error instanceof EpubImportSecurityError ? 422 : 500, headers });
   }
 }

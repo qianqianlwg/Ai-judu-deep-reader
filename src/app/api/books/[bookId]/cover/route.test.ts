@@ -1,0 +1,8 @@
+import {beforeEach,it,expect,vi} from "vitest";
+const state=vi.hoisted(()=>({get:vi.fn(),read:vi.fn(),render:vi.fn()}));vi.mock("@/lib/db",()=>({getDb:()=>({prepare:()=>({get:state.get})})}));vi.mock("@/lib/data-storage",()=>({originalRelativePath:(id:string,format:string)=>"originals/"+id+format,readStoredOriginalFile:state.read}));vi.mock("@/lib/book-cover",()=>({renderBookCover:state.render,cachedBookCover:async (_:string,render:()=>Promise<Buffer>)=>render()}));
+import {GET} from "./route";
+const call=(query="editionId=v",id="a")=>GET(new Request("http://localhost/api/books/a/cover?"+query),{params:Promise.resolve({bookId:id})});
+beforeEach(()=>{vi.clearAllMocks();state.get.mockReturnValue({id:"v",fileType:".pdf",relativePath:"originals/v.pdf",size:10,originalHash:"a".repeat(64)});state.read.mockResolvedValue(Buffer.from("pdf"));state.render.mockResolvedValue(Buffer.from("image"));});
+it("输出固定安全图片类型，不泄露原件路径",async()=>{const response=await call();expect(response.status).toBe(200);expect(response.headers.get("Content-Type")).toBe("image/webp");expect(state.get).toHaveBeenCalledWith("a","v");});
+it("拒绝无效/重复版本及跨版本原文件路径",async()=>{expect((await call("editionId=../v")).status).toBe(400);expect((await call("editionId=v&editionId=v")).status).toBe(400);state.get.mockReturnValue({id:"v",fileType:".pdf",relativePath:"originals/other.pdf"});expect((await call()).status).toBe(409);expect(state.read).not.toHaveBeenCalled();});
+it("旧版本无原件返回无封面，不读取文件",async()=>{state.get.mockReturnValue({id:"v",fileType:".pdf",relativePath:""});expect((await call()).status).toBe(204);state.get.mockReturnValue(undefined);expect((await call()).status).toBe(404);expect(state.read).not.toHaveBeenCalled();});

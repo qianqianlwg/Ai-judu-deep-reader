@@ -44,3 +44,5 @@ describe("侧栏版本导航", () => {
     act(() => host.querySelector<HTMLButtonElement>('[data-edition-id="old"]')?.click()); expect(openBook).toHaveBeenCalledWith("a", "old");
   });
 });
+
+it("书架不重复展示书籍树，返回阅读后身份和目录仍保留",()=>{render({view:"bookshelf"});expect(host.querySelector(".book-shelf")).toBeNull();expect(host.querySelector(".toc-item")).toBeNull();render({view:"reader"});expect(host.querySelector(".shelf-book.active")).not.toBeNull();expect(host.querySelector(".toc-item")).not.toBeNull();});

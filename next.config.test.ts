@@ -21,3 +21,5 @@ it("导入路由显式跟踪私有解析产物而不通过public发布", () => {
 it("派生转换版同样只能以严格隔离的附件下载", async () => {
  const rules=await config.headers?.();expect(rules?.find(rule=>rule.source==="/api/books/:bookId/converted")?.headers).toContainEqual({key:"Content-Security-Policy",value:"sandbox; default-src 'none'; frame-ancestors 'none'"});
 });
+
+it('代理缓冲允许300MB文件及multipart开销，使用新版配置名',()=>{expect(config.experimental?.proxyClientMaxBodySize).toBe(302*1024*1024);expect(config.experimental?.middlewareClientMaxBodySize).toBeUndefined();});

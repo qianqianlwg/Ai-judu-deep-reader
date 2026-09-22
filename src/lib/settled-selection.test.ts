@@ -1,0 +1,7 @@
+// @vitest-environment jsdom
+import {describe,it,expect,vi} from 'vitest';
+import {bindSettledSelection} from './settled-selection';
+describe('选文完成门控',()=>{
+ it('按住拖选和停顿不提交，文档外缘松开才提交',()=>{const root=document.createElement('div');document.body.append(root);const commit=vi.fn(),start=vi.fn();const clean=bindSettledSelection(root,{onCommit:commit,onStart:start});root.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0}));for(let i=0;i<5;i++)document.dispatchEvent(new Event('selectionchange'));expect(start).toHaveBeenCalledTimes(1);expect(commit).not.toHaveBeenCalled();document.dispatchEvent(new MouseEvent('pointerup',{button:0}));expect(commit).toHaveBeenCalledTimes(1);clean();document.dispatchEvent(new Event('selectionchange'));expect(commit).toHaveBeenCalledTimes(1);root.remove();});
+ it('指针取消不提交，新的键盘选区可用，右键忽略',()=>{const root=document.createElement('div');document.body.append(root);const commit=vi.fn(),cancel=vi.fn(),start=vi.fn();const clean=bindSettledSelection(root,{onCommit:commit,onStart:start,onCancel:cancel});root.dispatchEvent(new MouseEvent('pointerdown',{button:2}));expect(start).not.toHaveBeenCalled();root.dispatchEvent(new MouseEvent('pointerdown',{button:0}));document.dispatchEvent(new Event('pointercancel'));document.dispatchEvent(new Event('selectionchange'));expect(commit).not.toHaveBeenCalled();root.dispatchEvent(new KeyboardEvent('keyup',{key:'ArrowRight'}));expect(commit).toHaveBeenCalledTimes(1);expect(cancel).toHaveBeenCalledTimes(1);clean();root.remove();});
+});

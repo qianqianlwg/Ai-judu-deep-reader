@@ -1,0 +1,4 @@
+import {it,expect,vi} from 'vitest';import {NextRequest} from 'next/server';
+const batch=vi.hoisted(()=>vi.fn().mockResolvedValue({vectorIndexed:true}));vi.mock('@/lib/vector-index',()=>({buildVectorBatch:batch}));vi.mock('@/lib/db',()=>({getDb:()=>({})}));vi.mock('@/lib/embedding-store',()=>({readEmbeddingConfig:()=>({apiKey:'fake'})}));import {POST} from './route';
+it('没有外发确认拒绝建索引',async()=>{const response=await POST(new NextRequest('http://localhost/api/search/index',{method:'POST',body:JSON.stringify({editionId:'e'})}));expect(response.status).toBe(400);expect(batch).not.toHaveBeenCalled();});
+it('确认后的版本 ID 和中止信号传入服务端批次',async()=>{const response=await POST(new NextRequest('http://localhost/api/search/index',{method:'POST',body:JSON.stringify({editionId:'e',consent:true})}));expect(response.status).toBe(200);expect(batch).toHaveBeenCalledWith({},'e',{apiKey:'fake'},expect.any(AbortSignal));});

@@ -1,3 +1,4 @@
+import {BOOK_SHELF_SCHEMA} from "@/lib/book-shelf";
 import { EDITION_CONVERSIONS_SCHEMA } from "@/lib/edition-conversion";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,3 +44,7 @@ describe("GET library 保留全部书籍与版本", () => {
   it("空书架返回空数组，不创建示例数据", async () => { state.db?.exec("DELETE FROM books; DELETE FROM editions"); expect(await (await GET()).json()).toEqual([]); });
   it("数据库异常上抛，不伪装成空书架", async () => { state.db?.exec("DROP TABLE books"); await expect(GET()).rejects.toThrow(); });
 });
+
+it("默认隐藏已下架BookID，已下架列表保留所有版本和同名书身份",async()=>{state.db!.exec(BOOK_SHELF_SCHEMA+";INSERT INTO book_shelf_state VALUES('old','2026-09-21')");const active=await(await GET()).json();expect(active.map((item:{id:string})=>item.id)).toEqual(['new','other']);const archived=await(await GET(new Request('http://localhost/api/library?shelf=archived'))).json();expect(archived).toHaveLength(1);expect(archived[0].id).toBe('old');expect(archived[0].editions).toHaveLength(2);});
+
+it("显示名作为额外字段返回，原始书名与版本不变",async()=>{const {setBookDisplayTitle}=await import("@/lib/book-display-title");const db=state.db as unknown as import("@/lib/book-shelf").ShelfStore;setBookDisplayTitle(db,"old","简洁书名");const books=await(await GET()).json();const book=books.find((item:{id:string})=>item.id==="old");expect(book.displayTitle).toBe("简洁书名");expect(book.title).toBe("同名书");expect(book.editions).toHaveLength(2);});

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import {normalizeModelChoices,readModelChoices,saveModelChoices} from "@/lib/model-choices";
 import { getDb } from "@/lib/db";
 import { buildProviderHeaders, buildProviderRequestBody, buildProviderUrl, type AiProviderKind, type ProviderConfig, type ProviderRequest } from "@/lib/ai-provider";
 
@@ -22,14 +23,20 @@ function rowToConfig(row: unknown): StoredConfig | null {
 }
 function getStored(): StoredConfig | null { return rowToConfig(getDb().prepare("SELECT provider, base_url, api_key, model, updated_at FROM ai_provider_configs WHERE id = ?").get(CONFIG_ID)); }
 function publicConfig(config: StoredConfig | null) { return config ? { provider: config.provider, baseUrl: config.baseUrl, model: config.model, hasApiKey: Boolean(config.apiKey), maskedApiKey: config.apiKey ? (config.apiKey.length > 8 ? `${config.apiKey.slice(0, 4)}••••${config.apiKey.slice(-4)}` : "••••") : "" } : { provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", hasApiKey: false, maskedApiKey: "" }; }
-export async function GET() { return NextResponse.json(publicConfig(getStored())); }
+export async function GET() { return NextResponse.json({...publicConfig(getStored()), models:readModelChoices(getDb(),getStored()?.model??"gpt-4o-mini")}); }
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const current = getStored();
     const config = readConfig(body, current ?? undefined);
-    getDb().prepare("INSERT INTO ai_provider_configs (id, provider, base_url, api_key, model, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, updated_at=excluded.updated_at").run(CONFIG_ID, config.provider, config.baseUrl, config.apiKey, config.model, new Date().toISOString());
-    return NextResponse.json(publicConfig(getStored()));
+    const models=normalizeModelChoices(body.models??[...new Set([config.model,...readModelChoices(getDb(),config.model)])],config.model);
+    if (!models.includes(config.model)) throw new Error("默认模型必须包含在模型列表中");
+    const db=getDb(); db.exec("BEGIN IMMEDIATE");
+    try {
+    db.prepare("INSERT INTO ai_provider_configs (id, provider, base_url, api_key, model, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, updated_at=excluded.updated_at").run(CONFIG_ID, config.provider, config.baseUrl, config.apiKey, config.model, new Date().toISOString());
+    saveModelChoices(db,models); db.exec("COMMIT");
+    } catch(error:unknown) { db.exec("ROLLBACK"); throw error; }
+    return GET();
   } catch (error: unknown) { console.error("保存 AI 配置失败", error); return NextResponse.json({ error: error instanceof Error ? error.message : "保存 AI 配置失败" }, { status: 400 }); }
 }
 export async function POST(request: NextRequest) {

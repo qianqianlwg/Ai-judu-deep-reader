@@ -1,0 +1,4 @@
+// @vitest-environment jsdom
+import {act} from 'react';import {createRoot} from 'react-dom/client';import {it,expect,vi} from 'vitest';import {BookSearchPanel} from './book-search-panel';
+vi.mock('./vector-index-controls',()=>({VectorIndexControls:()=> <span>向量索引</span>}));
+it('搜索方式与原文结果回调可用',async()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const host=document.createElement('div'),root=createRoot(host),onResult=vi.fn();const result={paragraphId:'p',chapterId:'c',chapterTitle:'章',excerpt:'正文'};await act(async()=>root.render(<BookSearchPanel query="正文" onQuery={()=>{}} retrieval="keyword" onRetrieval={()=>{}} status={null} results={[result]} onSearch={()=>{}} onReady={()=>{}} onResult={onResult}/>));expect(host.querySelectorAll('option')).toHaveLength(3);await act(async()=>host.querySelector<HTMLButtonElement>('.search-results button')!.click());expect(onResult).toHaveBeenCalledWith(result);act(()=>root.unmount());vi.unstubAllGlobals();});

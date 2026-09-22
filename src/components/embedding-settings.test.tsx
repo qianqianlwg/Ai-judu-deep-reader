@@ -1,0 +1,3 @@
+// @vitest-environment jsdom
+import {act} from 'react';import {createRoot} from 'react-dom/client';import {it,expect,vi} from 'vitest';import {EmbeddingSettings} from './embedding-settings';
+it('配置只读取是否有密钥，显示数据外发说明',async()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json({hasApiKey:true}));vi.stubGlobal('fetch',fetcher);const host=document.createElement('div'),root=createRoot(host);await act(async()=>root.render(<EmbeddingSettings/>));expect(host.textContent).toContain('Qwen/Qwen3-Embedding-8B');expect(host.textContent).toContain('发送至 SiliconFlow');expect(host.querySelector('input')?.value).toBe('');expect(host.textContent).toContain('已配置');act(()=>root.unmount());vi.unstubAllGlobals();});

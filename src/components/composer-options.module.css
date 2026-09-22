@@ -14,3 +14,5 @@
 .field select { min-width: 0; border: 1px solid var(--reading-border); border-radius: 6px; padding: 5px 7px; background: var(--reading-surface); color: var(--reading-muted); font: inherit; }
 .field select:disabled { opacity: .55; }
 .notice { margin: 0; color: var(--reading-accent); font-size: 10px; line-height: 1.5; }
+
+.root{display:flex;align-items:center;gap:6px}.root>.field{margin:0;font-size:11px;min-width:0}.root>.field select{max-width:160px;font-size:11px;padding:3px 6px;}

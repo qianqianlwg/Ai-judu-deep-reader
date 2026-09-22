@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import {searchVectors} from "@/lib/vector-search";
+import {readEmbeddingConfig} from "@/lib/embedding-store";
 import { getDb } from "@/lib/db";
 import { hybridSearch, type HybridSearchCandidate } from "@/lib/hybrid-search";
 import { searchPostgres } from "@/lib/postgres-search-client";
@@ -51,6 +53,13 @@ export async function GET(request: NextRequest) {
   if (!editionId) return NextResponse.json({ error: "缺少 editionId" }, { status: 400 });
   if (!query) return NextResponse.json({ error: "请输入关键词" }, { status: 400 });
 
+  const retrieval=request.nextUrl.searchParams.get("retrieval");
+  if(retrieval==="semantic"||retrieval==="hybrid"){
+    if(query.length>2000)return NextResponse.json({error:"语义查询请控制在 2000 字以内"},{status:400});
+    if(sourceType && sourceType!=="book")return NextResponse.json({error:"当前向量索引仅包含本书正文"},{status:400});
+    try{const db=getDb();const results=await searchVectors(db,readEmbeddingConfig(db),{editionId,query,chapterId,limit,hybrid:retrieval==="hybrid",signal:request.signal});return NextResponse.json(buildSearchResponse({query,mode,results}));}
+    catch(error:unknown){console.error("语义检索失败",{name:error instanceof Error?error.name:"UnknownError"});return NextResponse.json({error:error instanceof Error?error.message:"语义检索失败，请重试或切换关键词检索"},{status:503});}
+  }
   let embedding: number[] | undefined;
   try {
     embedding = readEmbedding(request.nextUrl.searchParams.get("embedding"));

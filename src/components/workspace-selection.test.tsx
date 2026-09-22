@@ -52,7 +52,7 @@ it("开始新拖选取消待发旧快照，不影响工具栏点击，键盘折�
  act(()=>{select();document.dispatchEvent(new Event('selectionchange'));host.querySelector('[data-reader-text]')!.dispatchEvent(new Event('pointerdown',{bubbles:true}));});flush();
  expect(started).toHaveBeenCalledOnce();expect(received).not.toHaveBeenCalled();
  act(()=>host.querySelector('button')!.dispatchEvent(new Event('pointerdown',{bubbles:true})));expect(started).toHaveBeenCalledOnce();
- act(()=>{select();document.dispatchEvent(new Event('selectionchange'));});flush();expect(received).toHaveBeenCalledOnce();
+ act(()=>{select();document.dispatchEvent(new Event('selectionchange'));});flush();expect(received).not.toHaveBeenCalled();act(()=>document.dispatchEvent(new MouseEvent('pointerup',{button:0})));flush();expect(received).toHaveBeenCalledOnce();
  act(()=>{document.getSelection()!.collapseToEnd();host.querySelector('[data-reader-text]')!.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'ArrowRight'}));});
  expect(cleared).toHaveBeenCalledOnce();
 });

@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-type ModelState = { modelName?: string; error?: string };
-export function useWorkspaceModel(fetcher: typeof fetch = fetch): ModelState {
+type ModelState = { modelName?: string; modelOptions?: string[]; error?: string };
+export function useWorkspaceModel(fetcher: typeof fetch = fetch): ModelState & {selectedModel?:string;selectModel:(model:string)=>void} {
   const [state, setState] = useState<ModelState>({});
+  const [choice,setChoice]=useState<string>();
   useEffect(() => {
     let disposed = false;
     let current: AbortController | undefined;
@@ -16,7 +17,7 @@ export function useWorkspaceModel(fetcher: typeof fetch = fetch): ModelState {
         if (!response.ok) throw new Error("模型配置读取失败（HTTP " + response.status + "）");
         const data: unknown = await response.json();
         if (!data || typeof data !== "object" || !("model" in data) || typeof data.model !== "string" || !data.model.trim()) throw new Error("模型配置缺少有效名称");
-        if (!disposed && !controller.signal.aborted) setState({ modelName: data.model.trim() });
+        if (!disposed && !controller.signal.aborted) setState({ modelName: data.model.trim(), modelOptions: [...new Set([data.model.trim(), ...("models" in data && Array.isArray(data.models) ? data.models.filter((item):item is string=>typeof item === "string" && Boolean(item.trim())).map(item=>item.trim()) : [])])] });
       }).catch((cause: unknown) => {
         if (disposed || controller.signal.aborted) return;
         console.error("读取模型名称失败", cause instanceof Error ? cause.name : "UnknownError");
@@ -35,5 +36,5 @@ export function useWorkspaceModel(fetcher: typeof fetch = fetch): ModelState {
       window.removeEventListener("storage", storage); window.removeEventListener("judu:settings-updated", refresh);
     };
   }, [fetcher]);
-  return state;
+  return {...state,selectedModel:choice && state.modelOptions?.includes(choice)?choice:state.modelName,selectModel:setChoice};
 }

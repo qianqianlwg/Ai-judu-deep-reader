@@ -1,3 +1,4 @@
+import {importBodyTooLarge,IMPORT_BODY_TOO_LARGE,MAX_IMPORT_FILE_BYTES} from "@/lib/import-limits";
 import { NextResponse, type NextRequest } from "next/server";
 import { rejectUntrustedApiRequest } from "@/lib/request-origin";
 
@@ -5,6 +6,7 @@ import { rejectUntrustedApiRequest } from "@/lib/request-origin";
 export function proxy(request: NextRequest) {
   const rejected = rejectUntrustedApiRequest(request, process.env.JUDU_APP_ORIGIN);
   if (rejected) return NextResponse.json({ error: rejected.message }, { status: rejected.status });
+  if(request.nextUrl.pathname==="/api/import"&&request.method==="POST"&&importBodyTooLarge(request.headers))return NextResponse.json({error:IMPORT_BODY_TOO_LARGE,code:"upload_too_large",maxFileBytes:MAX_IMPORT_FILE_BYTES},{status:413});
   return NextResponse.next();
 }
 export const config = { matcher: "/api/:path*" };

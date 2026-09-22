@@ -297,8 +297,8 @@ describe("第四阶段工作台页面集成", () => {
   it("顶部没有导入搜索设置，左侧书架可进入并打开书卡", async () => {
     await loadA();
     expect(host.querySelector('.workspace-mobilebar a[href="/settings"], .workspace-mobilebar input, .top-actions')).toBeNull();
-    expect(host.querySelectorAll('a[href="/settings"]')).toHaveLength(1);
-    expect(element('a[href="/settings"]').closest(".workspace-nav-footer")).not.toBeNull();
+    expect(host.querySelectorAll('.workspace-nav-footer a[href="/settings"]')).toHaveLength(1);
+    expect(element('.workspace-nav-footer a[href="/settings"]').closest(".workspace-nav-footer")).not.toBeNull();
     await click(button("书架"));
     await click(element('button[aria-label="阅读《测试书B》"]'));
     expect(element(".workspace-main").dataset.workspaceView).toBe("reader");
@@ -495,4 +495,12 @@ describe("停止生成装配", () => {
     await click(button("重新句读")); expect(pendingStreams[1].payload.clientAssistantMessageId).toBe(first.payload.clientAssistantMessageId);
     expect(pendingStreams[1].payload.clientUserMessageId).toBe(first.payload.clientUserMessageId); await complete(pendingStreams[1]);
   });
+});
+
+it("下架当前最后一本书后侧栏不复活，正文和对话保留，恢复可重新上架",async()=>{const original=fetcher.getMockImplementation()!;let archived=false;fetcher.mockImplementation(async(input,init)=>{const url=endpoint(input);if(url.pathname==='/api/library')return Response.json(url.searchParams.get('shelf')==='archived'?(archived?[book('A')]:[]):(archived?[]:[book('A')]));if(url.pathname==='/api/books/A/shelf'){archived=JSON.parse(String(init?.body)).archived;return Response.json({bookId:'A',archived});}return original(input,init);});await loadA();const chat=element('.chat-messages'),reading=element('.reading-content');await click(button('书架'));await click(element('button[aria-label="下架《测试书A》"]'));expect(archived).toBe(false);await click(button('确认下架'));expect(archived).toBe(true);expect(host.querySelector('.shelf-book')).toBeNull();expect(host.querySelector('.bookshelf-card')).toBeNull();expect(element('.chat-messages')).toBe(chat);expect(element('.reading-content')).toBe(reading);expect(chat.textContent).toContain('A书既存回复');await act(async()=>{const detail=element<HTMLDetailsElement>('.archived-books');detail.open=true;detail.dispatchEvent(new Event('toggle'));});await settle();await click(button('恢复上架'));expect(archived).toBe(false);expect(host.querySelector('.shelf-book')).toBeNull();expect(element('.bookshelf-card').textContent).toContain('测试书A');await click(button('阅读'));expect(element('.shelf-book').textContent).toContain('测试书A');expect(element('.chat-messages')).toBe(chat);});
+
+it('主阅读器导入超300MB文件即时提示，不请求上传接口',async()=>{await loadA();const input=element<HTMLInputElement>('#book-file'),file=new File(['x'],'large.pdf');Object.defineProperty(file,'size',{value:300*1024*1024+1});Object.defineProperty(input,'files',{configurable:true,value:[file]});await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true})));expect(callCount('/api/import')).toBe(0);expect(host.textContent).toContain('300 MB');expect(element('[data-paragraph-id="paragraph-A"]').textContent).toContain('自我意识');});
+
+it("书架默认隐藏助手不卸载聊天，手动展开和返回阅读不清会话",async()=>{
+ await loadA();const chat=element(".chat-messages");await click(button("书架"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("true");expect(element(".chat-messages")).toBe(chat);await click(button("展开助手"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("false");await click(button("收起助手"));await click(button("阅读"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("false");expect(element(".chat-messages")).toBe(chat);
 });

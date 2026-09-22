@@ -1,8 +1,11 @@
+import {IMPORT_PROXY_BUFFER_BYTES} from "./src/lib/import-limits";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // WHY：这是 Next.js 开发模式的路由状态指示器，不属于产品 UI；关闭可避免左下角出现 N 徽标。
   devIndicators: false,
+  // WHY：上传代理缓冲覆盖300MB文件及multipart开销，避免正文被默认10MB静默截断。
+  experimental: { proxyClientMaxBodySize: IMPORT_PROXY_BUFFER_BYTES },
   // WHY：worker由子进程加载，不能依赖静态import推断；导入与MOBI布局路由携带私有运行时和许可。
   outputFileTracingIncludes: { "/api/import": ["./runtime/mobi/**/*", "./runtime/umd/**/*"], "/api/books/*/mobi-layout": ["./runtime/mobi/**/*"] },
   distDir: process.env.NEXT_DIST_DIR ?? ".next",

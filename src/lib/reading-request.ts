@@ -18,6 +18,7 @@ export function withRetryContextSettings(state: ReadingRequestState, value: Retr
   return { ...state, payload: { ...state.payload, retryContextSettings: readRetryContextSettings(value) } };
 }
 export type ReadingRequestInput = {
+  model?: string;
   retryContextSettings?: RetryContextSettings;
   detail?: ReadingDetail;
   mode: "chat" | "analyze";
@@ -138,7 +139,7 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   const failure = isRecord(meta.failure) ? meta.failure : undefined;
   const status = message.status === "completed" && message.content.trim() ? "completed" : failure?.code === "cancelled" ? "cancelled" : "error";
   return {
-    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, detail: normalizeReadingDetail(input.detail), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
+    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, model: optionalString(input.model), detail: normalizeReadingDetail(input.detail), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
     status, attempt: 1, content: message.content, analysis: isAnalysis(saved) ? saved : undefined,
     error: status === "completed" ? undefined : typeof failure?.message === "string" ? failure.message : "上次生成未完成，可以重试",
   };
@@ -166,7 +167,7 @@ export function prepareReadingEdit(state: ReadingRequestState, messages: ChatMes
   if (index < 0) throw new Error("找不到要编辑的原始用户消息");
   // WHY：编辑只生成新请求计划，不删除旧消息、不复用旧 assistant 身份；父任务负责创建新分支和新 attempt。
   const originalInput: ReadingRequestInput = {
-    mode: state.payload.mode, detail: state.payload.detail, question: state.payload.question, selectedText: state.payload.selectedText,
+    mode: state.payload.mode, model:state.payload.model, detail: state.payload.detail, question: state.payload.question, selectedText: state.payload.selectedText,
     bookId: state.payload.bookId, editionId: state.payload.editionId, chapterId: state.payload.chapterId, paragraphId: state.payload.paragraphId,
     bookTitle: state.payload.bookTitle, chapterTitle: state.payload.chapterTitle, context: state.payload.context, selectionStart: state.payload.selectionStart,
     selectionAnchors: state.payload.selectionAnchors, selectionEnd: state.payload.selectionEnd, textHash: state.payload.textHash, contextSettings: state.payload.contextSettings,

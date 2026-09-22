@@ -10,7 +10,7 @@ export type LibraryEdition = {
   id: string; fileName: string; fileType: string; hasOriginalFile?: boolean; fileSize?: number;
   originalHash?: string; readerMode?: "text"; createdAt: string; conversion?: LibraryConversion;
 };
-export type LibraryBook = { id: string; title: string; author: string; createdAt?: string; editions?: readonly LibraryEdition[] };
+export type LibraryBook = { id: string; title: string; displayTitle?: string; author: string; createdAt?: string; editions?: readonly LibraryEdition[] };
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const identifier = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const sha256 = (value: unknown): value is string => typeof value === "string" && value.length === 64 && /^[a-f0-9]{64}$/u.test(value);
@@ -71,7 +71,7 @@ export function readLibraryResponse(value: unknown): LibraryBook[] {
       });
     }
     // WHY：旧响应无版本元数据时仍可打开默认版本；新响应中的全部ID原样保留，绝不按标题去重。
-    return { id: row.id, title: row.title, author: row.author, ...(typeof row.createdAt === "string" ? { createdAt: row.createdAt } : {}), ...(editions ? { editions } : {}) };
+    return { id: row.id, title: row.title, ...(typeof row.displayTitle === "string" && row.displayTitle.trim() ? {displayTitle:row.displayTitle} : {}), author: row.author, ...(typeof row.createdAt === "string" ? { createdAt: row.createdAt } : {}), ...(editions ? { editions } : {}) };
   });
 }
 
