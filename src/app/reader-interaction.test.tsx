@@ -122,7 +122,8 @@ function button(label: string, within: ParentNode = host): HTMLButtonElement {
 }
 async function click(target: HTMLElement) { await act(async () => target.click()); await settle(); }
 async function mount() { await act(async () => root.render(<Home />)); await settle(); }
-async function loadA() { await mount(); await click(element<HTMLButtonElement>(".shelf-book")); }
+async function openShelfBook(id: BookId) { await click(button("书架")); await click(element<HTMLButtonElement>('button[aria-label="阅读《测试书' + id + '》"]')); }
+async function loadA() { await mount(); await openShelfBook("A"); }
 async function selectOriginal() {
   await act(async () => {
     const paragraph = element('[data-paragraph-id="paragraph-A"]');
@@ -141,6 +142,8 @@ async function openKnowledge() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable: true, value: function(this: HTMLDialogElement) {this.open = true;}});
+  Object.defineProperty(HTMLDialogElement.prototype, "close", {configurable: true, value: function(this: HTMLDialogElement) {this.open = false;}});
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("ResizeObserver", undefined);
   vi.stubGlobal("CSS", { escape: (value: string) => value });
@@ -188,7 +191,7 @@ afterEach(async () => {
   });
   await act(async () => root.unmount());
   host.remove(); window.getSelection()?.removeAllRanges(); localStorage.clear();
-  vi.restoreAllMocks(); vi.unstubAllGlobals();
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal"); Reflect.deleteProperty(HTMLDialogElement.prototype, "close"); vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
 describe("阅读器主页面交互回归", () => {
@@ -196,7 +199,7 @@ describe("阅读器主页面交互回归", () => {
     await loadA();
     expect(element('[data-message-id="assistant-A"]').textContent).toContain("A书既存回复");
     expect(callCount("/api/threads/thread-A")).toBe(1);
-    await click(element<HTMLButtonElement>(".shelf-book"));
+    await openShelfBook("A");
     expect(callCount("/api/threads/thread-A")).toBe(1);
     expect(element('[data-message-id="assistant-A"]').textContent).toContain("A书既存回复");
     await openKnowledge();
@@ -221,14 +224,14 @@ describe("阅读器主页面交互回归", () => {
     expect(pendingStreams[0].payload.selectedText).toBe(bodyText);
     const userId = pendingStreams[0].payload.clientUserMessageId;
     expect(element('[data-message-id="' + userId + '"] blockquote').textContent).toBe(bodyText);
-    await click(button("测试书B", element(".book-shelf")));
+    await openShelfBook("B");
     expect(callCount("/api/books/B")).toBe(0);
-    expect(element(".shelf-book.active").textContent).toContain("测试书A");
-    expect(button("测试书B", element(".book-shelf")).disabled).toBe(true);
+    expect(localStorage.getItem("judu:active-book")).toBe("A"); expect(element(".chapter-context").textContent).toContain("章节A");
+    await click(button("书架")); expect(element<HTMLButtonElement>('button[aria-label="阅读《测试书B》"]').disabled).toBe(true);
     expect(element(".workspace-nav-hint").textContent).toContain("完成后可切换");
     await complete(pendingStreams[0]);
     expect(element('.reading-content [data-concept-word="承认"]')).toBeTruthy();
-    await click(button("测试书B", element(".book-shelf")));
+    await openShelfBook("B");
     expect(callCount("/api/books/B")).toBe(1);
     expect(element('[data-paragraph-id="paragraph-B"]').textContent).toContain("乙书");
     expect(host.querySelector(".chat-messages")?.textContent).not.toContain("仅属于A的新回复");
@@ -263,15 +266,15 @@ describe("阅读器主页面交互回归", () => {
     await loadA(); await selectOriginal();
     let resolveBook: ((response: Response) => void) | undefined;
     delayedBook = new Promise<Response>((resolve) => { resolveBook = resolve; });
-    await click(button("测试书B", element(".book-shelf")));
+    await openShelfBook("B");
     expect(element(".reading-pane").getAttribute("aria-busy")).toBe("true");
     await click(button("句读一下"));
     expect(pendingStreams).toHaveLength(0);
-    await click(button("测试书A", element(".book-shelf")));
+    await openShelfBook("A");
     expect(element(".reading-pane").getAttribute("aria-busy")).toBe("false");
     await act(async () => { resolveBook?.(Response.json(book("B"))); });
     await settle();
-    expect(element(".shelf-book.active").textContent).toContain("测试书A");
+    expect(localStorage.getItem("judu:active-book")).toBe("A"); expect(element(".chapter-context").textContent).toContain("章节A");
     expect(host.querySelector('[data-paragraph-id="paragraph-B"]')).toBeNull();
     expect(element('[data-message-id="assistant-A"]').textContent).toContain("A书既存回复");
   });
@@ -316,7 +319,7 @@ describe("书架导入操作", () => {
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle();
     expect(importedFile).toBeInstanceOf(File); expect((importedFile as File).name).toBe("测试书.epub");
     expect(callCount("/api/import")).toBe(1); expect(callCount("/api/books/C")).toBe(0); expect(element(".workspace-main").dataset.workspaceView).toBe("reader");
-    expect(element(".shelf-book.active").textContent).toContain("测试书C");
+    expect(localStorage.getItem("judu:active-book")).toBe("C"); expect(element(".chapter-context").textContent).toContain("章节C");
   });
 });
 
@@ -375,7 +378,7 @@ describe("多会话页面隔离", () => {
     await click(prior);
     expect(host.querySelectorAll(".chat-message")).toHaveLength(0);
     expect(element<HTMLTextAreaElement>('textarea[aria-label="继续追问"]').disabled).toBe(true);
-    expect(button("测试书B", element(".book-shelf")).disabled).toBe(true);
+    await click(button("书架")); expect(element<HTMLButtonElement>('button[aria-label="阅读《测试书B》"]').disabled).toBe(true);
     await act(async () => resolve?.(Response.json({ threadId: "thread-A", thread: conversation("thread-A"), messages: savedMessages })));
     await settle(); expect(element('[data-message-id="assistant-A"]').textContent).toContain("A书既存回复");
     expect(element<HTMLTextAreaElement>('textarea[aria-label="继续追问"]').disabled).toBe(false);
@@ -442,7 +445,7 @@ describe("刷新恢复与跨会话知识定位", () => {
     localStorage.setItem("judu:active-book", "B");
     localStorage.setItem("judu:position:B:edition-B", JSON.stringify({ paragraphId: "paragraph-B", offset: 3 }));
     await mount();
-    expect(element(".shelf-book.active").textContent).toContain("测试书B");
+    expect(localStorage.getItem("judu:active-book")).toBe("B"); expect(element(".chapter-context").textContent).toContain("章节B");
     expect(callCount("/api/books/A")).toBe(0); expect(callCount("/api/books/B")).toBe(1);
     expect(navigation.setAnchor).toHaveBeenCalledWith({ paragraphId: "paragraph-B", offset: 3 });
     expect(host.textContent).not.toContain("亚当·斯密");
@@ -497,7 +500,7 @@ describe("停止生成装配", () => {
   });
 });
 
-it("下架当前最后一本书后侧栏不复活，正文和对话保留，恢复可重新上架",async()=>{const original=fetcher.getMockImplementation()!;let archived=false;fetcher.mockImplementation(async(input,init)=>{const url=endpoint(input);if(url.pathname==='/api/library')return Response.json(url.searchParams.get('shelf')==='archived'?(archived?[book('A')]:[]):(archived?[]:[book('A')]));if(url.pathname==='/api/books/A/shelf'){archived=JSON.parse(String(init?.body)).archived;return Response.json({bookId:'A',archived});}return original(input,init);});await loadA();const chat=element('.chat-messages'),reading=element('.reading-content');await click(button('书架'));await click(element('button[aria-label="下架《测试书A》"]'));expect(archived).toBe(false);await click(button('确认下架'));expect(archived).toBe(true);expect(host.querySelector('.shelf-book')).toBeNull();expect(host.querySelector('.bookshelf-card')).toBeNull();expect(element('.chat-messages')).toBe(chat);expect(element('.reading-content')).toBe(reading);expect(chat.textContent).toContain('A书既存回复');await act(async()=>{const detail=element<HTMLDetailsElement>('.archived-books');detail.open=true;detail.dispatchEvent(new Event('toggle'));});await settle();await click(button('恢复上架'));expect(archived).toBe(false);expect(host.querySelector('.shelf-book')).toBeNull();expect(element('.bookshelf-card').textContent).toContain('测试书A');await click(button('阅读'));expect(element('.shelf-book').textContent).toContain('测试书A');expect(element('.chat-messages')).toBe(chat);});
+it("下架当前最后一本书后侧栏不复活，正文和对话保留，恢复可重新上架",async()=>{const original=fetcher.getMockImplementation()!;let archived=false;fetcher.mockImplementation(async(input,init)=>{const url=endpoint(input);if(url.pathname==='/api/library')return Response.json(url.searchParams.get('shelf')==='archived'?(archived?[book('A')]:[]):(archived?[]:[book('A')]));if(url.pathname==='/api/books/A/shelf'){archived=JSON.parse(String(init?.body)).archived;return Response.json({bookId:'A',archived});}return original(input,init);});await loadA();const chat=element('.chat-messages'),reading=element('.reading-content');await click(button('书架'));await click(element('[data-book-id="A"] .bookshelf-menu-content button:nth-child(3)'));await click(element('button[aria-label="下架《测试书A》"]'));expect(archived).toBe(false);await click(button('确认下架'));expect(archived).toBe(true);expect(host.querySelector('.shelf-book')).toBeNull();expect(host.querySelector('.bookshelf-card')).toBeNull();expect(element('.chat-messages')).toBe(chat);expect(element('.reading-content')).toBe(reading);expect(chat.textContent).toContain('A书既存回复');await act(async()=>{const detail=element<HTMLDetailsElement>('.archived-books');detail.open=true;detail.dispatchEvent(new Event('toggle'));});await settle();await click(button('恢复上架'));expect(archived).toBe(false);expect(host.querySelector('.shelf-book')).toBeNull();expect(element('.bookshelf-card').textContent).toContain('测试书A');await click(button('阅读'));expect(host.querySelector('.shelf-book')).toBeNull();expect(element('.chapter-context').textContent).toContain('章节A');expect(element('.chat-messages')).toBe(chat);});
 
 it('主阅读器导入超300MB文件即时提示，不请求上传接口',async()=>{await loadA();const input=element<HTMLInputElement>('#book-file'),file=new File(['x'],'large.pdf');Object.defineProperty(file,'size',{value:300*1024*1024+1});Object.defineProperty(input,'files',{configurable:true,value:[file]});await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true})));expect(callCount('/api/import')).toBe(0);expect(host.textContent).toContain('300 MB');expect(element('[data-paragraph-id="paragraph-A"]').textContent).toContain('自我意识');});
 

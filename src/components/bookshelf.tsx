@@ -2,6 +2,7 @@
 import {useBookResumes} from "@/hooks/use-book-resumes";
 import {ArchivedBooks} from "./archived-books";
 import {BookshelfCard} from "./bookshelf-card";
+import {BookDetailsPanel, type BookDetailsSection} from "./book-details-panel";
 import {formatName, selectShelfBooks, type ShelfSort, type ShelfStatus, shelfTitle} from "./bookshelf-model";
 import {useMemo, useState} from "react";
 import type {WorkspaceBook} from "./workspace-editions";
@@ -16,6 +17,14 @@ export type BookshelfProps = {
 export function Bookshelf({books, currentBookId, currentEditionId, loading, importing, busy, error, assistantOpen, onToggleAssistant, preferenceError, onOpenBook, onImport, onRefresh, onBookArchived}: BookshelfProps) {
   const resumes = useBookResumes(books);
   const [archiveRevision, setArchiveRevision] = useState(0);
+  // WHY：查看信息的选择独立于当前阅读书籍，不触发加载、进度保存或最近阅读更新。
+  const [selection, setSelection] = useState<{id: string; section: BookDetailsSection} | null>(null);
+  const [coverRevisions, setCoverRevisions] = useState<Record<string, number>>({});
+  const selectedBook = books.find(book => book.id === selection?.id);
+  const openDetails = (id: string, section: BookDetailsSection) => setSelection({id, section});
+  const archived = (id: string) => {
+    setSelection(null); setArchiveRevision(value => value + 1); onBookArchived?.(id); onRefresh();
+  };
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ShelfSort>("recent");
   const [format, setFormat] = useState("");
@@ -46,9 +55,16 @@ export function Bookshelf({books, currentBookId, currentEditionId, loading, impo
       {!loading && !error && books.length === 0 && <div className="workspace-empty"><h2>从一本书开始</h2><p>导入图书或文档，在这里继续你的阅读。原文件和阅读记录保存在本地。</p><button type="button" onClick={onImport} disabled={busy || importing}>导入第一本书</button></div>}
       {!loading && books.length > 0 && filtered.length === 0 && <div className="workspace-empty" role="status"><h2>没有找到这本书</h2><p>试试其他关键词，或清空格式与阅读状态筛选。</p><button type="button" onClick={reset}>清空筛选</button></div>}
       {(query || format || status !== "all") && <p className="bookshelf-result-count" role="status">找到 {filtered.length} 本书</p>}
-      <div className={"bookshelf-grid" + (view === "list" ? " bookshelf-list" : "")}>{filtered.map(book => <BookshelfCard key={book.id} book={book} resumeEdition={resumes.editions[book.id]} location={resumes.history[book.id]?.editionId === resumes.editions[book.id] ? resumes.history[book.id]?.location : undefined} currentBookId={currentBookId} currentEditionId={currentEditionId} busy={busy || importing || loading} onOpen={onOpenBook} onUpdated={onRefresh} onChanged={() => {setArchiveRevision(value => value + 1); onBookArchived?.(book.id); onRefresh();}} />)}</div>
+      <div className={"bookshelf-grid" + (view === "list" ? " bookshelf-list" : "")}>{filtered.map(book => <BookshelfCard key={book.id} book={book} resumeEdition={resumes.editions[book.id]} location={resumes.history[book.id]?.editionId === resumes.editions[book.id] ? resumes.history[book.id]?.location : undefined} currentBookId={currentBookId} coverRevision={coverRevisions[book.id]} busy={busy || importing || loading} onOpen={onOpenBook} onDetails={openDetails} />)}</div>
       <ArchivedBooks revision={archiveRevision} busy={busy || importing || loading} onRestored={onRefresh} />
     </div>
-    <footer className="bookshelf-footer">单文件最大 300 MB · 版本与管理操作位于书籍详情中</footer>
+    <footer className="bookshelf-footer">单文件最大 300 MB · 在书籍的「⋯」中查看信息、版本与管理操作</footer>
+    {selectedBook && selection && <BookDetailsPanel key={selectedBook.id} book={selectedBook} initialSection={selection.section}
+      currentBookId={currentBookId} currentEditionId={currentEditionId} resumeEdition={resumes.editions[selectedBook.id]}
+      location={resumes.history[selectedBook.id]?.editionId === resumes.editions[selectedBook.id] ? resumes.history[selectedBook.id]?.location : undefined}
+      coverRevision={coverRevisions[selectedBook.id]} busy={busy || importing || loading} onClose={() => setSelection(null)}
+      onOpen={(id, editionId) => {setSelection(null); onOpenBook(id, editionId);}} onUpdated={onRefresh} onArchived={() => archived(selectedBook.id)}
+      onRetryCover={() => setCoverRevisions(previous => ({...previous, [selectedBook.id]: (previous[selectedBook.id] ?? 0) + 1}))} />}
+
   </section>;
 }

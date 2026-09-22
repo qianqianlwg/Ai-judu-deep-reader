@@ -102,7 +102,7 @@ describe("页面锁定前ID校验", () => {
     boundary.invalidThread = id; await mount(); await click(button("知识库")); await click(button("打开旧卡片来源"));
     expect(element('[data-message-id="old-assistant"]').textContent).toContain("原会话回答");
     expect(element<HTMLTextAreaElement>('textarea[aria-label="继续追问"]').disabled).toBe(false);
-    expect(element<HTMLButtonElement>(".shelf-book").disabled).toBe(false);
+    await click(button("书架")); expect(element<HTMLButtonElement>(".bookshelf-open").disabled).toBe(false);
     expect(element('[role="status"]').textContent).toContain("会话定位无效");
     expect(fetcher.mock.calls.filter(([input]) => endpoint(input).pathname.startsWith("/api/threads/")).map(([input]) => endpoint(input).pathname)).toEqual(["/api/threads/good"]);
   });

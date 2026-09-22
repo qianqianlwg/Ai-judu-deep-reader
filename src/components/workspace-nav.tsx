@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { editionActionLabel, editionImportTime, editionLabel, type WorkspaceBook } from "./workspace-editions";
+import type { WorkspaceBook } from "./workspace-editions";
 export type { WorkspaceBook } from "./workspace-editions";
 import "./workspace-nav.css";
 
@@ -36,8 +36,7 @@ function Icon({ name }: { name: WorkspaceView | "import" | "settings" }) {
   };
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
-export function WorkspaceNav({ collapsed=false, onToggleCollapse, view, onNavigate, books, currentBookId, currentEditionId, chapters, currentChapterId, onOpenBook, onOpenChapter, onImport, busy, importing, mobileOpen, onDismiss, children }: WorkspaceNavProps) {
-  const [booksOpen, setBooksOpen] = useState(true);
+export function WorkspaceNav({ collapsed=false, onToggleCollapse, view, onNavigate, chapters, currentChapterId, onOpenChapter, onImport, busy, importing, mobileOpen, onDismiss, children }: WorkspaceNavProps) {
   const [tocOpen, setTocOpen] = useState(true);
   const navigate = (next: WorkspaceView) => { onNavigate(next); onDismiss?.(); };
   return <aside className={"workspace-nav toc-panel" + (mobileOpen ? " mobile-open" : "")} aria-label="工作台导航">
@@ -50,18 +49,7 @@ export function WorkspaceNav({ collapsed=false, onToggleCollapse, view, onNaviga
       <button type="button" className="workspace-nav-item workspace-import-nav" disabled={busy || importing} onClick={() => { onNavigate("bookshelf"); onImport(); }}><Icon name="import" /><span>{importing ? "正在导入…" : "导入书籍"}</span></button>
     </nav>
     <div className="workspace-nav-scroll">
-      {view !== "bookshelf" && <><div className="workspace-section-title"><button type="button" aria-expanded={booksOpen} aria-label={booksOpen ? "收起书籍" : "展开书籍"} onClick={() => setBooksOpen(!booksOpen)}><span aria-hidden="true">{booksOpen ? "⌄" : "›"}</span> 我的书籍 <small>{books.length}</small></button></div>
-      {booksOpen && <div className="book-shelf">{books.map(book => <div key={book.id} className="shelf-book-group" data-book-id={book.id}>
-        <button type="button" disabled={busy} className={"shelf-book" + (book.id === currentBookId ? " active" : "")} aria-current={book.id === currentBookId ? "true" : undefined}
-          onClick={() => { onOpenBook(book.id); onDismiss?.(); }} title={book.title + " · BookID " + book.id}><span className="workspace-book-spine" aria-hidden="true" /><span>{book.title}</span></button>
-        {!!book.editions?.length && <details className="shelf-editions" open={book.id === currentBookId}><summary>{book.editions.length} 个版本 · {book.id.slice(0, 8)}</summary>
-          {book.editions.map(edition => <button type="button" key={edition.id} disabled={busy} data-edition-id={edition.id} aria-label={editionActionLabel(book, edition)}
-            aria-current={book.id === currentBookId && edition.id === currentEditionId ? "true" : undefined} title={editionLabel(edition) + " · EditionID " + edition.id}
-            onClick={() => { onOpenBook(book.id, edition.id); onDismiss?.(); }}><span>{edition.fileName || "文件名未记录"}</span><small>{editionImportTime(edition.createdAt)} · {edition.id.slice(0, 8)}</small></button>)}
-        </details>}
-      </div>)}</div>}
-      </>}
-      {view === "bookshelf" && <p className="workspace-nav-hint">在书架搜索、筛选与管理书籍。打开一本书后，这里显示书籍和目录。</p>}
+      {/* WHY：选书与版本管理统一留在书架，侧栏不再重复书籍树；阅读目录保持原行为。 */}
       {busy && <p className="workspace-nav-hint" role="status">当前任务处理中，完成后可切换书籍。</p>}
       {view === "reader" && <>
         <div className="workspace-section-title"><button type="button" aria-expanded={tocOpen} aria-label={tocOpen ? "收起目录" : "展开目录"} onClick={() => setTocOpen(!tocOpen)}><span aria-hidden="true">{tocOpen ? "⌄" : "›"}</span> 目录</button></div>

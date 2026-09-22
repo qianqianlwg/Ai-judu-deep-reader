@@ -233,7 +233,9 @@ describe("P0 独立验收：选择边界与多段保存", () => {
   });
   it("切书后清空来源、菜单和可发送选文", async () => {
     await mount(); await selectParagraph(0);
-    const shelfButtons = host.querySelectorAll<HTMLButtonElement>(".shelf-book");
+    const shelfNav = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "书架")!;
+    await click(shelfNav);
+    const shelfButtons = host.querySelectorAll<HTMLButtonElement>(".bookshelf-open");
     expect(shelfButtons).toHaveLength(2); await click(shelfButtons[1]);
     expect(host.querySelector(".selection-bar")?.textContent).not.toContain("已选");
     expect(host.querySelector('[aria-label="选中文本操作"]')).toBeNull();

@@ -8,8 +8,10 @@ const onOpen = vi.fn(), onImport = vi.fn(), onRefresh = vi.fn();
 const props: BookshelfProps = { books: [{ id: "a", title: "精神现象学", author: "黑格尔" }, { id: "b", title: "国富论", author: "斯密" }], currentBookId: "a", onOpenBook: onOpen, onImport, onRefresh };
 async function render(patch: Partial<BookshelfProps> = {}) { await act(async () => root.render(<Bookshelf {...props} {...patch} />)); }
 function click(selector: string) { act(() => host.querySelector<HTMLButtonElement>(selector)?.click()); }
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); localStorage.clear(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
-afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.unstubAllGlobals(); });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks();
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable: true, value: function(this: HTMLDialogElement) {this.open = true;}});
+Object.defineProperty(HTMLDialogElement.prototype, "close", {configurable: true, value: function(this: HTMLDialogElement) {this.open = false;}}); localStorage.clear(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal"); Reflect.deleteProperty(HTMLDialogElement.prototype, "close"); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("Bookshelf", () => {
   it("真实书卡可阅读，当前书提供继续阅读入口", async () => {
     await render(); expect(host.querySelectorAll("[data-book-id]")).toHaveLength(2);
@@ -38,17 +40,19 @@ describe("书架全部版本入口", () => {
   it("同名BookID分别展示，每个版本按钮提交准确BookID和EditionID", async () => {
     const editions = [{ id: "new", fileName: "新版.epub", fileType: "epub", createdAt: "2026-01-01" }, { id: "old", fileName: "旧版.pdf", fileType: "pdf", createdAt: "2025-01-01" }];
     await render({ books: [{ id: "a", title: "同名书", author: "作者", editions }, { id: "b", title: "同名书", author: "作者", editions: [{ ...editions[0], id: "b-edition" }] }], currentEditionId: "old" });
-    expect(host.querySelectorAll(".bookshelf-card")).toHaveLength(2); expect(host.querySelectorAll("[data-edition-id]")).toHaveLength(3);
-    const old = host.querySelector<HTMLButtonElement>('[data-book-id="a"] [data-edition-id="old"]')!;
-    expect(old.textContent).toContain("旧版.pdf"); expect(old.textContent).toContain("2025"); expect(old.getAttribute("aria-current")).toBe("true");
+    expect(host.querySelectorAll(".bookshelf-card")).toHaveLength(2); expect(host.querySelectorAll("[data-edition-id]")).toHaveLength(0);
+    click('[data-book-id="a"] .bookshelf-menu-content button:nth-child(2)'); expect(onOpen).not.toHaveBeenCalled();
+    const old = host.querySelector<HTMLButtonElement>('[data-edition-id="old"]')!;
+    expect(old.closest("article")?.textContent).toContain("旧版.pdf"); expect(old.closest("article")?.textContent).toContain("2025"); expect(old.getAttribute("aria-current")).toBe("true");
     act(() => old.click()); expect(onOpen).toHaveBeenCalledWith("a", "old");
-    act(() => host.querySelector<HTMLButtonElement>('[data-book-id="b"] [data-edition-id="b-edition"]')?.click()); expect(onOpen).toHaveBeenCalledWith("b", "b-edition");
+    click('[data-book-id="b"] .bookshelf-menu-content button:nth-child(2)');
+    act(() => host.querySelector<HTMLButtonElement>('[data-edition-id="b-edition"]')?.click()); expect(onOpen).toHaveBeenCalledWith("b", "b-edition");
   });
 });
 
-it("书卡新增下架按钮且不触发阅读，忙碌状态禁用",async()=>{await render();const action=host.querySelector<HTMLButtonElement>('button[aria-label="下架《精神现象学》"]')!;expect(action).not.toBeNull();act(()=>action.click());expect(onOpen).not.toHaveBeenCalled();expect(host.querySelector('[aria-label="确认下架《精神现象学》"]')).not.toBeNull();await render({busy:true});expect(Array.from(host.querySelectorAll('button')).find(button=>button.textContent==='确认下架')?.disabled).toBe(true);});
+it("书卡新增下架按钮且不触发阅读，忙碌状态禁用",async()=>{await render();click('[data-book-id="a"] .bookshelf-menu-content button:nth-child(3)');const action=host.querySelector<HTMLButtonElement>('button[aria-label="下架《精神现象学》"]')!;expect(action).not.toBeNull();act(()=>action.click());expect(onOpen).not.toHaveBeenCalled();expect(host.querySelector('[aria-label="确认下架《精神现象学》"]')).not.toBeNull();await render({busy:true});expect(Array.from(host.querySelectorAll('button')).find(button=>button.textContent==='确认下架')?.disabled).toBe(true);});
 
-it("每本读过的书都显示继续阅读，点击非当前书恢复其旧版，新书仍显示打开",async()=>{localStorage.setItem('judu:edition:a','old-a');localStorage.setItem('judu:edition:b','v-b');const edition=(id:string)=>({id,fileName:id+'.epub',fileType:'.epub',createdAt:'2026-09-21'});await act(async()=>render({currentBookId:'b',books:[{id:'a',title:'甲书',author:'',editions:[edition('new-a'),edition('old-a')]},{id:'b',title:'乙书',author:'',editions:[edition('v-b')]},{id:'c',title:'新书',author:'',editions:[edition('v-c')]}]}));expect(host.querySelector('[data-book-id="a"] .bookshelf-read-action')?.textContent).toContain('继续阅读');expect(host.querySelector('[data-book-id="b"] .bookshelf-read-action')?.textContent).toContain('继续阅读');expect(host.querySelector('[data-book-id="c"] .bookshelf-read-action')?.textContent).toContain('打开阅读');expect(host.querySelector('[data-book-id="a"] .bookshelf-resume-edition')?.textContent).toContain('old-a.epub');click('[data-book-id="a"] .bookshelf-open');expect(onOpen).toHaveBeenCalledWith('a','old-a');});
+it("每本读过的书都显示继续阅读，点击非当前书恢复其旧版，新书仍显示打开",async()=>{localStorage.setItem('judu:edition:a','old-a');localStorage.setItem('judu:edition:b','v-b');const edition=(id:string)=>({id,fileName:id+'.epub',fileType:'.epub',createdAt:'2026-09-21'});await act(async()=>render({currentBookId:'b',books:[{id:'a',title:'甲书',author:'',editions:[edition('new-a'),edition('old-a')]},{id:'b',title:'乙书',author:'',editions:[edition('v-b')]},{id:'c',title:'新书',author:'',editions:[edition('v-c')]}]}));expect(host.querySelector('[data-book-id="a"] .bookshelf-read-action')?.textContent).toContain('继续阅读');expect(host.querySelector('[data-book-id="b"] .bookshelf-read-action')?.textContent).toContain('继续阅读');expect(host.querySelector('[data-book-id="c"] .bookshelf-read-action')?.textContent).toContain('打开阅读');click('[data-book-id="a"] .bookshelf-menu-content button');expect(host.querySelector('[aria-label="书籍概览"]')?.textContent).toContain('old-a.epub');click('[aria-label="关闭书籍信息"]');click('[data-book-id="a"] .bookshelf-open');expect(onOpen).toHaveBeenCalledWith('a','old-a');});
 
 it("格式、阅读状态与列表组合筛选可清空，书架不丢原始记录",async()=>{
  const edition=(id:string,type:string)=>({id,fileName:id+type,fileType:type,createdAt:"2026-09-22"});
@@ -62,4 +66,18 @@ it("最近阅读展示真实章节并回到相同版本，显示名也可搜索"
  localStorage.setItem("judu:edition:a","old");localStorage.setItem("judu:resume-meta:a",JSON.stringify({editionId:"old",updatedAt:1234567890000,location:"第三章"}));
  await render({books:[{id:"a",title:"原始长文件名",displayTitle:"简洁书名",author:"",editions:[{id:"old",fileName:"原文件.pdf",fileType:".pdf",createdAt:"2026"}]}]});
  expect(host.querySelector('[aria-label="最近阅读"]')?.textContent).toContain("第三章");click('[aria-label="最近阅读"] button');expect(onOpen).toHaveBeenCalledWith("a","old");expect(host.querySelector(".bookshelf-card-copy strong")?.textContent).toBe("简洁书名");
+});
+
+it("查看和关闭详情不改当前阅读记录、不触发阅读回调", async () => {
+ localStorage.setItem("judu:active-book", "a"); await render(); const before = localStorage.getItem("judu:active-book");
+ click('[data-book-id="b"] .bookshelf-menu-content button'); expect(host.querySelector("dialog")?.open).toBe(true);
+ expect(host.querySelector("dialog h3")?.textContent).toBe("国富论"); expect(onOpen).not.toHaveBeenCalled();
+ click('[aria-label="关闭书籍信息"]'); expect(host.querySelector("dialog")).toBeNull(); expect(localStorage.getItem("judu:active-book")).toBe(before);
+ expect(host.querySelectorAll(".bookshelf-card")).toHaveLength(2);
+});
+it("列表也使用同一个独立详情层，刷新后所选书下架则关闭", async () => {
+ await render(); act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "列表")!.click());
+ click('[data-book-id="b"] .bookshelf-menu-content button'); expect(host.querySelectorAll("dialog")).toHaveLength(1);
+ expect(host.querySelector(".bookshelf-card dialog")).toBeNull();
+ await render({books: [props.books[0]]}); expect(host.querySelector("dialog")).toBeNull();
 });

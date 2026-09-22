@@ -52,7 +52,13 @@ async function settle() {
 async function click(node: HTMLElement) { await act(async () => node.click()); await settle(); }
 async function mount() { await act(async () => root.render(<Home />)); await settle(); }
 async function reload() { await act(async () => root.unmount()); root = createRoot(host); await mount(); }
-async function chooseEdition(edition: string) { await click(element('.workspace-nav [data-edition-id="' + edition + '"]')); }
+async function showVersions(bookId: string) {
+  await click(button("书架")); await click(element('.bookshelf-card[data-book-id="' + bookId + '"] .bookshelf-menu-content button:nth-child(2)'));
+}
+async function chooseEdition(edition: string) {
+  await showVersions(edition === "edition-other" ? "book-other" : "book-main");
+  await click(element('dialog [data-edition-id="' + edition + '"]'));
+}
 async function search() {
   await click(element(".workspace-book-search summary"));
   const input = element<HTMLInputElement>("#workspace-book-query");
@@ -74,6 +80,9 @@ function searchResponse(edition: string) {
   const start = 0; return Response.json({ results: [{ paragraphId: paragraphId(edition), chapterId: "chapter-" + edition, chapterTitle: edition, matchedText: texts[edition], startOffset: start, excerpt: texts[edition] }] });
 }
 beforeEach(() => {
+  // WHY：测试环境无原生dialog顶层，交互仍使用真实详情组件。
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable: true, value: function(this: HTMLDialogElement) {this.open = true;}});
+  Object.defineProperty(HTMLDialogElement.prototype, "close", {configurable: true, value: function(this: HTMLDialogElement) {this.open = false;}});
   vi.clearAllMocks(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.stubGlobal("ResizeObserver", undefined); vi.stubGlobal("CSS", { escape: (value: string) => value });
   frames = new Map(); frameId = 0; requests = []; failFirst = false; delayedSearch = undefined;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; });
@@ -113,7 +122,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("fetch", fetcher); host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); document.getSelection()?.removeAllRanges(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); document.getSelection()?.removeAllRanges(); localStorage.clear(); Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal"); Reflect.deleteProperty(HTMLDialogElement.prototype, "close"); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("全部书籍和版本的页面入口", () => {
   it("同名不同BookID均可达，旧版刷新恢复且不会默认跳最新版", async () => {
@@ -123,8 +132,9 @@ describe("全部书籍和版本的页面入口", () => {
     expect(element('[data-message-id="assistant-edition-old"]').textContent).toContain("旧回答");
     await click(button("书架"));
     expect(host.querySelectorAll(".bookshelf-card")).toHaveLength(2);
-    expect(host.querySelectorAll(".bookshelf-card [data-edition-id]")).toHaveLength(3);
-    await click(element('.bookshelf-card[data-book-id="book-other"] [data-edition-id="edition-other"]'));
+    await showVersions("book-main"); expect(host.querySelectorAll("dialog [data-edition-id]")).toHaveLength(2);
+    await click(element('[aria-label="关闭书籍信息"]'));
+    await chooseEdition("edition-other");
     expect(element(".reader-sheet").textContent).toContain(texts["edition-other"]);
     expect(localStorage.getItem("judu:active-book")).toBe("book-other");
     await reload();
@@ -136,7 +146,8 @@ describe("全部书籍和版本的页面入口", () => {
     expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);
     expect(host.querySelector('[data-message-id="assistant-edition-old"]')).toBeNull();
     expect(element('[data-message-id="assistant-edition-new"]').textContent).toContain("旧回答");
-    expect(element('.workspace-nav [data-edition-id="edition-new"]').getAttribute("aria-current")).toBe("true");
+    await showVersions("book-main"); expect(element('dialog [data-edition-id="edition-new"]').getAttribute("aria-current")).toBe("true");
+    await click(element('[aria-label="关闭书籍信息"]'));
     await click(button("知识库"));
     expect(element('[data-concept-name="承认"]').textContent).toContain("edition-new的定义");
     await click([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(item => item.textContent?.startsWith("句读记录"))!);

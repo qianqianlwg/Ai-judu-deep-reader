@@ -1,0 +1,26 @@
+/* WHY：信息面板进入浏览器顶层而非书卡布局，长文件名、错误提示与管理表单都在独立滚动区内。 */
+.book-details-panel{box-sizing:border-box;width:min(460px,calc(100vw - 32px));height:calc(100dvh - 32px);max-width:none;max-height:none;margin:16px 16px 16px auto;padding:0;border:1px solid var(--shelf-line);border-radius:16px;background:var(--reading-paper,#fff);color:var(--shelf-text);box-shadow:0 16px 70px #0002;overflow:hidden;}
+.book-details-panel[open]{display:flex;flex-direction:column;}
+.book-details-panel::backdrop{background:rgb(20 24 28 / 18%);}
+.book-details-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;padding:22px 24px 18px;border-bottom:1px solid var(--shelf-line);}
+.book-details-heading p{margin:0 0 4px;font-size:11px;color:var(--shelf-muted);}
+.book-details-heading h2{margin:0;font-size:18px;line-height:1.5;font-weight:600;}
+.book-details-panel button{padding:9px 12px;min-height:36px;border:1px solid var(--shelf-line);border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer;}
+.book-details-panel .book-details-close{width:36px;padding:0;border:0;font-size:25px;line-height:1;}
+.book-details-panel button:hover{background:var(--shelf-fill);}
+.book-details-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:24px;}
+.book-details-identity{display:flex;gap:20px;align-items:center;}
+.book-details-identity .bookshelf-cover{width:94px;height:126px;flex:0 0 94px;padding:10px;}
+.book-details-identity .bookshelf-cover>span{font-size:12px;-webkit-line-clamp:4;}.book-details-identity .bookshelf-cover small{font-size:10px;}
+.book-details-identity>div{min-width:0;}.book-details-identity h3{margin:0;font-size:18px;line-height:1.6;font-weight:600;overflow-wrap:anywhere;}.book-details-identity p{font-size:13px;color:var(--shelf-muted);margin:10px 0 5px;}.book-details-identity>div>span{font-size:11px;color:var(--shelf-muted);}
+.book-details-sections{display:flex;gap:3px;border-radius:10px;background:var(--shelf-fill);padding:4px;margin:26px 0;}
+.book-details-sections button{flex:1;white-space:nowrap;border:0;background:transparent;padding:8px;}
+.book-details-sections [aria-pressed=true]{background:var(--reading-paper,#fff);box-shadow:0 1px 3px #0000000d;font-weight:600;}
+.book-details-body section[hidden]{display:none;}.book-details-body h4{font-size:13px;font-weight:600;margin:0 0 14px;}
+.book-details-facts{display:grid;gap:18px;margin:0;}.book-details-facts>div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:18px;}.book-details-facts dt{font-size:12px;color:var(--shelf-muted);}.book-details-facts dd{font-size:12px;line-height:1.8;margin:0;overflow-wrap:anywhere;}
+.book-details-note{font-size:12px;line-height:1.8;color:var(--shelf-muted);margin:12px 0 18px;}.book-details-facts+.book-details-note{margin-top:26px;padding-top:16px;border-top:1px solid var(--shelf-line);}
+.book-details-editions{display:grid;gap:12px;}.book-details-editions article{padding:16px;border:1px solid var(--shelf-line);border-radius:12px;min-width:0;}.book-details-edition-heading{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:11px;color:var(--shelf-muted);margin-bottom:10px;}.book-details-edition-heading small{padding:3px 7px;border-radius:5px;background:var(--shelf-fill);font-size:11px;color:var(--shelf-text);}.book-details-editions strong{display:block;font-size:13px;font-weight:500;line-height:1.8;overflow-wrap:anywhere;}.book-details-editions time,.book-details-file-size{display:block;font-size:11px;color:var(--shelf-muted);margin-top:7px;}.book-details-editions button{margin-top:14px;display:flex;gap:18px;align-items:center;}
+.book-details-technical{margin-top:24px;font-size:12px;color:var(--shelf-muted);}.book-details-technical summary{cursor:pointer;padding:6px 0;}.book-details-technical dl{font-size:11px;line-height:1.8;}.book-details-technical dd{margin:3px 0 12px;overflow-wrap:anywhere;user-select:all;}
+.book-details-management{margin-top:26px;padding-top:24px;border-top:1px solid var(--shelf-line);}.book-details-management .book-shelf-action{padding:0;border:0;}.book-details-panel .bookshelf-title-form{font-size:12px;}.book-details-panel .bookshelf-title-form input{font-size:13px;min-height:38px;padding:9px 10px;border-radius:8px;}.book-details-panel .bookshelf-title-form button{font-size:12px;}
+.book-details-footer{padding:16px 24px;border-top:1px solid var(--shelf-line);flex-shrink:0;}.book-details-footer button{display:flex;align-items:center;justify-content:center;gap:14px;width:100%;min-height:40px;background:var(--shelf-text);color:var(--reading-paper,#fff);border-color:transparent;}.book-details-footer button:hover{background:var(--shelf-text);opacity:.9;}
+@media(max-width:520px){.book-details-panel{width:100%;height:100dvh;margin:0;border:0;border-radius:0;}.book-details-heading{padding:18px;}.book-details-body{padding:20px 18px;}.book-details-footer{padding:14px 18px calc(14px + env(safe-area-inset-bottom));}.book-details-identity{gap:16px;}.book-details-identity h3{font-size:16px;}}

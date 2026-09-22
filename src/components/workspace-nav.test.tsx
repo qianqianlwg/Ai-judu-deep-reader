@@ -21,28 +21,19 @@ describe("WorkspaceNav", () => {
     render(); act(() => button("导入书籍").click()); expect(navigate).toHaveBeenCalledWith("bookshelf"); expect(importBook).toHaveBeenCalledOnce();
     expect(host.querySelectorAll('a[href="/settings"]')).toHaveLength(1); expect(host.querySelector('footer a[href="/settings"]')).not.toBeNull();
   });
-  it("书籍与目录入口可用、折叠不清空当前选择", () => {
-    render(); act(() => button("甲书").click()); expect(openBook).toHaveBeenCalledWith("a");
+  it("只保留本书目录，折叠不清空章节选择", () => {
+    render(); expect(host.querySelector(".book-shelf")).toBeNull();
     act(() => host.querySelector<HTMLButtonElement>(".toc-item")?.click()); expect(openChapter).toHaveBeenCalledWith("c");
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起书籍"]')?.click()); expect(host.querySelector(".shelf-book")).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开书籍"]')?.click()); expect(host.querySelector(".shelf-book.active")).not.toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起目录"]')?.click()); expect(host.querySelector(".toc-item")).toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开目录"]')?.click()); expect(host.querySelector(".toc-item.active")).not.toBeNull();
   });
-  it("生成中禁用切书与导入，但仍允许查看知识库", () => {
-    render({ busy: true }); expect(button("甲书").disabled).toBe(true); expect(button("导入书籍").disabled).toBe(true);
-    act(() => button("甲书").click()); expect(openBook).not.toHaveBeenCalled();
-    act(() => button("知识库").click()); expect(navigate).toHaveBeenCalledWith("knowledge");
+  it("生成中禁用导入，但仍允许查看知识库，侧栏不再有切书入口", () => {
+    render({busy: true}); expect(button("导入书籍").disabled).toBe(true); expect(host.querySelector(".shelf-book")).toBeNull();
+    act(() => button("知识库").click()); expect(navigate).toHaveBeenCalledWith("knowledge"); expect(openBook).not.toHaveBeenCalled();
   });
-});
-
-
-describe("侧栏版本导航", () => {
-  it("折叠同名记录不丢身份，展开后每个版本都可选", () => {
-    const editions = [{ id: "new", fileName: "新文件.epub", fileType: "epub", createdAt: "2026-01-01" }, { id: "old", fileName: "旧文件.epub", fileType: "epub", createdAt: "2025-01-01" }];
-    render({ books: [{ id: "a", title: "同名书", author: "作者", editions }, { id: "b", title: "同名书", author: "作者", editions: [{ ...editions[0], id: "b-new" }] }], currentEditionId: "new" });
-    expect(host.querySelectorAll(".shelf-book-group")).toHaveLength(2); expect(host.querySelectorAll("[data-edition-id]")).toHaveLength(3);
-    expect(host.querySelector('[data-edition-id="new"]')?.getAttribute("aria-current")).toBe("true");
-    act(() => host.querySelector<HTMLButtonElement>('[data-edition-id="old"]')?.click()); expect(openBook).toHaveBeenCalledWith("a", "old");
+  it.each(["reader", "bookshelf", "knowledge"] as const)("%s 视图都移除重复书籍列表与说明文字", view => {
+    render({view}); expect(host.textContent).not.toContain("我的书籍"); expect(host.textContent).not.toContain("在书架搜索");
+    expect(host.querySelector(".book-shelf")).toBeNull(); expect(host.querySelector("[data-edition-id]")).toBeNull();
+    expect(host.querySelector(".toc-item") !== null).toBe(view === "reader");
   });
 });
-
-it("书架不重复展示书籍树，返回阅读后身份和目录仍保留",()=>{render({view:"bookshelf"});expect(host.querySelector(".book-shelf")).toBeNull();expect(host.querySelector(".toc-item")).toBeNull();render({view:"reader"});expect(host.querySelector(".shelf-book.active")).not.toBeNull();expect(host.querySelector(".toc-item")).not.toBeNull();});
