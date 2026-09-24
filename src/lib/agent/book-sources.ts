@@ -1,7 +1,7 @@
 import type { getDb } from "../db";
 import { sourceIdForParagraph } from "../citation-validation";
 import type { BookSource } from "./tools";
-import type { ReadSourceInput, SearchBookInput } from "./schemas";
+import type { ReadSourceInput } from "./schemas";
 
 type Db = ReturnType<typeof getDb>;
 type Row = { id: string; text: string; chapter_id: string; chapter_title: string; order_index: number };
@@ -21,15 +21,6 @@ export function createBookSources(db: Db, editionId: string) {
       const sources = row ? neighbors(row, 1).map(item => item.paragraphId === paragraphId ? { ...item, text: row.text.slice(Math.max(0, selectionStart - 1500), Math.max(0, selectionStart - 1500) + 12000) } : item) : [];
       for (const item of sources) registered.set(item.sourceId, item);
       return sources;
-    },
-    async search(input: SearchBookInput): Promise<BookSource[]> {
-      // WHY：版本过滤必须在查询层完成，来源注册表只登记实际返回给模型的片段。
-      const rows = db.prepare(SELECT + " WHERE c.edition_id=? AND instr(p.text,?)>0 AND (? IS NULL OR p.chapter_id=?) ORDER BY c.order_index,p.order_index LIMIT ?").all(editionId, input.query, input.chapterId, input.chapterId, input.limit) as Row[];
-      return rows.map(row => {
-        const at = row.text.indexOf(input.query);
-        const start = Math.max(0, at - 1500);
-        return { ...source(row), text: row.text.slice(start, start + 6000) };
-      });
     },
     async read(input: ReadSourceInput): Promise<BookSource[]> {
       const known = registered.get(input.sourceId);

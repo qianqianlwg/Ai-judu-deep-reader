@@ -37,53 +37,9 @@
 }
 .latestButton[hidden] { display: none; }
 .latestButton:hover { background: var(--reading-selected); }
-.latestButton:focus-visible, .sourceLink:focus-visible, .sourceDetails summary:focus-visible {
+.latestButton:focus-visible, .sourceLink:focus-visible {
   outline: 2px solid var(--reading-accent);
   outline-offset: 3px;
-}
-.sourceCard {
-  margin-top: 9px;
-  padding: 9px 11px;
-  border: 1px solid var(--ui-divider, var(--reading-border));
-  border-radius: var(--ui-radius-card, 12px);
-  background: var(--reading-surface);
-  min-width: 0;
-  color: var(--reading-text);
-  font-size: 12px;
-  line-height: 1.65;
-}
-.sourceDetails { min-width: 0; }
-.sourceDetails summary {
-  list-style: none;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.sourceDetails summary::-webkit-details-marker { display: none; }
-.sourceLabel {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 10px;
-  color: var(--reading-muted);
-}
-.sourcePreview {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  white-space: normal;
-}
-.expandHint, .collapseHint { display: inline-block; margin-top: 4px; color: var(--reading-accent); font-size: 10px; }
-.collapseHint { display: none; }
-.sourceDetails[open] .expandHint, .sourceDetails[open] .sourcePreview { display: none; }
-.sourceDetails[open] .collapseHint { display: inline-block; }
-.sourceText {
-  margin: 8px 0 4px;
-  padding-left: 9px;
-  border-left: 2px solid var(--reading-border);
-  color: var(--reading-text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-weight: 400;
 }
 .sourceLink {
   margin-top: 5px;

@@ -40,3 +40,6 @@
 @media (prefers-reduced-motion: reduce) { .actions button { transition: none; } }
 
 .card textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:96px;padding:10px;border:1px solid var(--ui-divider,#ddd);border-radius:8px;background:var(--reading-paper,#fff);color:inherit;}
+
+.card input[type="checkbox"] { width: 18px; min-height: 18px; height: 18px; padding: 0; accent-color: var(--reading-accent, #396e6a); flex-shrink: 0; }
+.card > label:has(input[type="checkbox"]) { flex-direction: row; justify-content: flex-start; align-items: center; }

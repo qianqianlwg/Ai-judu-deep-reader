@@ -1,0 +1,52 @@
+.card { margin: 0 0 14px; border: 1px solid var(--reading-border, #d7e2e0); border-radius: 10px; background: var(--reading-surface, #fff); color: var(--reading-text, #263238); overflow: hidden; font-size: 12px; }
+.card summary { list-style: none; cursor: pointer; outline: none; }
+.card summary::-webkit-details-marker { display: none; }
+.card > summary { display: flex; align-items: center; gap: 8px; padding: 11px 13px; }
+.card summary:hover { background: var(--reading-selected, #edf3f1); }
+.card summary:focus-visible, .card button:focus-visible { outline: 2px solid var(--reading-accent, #396e6a); outline-offset: -3px; border-radius: 5px; }
+.summaryLabel { flex: 1; min-width: 0; font-weight: 550; line-height: 1.6; }
+.summaryLabel small { font-weight: 400; font-size: 11px; color: var(--reading-muted, #66716f); }
+.chevron { color: var(--reading-muted, #66716f); transition: transform .15s; flex-shrink: 0; }
+.card[open] > summary .chevron, .channel[open] > summary .chevron, .source[open] > summary .chevron { transform: rotate(180deg); }
+.card[data-state="running"] > summary svg { color: var(--reading-accent, #396e6a); }
+.content { border-top: 1px solid var(--reading-border, #d7e2e0); padding: 0 12px; }
+.run + .run { border-top: 1px solid var(--reading-border, #d7e2e0); }
+.channel + .channel { border-top: 1px solid var(--reading-border, #d7e2e0); }
+.channel > summary { display: flex; align-items: center; gap: 8px; padding: 12px 0; }
+.channelIcon { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--reading-border, #d7e2e0); border-radius: 6px; color: var(--reading-muted, #66716f); font-size: 12px; flex-shrink: 0; }
+.channelTitle { flex: 1; min-width: 0; }
+.channelTitle strong { display: block; font-size: 12px; font-weight: 550; }
+.channelTitle small { display: block; font-size: 11px; color: var(--reading-muted, #66716f); margin-top: 3px; }
+.channelCount { font-size: 11px; color: var(--reading-muted, #66716f); white-space: nowrap; }
+.channelBody { padding-bottom: 12px; }
+.queries { margin: 0 0 8px; padding: 0 0 0 18px; }
+.queries li { padding: 4px 0; line-height: 1.7; overflow-wrap: anywhere; }
+.queries li > span { margin-right: 7px; }
+.queries small { font-size: 10px; color: var(--reading-muted, #66716f); white-space: nowrap; }
+.warning { margin: 3px 0; font-size: 11px; color: var(--reading-muted, #66716f); line-height: 1.65; }
+.sources { list-style: none; padding: 0; margin: 0; }
+.sources > li { border-top: 1px solid var(--reading-border, #d7e2e0); }
+.source > summary { display: flex; align-items: flex-start; gap: 8px; padding: 10px 0; }
+.ordinal { min-width: 17px; text-align: center; color: var(--reading-muted, #66716f); font-size: 11px; flex-shrink: 0; line-height: 1.7; }
+.sourceHeading { flex: 1; min-width: 0; }
+.sourceHeading strong { font-size: 12px; line-height: 1.7; font-weight: 550; }
+.tag { margin-left: 6px; font-size: 10px; color: var(--reading-muted, #66716f); }
+.sourcePreview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; margin-top: 3px; color: var(--reading-muted, #66716f); font-size: 11px; line-height: 1.65; }
+.source[open] > summary .sourcePreview { display: none; }
+.sourceBody { margin: 0 0 10px 25px; }
+.sourceLink, .more { border: none; background: none; color: var(--reading-accent, #396e6a); cursor: pointer; font-size: 11px; padding: 5px 0; }
+.sourceLink { display: block; margin-left: auto; }
+.more { display: block; width: 100%; text-align: left; padding: 8px 0; }
+.more span { color: var(--reading-muted, #66716f); }
+.metrics { margin-top: 8px; font-size: 11px; color: var(--reading-muted, #66716f); }
+.metrics > summary { padding: 5px 0; }
+.metrics ul { margin: 5px 0; padding: 0; list-style: none; }
+.metrics li { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+.note, .runMeta { font-size: 11px; line-height: 1.7; color: var(--reading-muted, #66716f); margin: 8px 0; }
+.runMeta { padding-bottom: 4px; }
+.pending { padding: 12px 0; font-size: 12px; }
+.pending ul { margin: 8px 0 0; padding-left: 18px; font-size: 11px; line-height: 1.7; color: var(--reading-muted, #66716f); }
+.about { border-top: 1px solid var(--reading-border, #d7e2e0); color: var(--reading-muted, #66716f); font-size: 11px; }
+.about > summary { padding: 10px 0; }
+.about ul { margin: 0 0 12px; padding-left: 18px; line-height: 1.8; }
+@media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }

@@ -13,7 +13,6 @@ function fixture() {
 }
 describe("本轮书籍来源边界", () => {
   it("初始上下文只含当前段和邻段，不再塞全书前200段", () => { const repo = fixture(); const sources = repo.initial("p1"); expect(sources.map(s => s.paragraphId)).toEqual(["p1", "p2"]); expect(repo.registered.size).toBe(2); });
-  it("关键词严格过滤版本并返回可跳转段落ID", async () => { const repo = fixture(); const results = await repo.search({ query: "认识", chapterId: null, limit: 8 }); expect(results.map(s => s.paragraphId)).toEqual(["p1", "p2", "p3"]); expect(results.every(s => s.sourceId.startsWith("book:e1:paragraph:"))).toBe(true); expect(repo.registered.size).toBe(0); });
   it("未返回给模型的来源不能直接读", async () => { const repo = fixture(); await expect(repo.read({ sourceId: "book:e2:paragraph:other", neighbors: 1 })).rejects.toThrow("未登记"); });
   it("登记后可读取邻段，越界章节不会混入", async () => { const repo = fixture(); repo.initial("p2"); const result = await repo.read({ sourceId: "book:e1:paragraph:p2", neighbors: 2 }); expect(result).toHaveLength(3); expect(result.every(s => s.chapterId === "c1")).toBe(true); });
   it("长段后部选文保持在可引用片段中，读邻段不丢失该片段", async () => { const repo = fixture(); const initial = repo.initial("long", 15000); expect(initial[0].text).toContain("后部选文"); const expanded = await repo.read({ sourceId: initial[0].sourceId, neighbors: 0 }); expect(expanded[0].text).toBe(initial[0].text); });

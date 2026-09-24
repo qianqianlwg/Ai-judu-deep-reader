@@ -60,7 +60,11 @@ export function applyChatEvent(messages: ChatMessage[], assistantId: string, eve
     if (message.id !== assistantId || message.role !== "assistant") return message;
     switch (event.type) {
       case "usage": return {...message,usage:event.usage};
-      case "tool": return {...message,tools:[...(message.tools??[]).filter(t=>t.id!==event.tool.id),event.tool]};
+      case "tool": {
+        // WHY：并行工具乱序完成时原位更新，避免用户展开的检索详情随状态变化跳到另一位置。
+        const tools = message.tools ?? [];
+        return {...message, tools: tools.some(tool=>tool.id===event.tool.id) ? tools.map(tool=>tool.id===event.tool.id?event.tool:tool) : [...tools,event.tool]};
+      }
       case "warning": return { ...message, warnings: [...(message.warnings ?? []), event.message] };
       case "raw_delta": return { ...message, content: message.content + event.text, status: "streaming" };
       case "structured": return { ...message, kind: "analysis", analysis: event.result };

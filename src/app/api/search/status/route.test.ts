@@ -1,10 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
-const { mockStatus } = vi.hoisted(() => ({ mockStatus: vi.fn() }));
-vi.mock("@/lib/postgres-search-client", () => ({ getPostgresSearchIndexStatus: mockStatus }));
-vi.mock("@/lib/db", () => ({ getDb: () => ({ prepare: () => ({ get: () => ({ paragraphCount: 12 }) }) }) }));
-import { GET } from "./route";
-describe("/api/search/status", () => {
-  it("reports SQLite status without claiming vector index", async () => { delete process.env.DATABASE_URL; const response = await GET(new NextRequest("http://localhost/api/search/status?editionId=e1")); expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ backend: "sqlite", paragraphCount: 12, indexedCount: 0, vectorIndexed: false }); });
-  it("reports actual PostgreSQL vector coverage", async () => { process.env.DATABASE_URL = "postgres://test"; mockStatus.mockResolvedValue({ paragraphCount: 12, indexedCount: 9 }); const response = await GET(new NextRequest("http://localhost/api/search/status?editionId=e1")); expect(await response.json()).toMatchObject({ backend: "postgres", paragraphCount: 12, indexedCount: 9, vectorIndexed: true }); delete process.env.DATABASE_URL; });
-});
+import { expect, it, vi } from 'vitest';import {NextRequest} from 'next/server';
+vi.mock('@/lib/db',()=>({getDb:()=>({})}));vi.mock('@/lib/embedding-store',()=>({readEmbeddingConfig:()=>({apiKey:'private'})}));vi.mock('@/lib/vector-index',()=>({vectorIndexStatus:()=>({backend:'sqlite',indexedCount:12,paragraphCount:12,vectorIndexed:true})}));
+import {GET} from './route';
+it('所有状态入口统一本地向量覆盖，绝不返回密钥',async()=>{for(const suffix of ['', '&engine=local-vector']){const response=await GET(new NextRequest('http://localhost/api/search/status?editionId=e'+suffix));expect(await response.json()).toEqual({backend:'sqlite',indexedCount:12,paragraphCount:12,vectorIndexed:true,configured:true});}expect((await GET(new NextRequest('http://localhost/api/search/status'))).status).toBe(400);});

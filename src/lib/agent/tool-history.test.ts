@@ -185,3 +185,4 @@ it("服务端已成功但客户端漏收 done：原 ID 重试通过真实执行�
  const sent = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
  expect(sent).toMatchObject({ clientUserMessageId: "u1", clientAssistantMessageId: "a1", question: "继续解释" });
 });
+it("并行工具先后完成不改变开始顺序的历史回放",()=>{insertCurrentAttemptToolRun(db,scope,{...run,id:'second',startedAt:'2026-09-24T00:00:00.001Z'});insertCurrentAttemptToolRun(db,scope,{...run,id:'first',startedAt:'2026-09-24T00:00:00.000Z'});expect(readCurrentAttemptTools(db,scope).map(t=>t.id)).toEqual(['first','second']);expect(()=>insertCurrentAttemptToolRun(db,scope,{...run,id:'bad',startedAt:'invalid'})).toThrow('开始时间');});

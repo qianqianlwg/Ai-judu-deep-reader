@@ -6,7 +6,7 @@ export type ToolHistoryDatabase = {
 };
 export type ToolMessageScope = { threadId: string; messageId: string; editionId: string };
 export type ToolAttemptScope = ToolMessageScope & { attemptId: string };
-export type ToolAuditRun = { id: string; name: string; input: unknown; output: unknown; status: "completed" | "error" };
+export type ToolAuditRun = { startedAt?: string; id: string; name: string; input: unknown; output: unknown; status: "completed" | "error" };
 export type MessageToolHistory = { tools: ToolActivity[]; historicalTools: HistoricalToolActivity[] };
 export class ToolAttemptNotActiveError extends Error {
   readonly code = "stale_tool_attempt";
@@ -31,6 +31,7 @@ export function assertCurrentToolAttempt(db: ToolHistoryDatabase, scope: ToolAtt
 export function insertCurrentAttemptToolRun(db: ToolHistoryDatabase, scope: ToolAttemptScope, run: ToolAuditRun, signal?: AbortSignal): boolean {
   signal?.throwIfAborted();
   validateScope(scope);
+  if (run.startedAt !== undefined && (!Number.isFinite(Date.parse(run.startedAt)) || new Date(run.startedAt).toISOString() !== run.startedAt)) throw new Error("工具开始时间不合法");
   if (!run.id?.trim() || !run.name?.trim() || (run.status !== "completed" && run.status !== "error")) throw new Error("工具审计字段不完整");
   // WHY：模型可在不同消息/重试中复用 tool_call_id；数据库键必须同时绑定消息与 attempt，回放再恢复原工具 ID。
   const id = AUDIT_ID_PREFIX + JSON.stringify([scope.messageId, scope.attemptId, run.id]);
@@ -38,7 +39,7 @@ export function insertCurrentAttemptToolRun(db: ToolHistoryDatabase, scope: Tool
   signal?.throwIfAborted();
   // WHY：同步单条 INSERT…SELECT 把状态/版本/attempt 校验和写入变为原子操作；不能先读状态再 await 写入。
   const inserted = db.prepare("INSERT INTO agent_tool_runs (id,message_id,thread_id,attempt_id,tool_name,input_json,output_json,status,created_at) SELECT ?,m.id,m.thread_id,?,?,?,?,?,? " + ACTIVE_MESSAGE + " ON CONFLICT(id) DO NOTHING RETURNING id")
-    .get(id, scope.attemptId, run.name, input, output, run.status, new Date().toISOString(), ...scopeArgs(scope));
+    .get(id, scope.attemptId, run.name, input, output, run.status, run.startedAt ?? new Date().toISOString(), ...scopeArgs(scope));
   if (inserted) return true;
   assertCurrentToolAttempt(db, scope, signal);
   const existing = db.prepare("SELECT thread_id, message_id, attempt_id, tool_name, input_json, output_json, status FROM agent_tool_runs WHERE id = ?").get(id);

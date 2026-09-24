@@ -1,0 +1,10 @@
+.quote { min-width: 0; color: var(--reading-text, #263238); }
+.body { margin: 10px 0 6px; padding: 0 0 0 12px; border-left: 2px solid var(--reading-border, #d7e2e0); font-size: 13px; font-weight: 400; line-height: 1.85; overflow-wrap: anywhere; white-space: pre-wrap; }
+.body p { margin: 0 0 10px; }
+.body p:last-child { margin-bottom: 0; }
+.quote[data-expanded="true"] .body { max-height: 280px; overflow-y: auto; scrollbar-gutter: stable; overscroll-behavior: contain; padding-right: 8px; }
+.body:focus-visible { outline: 2px solid var(--reading-accent, #396e6a); outline-offset: 3px; }
+.controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-top: 4px; color: var(--reading-muted, #66716f); font-size: 11px; }
+.controls button { padding: 5px 0; border: 0; background: none; color: var(--reading-accent, #396e6a); font: inherit; cursor: pointer; }
+.controls button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.controls button:focus-visible { outline: 2px solid var(--reading-accent, #396e6a); outline-offset: 3px; border-radius: 3px; }

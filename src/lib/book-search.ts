@@ -21,7 +21,7 @@ export type SearchMatch = {
 };
 
 export type SearchRetrieval = {
-  backend: "postgres" | "sqlite";
+  backend: "sqlite";
   keywordScore: number;
   vectorSimilarity: number;
   rrfScore: number;
@@ -96,4 +96,17 @@ export function findConceptOccurrences(paragraphs: SearchParagraph[], concept: s
 
 export function buildSearchResponse(input: Pick<SearchResponse, "query" | "mode" | "results">): SearchResponse {
   return { ...input, total: input.results.length };
+}
+
+// WHY：Agent 常返回空格分隔的关键词组；自动/混合检索先取完整短语，再按覆盖词数排序，不能把整组当作一个必需子串。
+export function searchKeywordCandidates(paragraphs: SearchParagraph[], query: string, limit = 20, radius = 1): SearchMatch[] {
+  const normalized = normalizeSearchQuery(query).toLocaleLowerCase();
+  const terms = [...new Set(normalized.split(/\s+/u).filter(Boolean))].slice(0, 8);
+  if (terms.length < 2) return searchParagraphs(paragraphs, query, limit, radius);
+  return paragraphs.flatMap((paragraph, index) => {
+    const exact = createMatch(paragraphs, index, normalized, radius);
+    const hits = terms.filter(term => paragraph.text.toLocaleLowerCase().includes(term));
+    const match = exact ?? (hits.length ? createMatch(paragraphs, index, hits[0], radius) : undefined);
+    return match ? [{match, score: exact ? terms.length + 1 : hits.length, order:index}] : [];
+  }).sort((a,b)=>b.score-a.score||a.order-b.order).slice(0,limit).map(item=>item.match);
 }

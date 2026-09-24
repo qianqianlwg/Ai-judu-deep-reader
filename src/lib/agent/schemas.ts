@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 export const searchBookSchema = z.object({
-  query: z.string().trim().min(1).max(120).describe("要在当前书籍版本检索的精确关键词或短语"),
+  query: z.string().trim().min(1).max(500).describe("主要检索问题或精确关键词；自然语言适合语义检索"),
+  additionalQueries: z.array(z.string().trim().min(1).max(500)).max(2).optional().describe("最多两个补充关键词或改写，与主查询并行检索；避免无意义重复"),
+  mode: z.enum(["auto", "keyword", "semantic", "hybrid"]).optional().describe("默认 auto：索引可用时并行关键词与语义；精确引文用 keyword，语义问题用 auto"),
   chapterId: z.string().nullable().default(null).describe("可选章节过滤；null 表示全书"),
   limit: z.number().int().min(1).max(8).default(5),
 }).strict();

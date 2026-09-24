@@ -9,6 +9,8 @@ import { ConversationControls, type ConversationControlsProps } from "./conversa
 import { isAnalysis, isRecord, streamingPreview, type Analysis, type ChatMessage, type Citation, type MessageAnchor, type ToolActivity } from "@/lib/chat-stream";
 import { useChatFollow } from "./use-chat-follow";
 import styles from "./analysis-panel.module.css";
+import { MessageSourceCard as SourceCard } from "./message-source-card";
+import { RetrievalActivity } from "./retrieval-activity";
 import { MessageActions } from "./message-actions";
 import { ComposerOptions, type ReasoningEffort } from "./composer-options";
 
@@ -32,7 +34,7 @@ type Props = {
   onOpenSource?: (anchor: MessageAnchor) => void;
   onOpenCitation?: (paragraphId: string, quote: string, messageId?: string) => void;
 };
-import { anchorParts, joinAnchorText, readReadingAnchor } from "@/lib/reading-anchors";
+import { readReadingAnchor } from "@/lib/reading-anchors";
 const EMPTY_MESSAGES: PanelMessage[] = [];
 
 function validAnchor(value: unknown): value is MessageAnchor { return readReadingAnchor(value) !== null; }
@@ -47,30 +49,6 @@ function validCitation(value: unknown): value is Citation {
 }
 function ReadableText({ content }: { content: string }) {
   return <div className="message-content readable-text">{content.split(/\n{2,}/u).map((part, index) => <p key={index}>{part.trim()}</p>)}</div>;
-}
-function SourceCard({ anchor, messageId, role, onOpenSource, onOpenCitation }: {
-  anchor: MessageAnchor; messageId?: string; role: PanelMessage["role"];
-  onOpenSource?: Props["onOpenSource"]; onOpenCitation?: Props["onOpenCitation"];
-}) {
-  const excerpt = joinAnchorText(anchorParts(anchor)).replace(/\s+/gu, " ").trim();
-  const preview = Array.from(excerpt).slice(0, 80).join("");
-  const label = role === "user" ? "本次选文" : "句读原文";
-  return <div className={styles.sourceCard} data-testid="message-source" data-source-paragraph={anchor.paragraphId}>
-    <details className={styles.sourceDetails}>
-      <summary aria-label={"展开" + label}>
-        <span className={styles.sourceLabel}>{label}</span>
-        <span className={styles.sourcePreview}>{preview}{Array.from(excerpt).length > 80 ? "…" : ""}</span>
-        <span className={styles.expandHint} aria-hidden="true">展开原文</span>
-        <span className={styles.collapseHint} aria-hidden="true">收起原文</span>
-      </summary>
-      <blockquote className={styles.sourceText}>{joinAnchorText(anchorParts(anchor))}</blockquote>
-    </details>
-    <button type="button" className={styles.sourceLink} disabled={!onOpenSource && !onOpenCitation}
-      aria-label={"定位" + label} onClick={() => {
-        if (onOpenSource) onOpenSource(anchor);
-        else onOpenCitation?.(anchor.paragraphId, anchor.selectedText, messageId);
-      }}>定位原文 <span aria-hidden="true">↗</span></button>
-  </div>;
 }
 function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
   analysis: Analysis; rawContent: string; messageId?: string; onOpenCitation?: Props["onOpenCitation"];
@@ -128,7 +106,7 @@ function ToolActivityResult({ tool, messageId, onOpenCitation, historical = fals
 const TOOL_LABELS: Record<string, string> = { search_book: "本书检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
 function ToolRecords({ message, onOpenCitation, includeAnalysis = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean }) {
   const analysis = includeAnalysis && isAnalysis(message.analysis) ? message.analysis : undefined;
-  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && ["running", "completed", "error"].includes(String(tool.status))) : [];
+  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && tool.name !== "search_book" && tool.name !== "read_source" && ["running", "completed", "error"].includes(String(tool.status))) : [];
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((warning): warning is string => typeof warning === "string") : [];
   return <>
     {analysis && <details className={styles.toolRecord} data-testid="analysis-record"><summary>句读记录 <span>工具结果</span></summary>
@@ -218,7 +196,7 @@ export function AnalysisPanel({ id, className = "analysis-panel", selected, anal
             const anchor = messageAnchor(message);
             return <article data-message-id={message.id} className={"chat-message " + message.role + " " + styles.messageGroup} key={message.id ?? message.role + "-" + index}>
               <div className="message-role">{message.role === "user" ? "你" : "句读"}</div>
-              {message.role === "user" ? <><ReadableText content={message.content} /><MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage} /></> : <AssistantMessage message={message} onOpenCitation={onOpenCitation} />}
+              {message.role === "user" ? <><ReadableText content={message.content} /><MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage} /></> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><AssistantMessage message={message} onOpenCitation={onOpenCitation} /></>}
               {anchor && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
             </article>;
           })}

@@ -4,7 +4,7 @@ import type { ProviderConfig, ProviderMessage } from "../ai-provider";
 import { isRecord, type ChatEvent, type ToolActivity } from "../chat-stream";
 import { accumulateUsage, estimatedUsage, estimateTextTokens, type TokenUsage } from "../token-usage";
 import { createReadingModel } from "./model";
-import { readingToolSchemaText } from "./schemas";
+import { readingToolSchemaText, searchBookSchema } from "./schemas";
 import { createReadingTools, type ReadingToolDependencies } from "./tools";
 import { logAgentEvent } from "./logger";
 import { diagnoseToolException } from "./diagnostics";
@@ -20,7 +20,7 @@ export function readingAgentFailure(error: unknown): { code: string; message: st
     current = current.cause;
   }
 }
-export type ToolRun = { id: string; name: string; input: unknown; output: unknown; status: "completed" | "error" };
+export type ToolRun = { startedAt?: string; id: string; name: string; input: unknown; output: unknown; status: "completed" | "error" };
 export type ReadingAgentOptions = {
   config: ProviderConfig; systemPrompt: string; messages: ProviderMessage[];
   maxOutputTokens: number; contextWindow: number; signal: AbortSignal;
@@ -58,7 +58,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
   let stepOutput = "";
   let stepHasText = false;
   let finishedModel = false;
-  let toolCount = 0;
+  let toolCount = 0, lastToolStarted = 0;
   let lastPreview = 0;
   const announcedTools = new Set<string>();
   const publishEstimate = () => {
@@ -79,7 +79,11 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       if (++toolCount > 20) throw new ReadingAgentError("tool_limit", "本轮工具调用过多，请缩小问题范围后重试");
       const id = request.toolCall.id ?? crypto.randomUUID();
       const name = request.toolCall.name;
-      emit({ type: "tool", tool: { id, name, status: "running" } });
+      // WHY：同毫秒并行调用分配单调开始时间，历史按开始顺序回放，不按完成速度跳序。
+      lastToolStarted = Math.max(Date.now(), lastToolStarted + 1);
+      const startedAt = new Date(lastToolStarted).toISOString();
+      const searchInput = name === "search_book" ? searchBookSchema.safeParse(request.toolCall.args) : undefined;
+      emit({ type: "tool", tool: { id, name, status: "running", ...(searchInput?.success ? { result: { queries: [searchInput.data.query, ...searchInput.data.additionalQueries ?? []] } } : {}) } });
       logAgentEvent("info", "tool_started", { id, name, inputKeys: isRecord(request.toolCall.args) ? Object.keys(request.toolCall.args) : [] });
       let result;
       try { result = await handler(request); }
@@ -94,7 +98,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       const status = isRecord(output) && output.ok === false ? "error" : "completed";
       logAgentEvent(status === "error" ? "warn" : "info", "tool_finished", { id, name, messageId: options.tools.messageId, status, code: isRecord(output) && typeof output.code === "string" ? output.code : undefined });
       // WHY：审计失败不能伪装为工具成功，交给上层请求保存失败状态。
-      try { await options.audit({ id, name, input: request.toolCall.args, output, status }); } catch (error: unknown) { logAgentEvent("error", "tool_audit_failed", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", code: "tool_audit_failed" }); throw error; }
+      try { await options.audit({ id, name, startedAt, input: request.toolCall.args, output, status }); } catch (error: unknown) { logAgentEvent("error", "tool_audit_failed", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", code: "tool_audit_failed" }); throw error; }
       const activity: ToolActivity = { id, name, status, result: output };
       emit({ type: "tool", tool: activity });
       return result;

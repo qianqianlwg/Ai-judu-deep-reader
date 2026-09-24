@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyChatEvent, decodeChatEvent, streamingPreview } from "./chat-stream";
+import { applyChatEvent, decodeChatEvent, streamingPreview, type ChatMessage } from "./chat-stream";
 import { SseDecoder } from "./sse";
 
 describe("chat stream", () => {
@@ -22,3 +22,5 @@ describe("chat stream", () => {
     expect(streamingPreview('{"summary":"x"}', "chat")).toContain("summary");
   });
 });
+
+it("并行工具乱序完成时保持首次出现顺序，重复事件不追加卡片",()=>{let messages: ChatMessage[]= [{id:'a',role:'assistant' as const,content:''}];for(const id of ['first','second'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'running'}});for(const id of ['first','second','first'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'completed'}});expect(messages[0].tools?.map(t=>t.id)).toEqual(['first','second']);});

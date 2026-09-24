@@ -1,3 +1,6 @@
+import { createBookRetrieval } from "@/lib/book-retrieval";
+import { createQueryEmbeddingSession } from "@/lib/query-embedding";
+import { readEmbeddingConfig, readAgentRetrievalEnabled } from "@/lib/embedding-store";
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
@@ -178,6 +181,10 @@ export async function POST(request: NextRequest) {
   }
 }
 function createReadingStream(request: NextRequest, db: Db, threadId: string, meta: RequestMeta, config: ProviderConfig, context: ReturnType<typeof buildContext>): Response {
+  // WHY：每轮集中装配检索依赖和调用预算；页面、Agent 复用算法，不通过 HTTP 调用自身。
+  const embeddingConfig = readEmbeddingConfig(db);
+  const agentSemanticEnabled = readAgentRetrievalEnabled(db);
+  const retrieve = createBookRetrieval({ db, editionId: meta.input.editionId, config: embeddingConfig, semanticEnabled: agentSemanticEnabled, embeddings: createQueryEmbeddingSession(embeddingConfig) });
   const abort = new AbortController();
   let sink: ReadableStreamDefaultController<Uint8Array>;
   let closed = false;
@@ -237,7 +244,7 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
             tools: {
               messageId: meta.clientAssistantMessageId, selectedText: meta.input.mode === "analyze" ? meta.input.selectedText : "", detail: meta.input.detail,
               anchor: verifiedAnchor(db, meta.input), sources: context.sourceRepository.registered,
-              search: context.sourceRepository.search, read: context.sourceRepository.read,
+              search: async input => { const result = await retrieve({ ...input, signal: abort.signal }); return { sources: result.sources, retrieval: result.retrieval }; }, read: context.sourceRepository.read,
               async save(value) {
                 assertCurrentAttempt();
                 analysis = value;

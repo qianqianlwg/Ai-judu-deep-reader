@@ -2,7 +2,7 @@
  * 混合检索的纯函数层。
  *
  * WHY：先把排序、过滤和 RRF 与数据库解耦，SQLite MVP 可以继续使用，
- * 后续 PostgreSQL/pgvector 只需要把查询结果映射成 HybridSearchCandidate。
+ * 候选先各自排名再融合，不能直接相加不同量纲的原始分数。
  */
 export type SearchMetadata = {
   bookId?: string;

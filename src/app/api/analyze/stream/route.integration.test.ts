@@ -6,7 +6,7 @@ type TestDb = ReturnType<typeof getDb> & { close(): void };
 const fixture = vi.hoisted(() => ({ db: undefined as TestDb | undefined }));
 vi.mock("@/lib/db", () => ({ getDb: () => { if (!fixture.db) throw new Error("测试数据库未初始化"); return fixture.db; } }));
 import { POST } from "./route";
-import * as bookSourceModule from "@/lib/agent/book-sources";
+import * as retrievalModule from "@/lib/book-retrieval";
 import { captureReadingContext, type ReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, restoreReadingRequest } from "@/lib/reading-request";
 
 const runtime = (process as unknown as { getBuiltinModule(name: string): { DatabaseSync: new (file: string) => TestDb } }).getBuiltinModule("node:sqlite");
@@ -404,11 +404,11 @@ describe("显式更新预算的原位重试",()=>{
 
 describe("完整SDK的旧工具迟到与新attempt交错",()=>{
   it("取消后迟到的检索结果不能写入审计或覆盖新回复",async()=>{
-    const original=bookSourceModule.createBookSources;
+    const original=retrievalModule.createBookRetrieval;
     let release!:()=>void, entered!:()=>void, settled!:()=>void;
     const held=new Promise<void>(resolve=>{release=resolve;}), called=new Promise<void>(resolve=>{entered=resolve;}), ended=new Promise<void>(resolve=>{settled=resolve;});
     let first=true;
-    vi.spyOn(bookSourceModule,"createBookSources").mockImplementation((db,edition)=>{const repository=original(db,edition);if(!first)return repository;first=false;return {...repository,search:async input=>{entered();await held;try{return await repository.search(input);}finally{settled();}}};});
+    vi.spyOn(retrievalModule,"createBookRetrieval").mockImplementation(options=>{const search=original(options);if(!first)return search;first=false;return async input=>{entered();await held;try{return await search(input);}finally{settled();}};});
     fetcher.mockResolvedValueOnce(toolResponse({query:"这是十字原文用来句读"},"search_book"));
     const abort=new AbortController();const pending=await POST(request({},abort.signal));await called;abort.abort();expect(await pending.text()).toContain("cancelled");
     const oldAttempt=stored()._request.attemptId;expect((await call()).text).toContain("event: done");expect(stored()._request.attemptId).not.toBe(oldAttempt);

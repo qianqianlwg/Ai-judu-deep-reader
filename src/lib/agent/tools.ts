@@ -1,17 +1,18 @@
+import type { RetrievalReport } from "../retrieval-report";
 import { tool } from "langchain";
 import type { Analysis } from "../chat-stream";
 import type { ReadingAnchor } from "../reading-request";
 import { countReadingCharacters, readingAnswerBudget, normalizeReadingDetail, type ReadingDetail } from "../reading-detail";
 import { readSourceSchema, saveAnalysisSchema, searchBookSchema, type ReadSourceInput, type SearchBookInput } from "./schemas";
 
-export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; excerpts?: string[] };
+export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; channels?: ("keyword" | "semantic")[]; excerpts?: string[] };
 export type SavedReadingAnalysis = Analysis & { anchor?: ReadingAnchor };
 export type ReadingToolDependencies = {
   messageId: string;
   selectedText: string;
   detail?: ReadingDetail;
   anchor?: ReadingAnchor;
-  search: (input: SearchBookInput) => Promise<BookSource[]>;
+  search: (input: SearchBookInput) => Promise<BookSource[] | { sources: BookSource[]; retrieval: RetrievalReport }>;
   read: (input: ReadSourceInput) => Promise<BookSource[]>;
   save: (analysis: SavedReadingAnalysis) => Promise<void>;
   sources: Map<string, BookSource>;
@@ -27,7 +28,12 @@ export function createReadingTools(deps: ReadingToolDependencies) {
     return { ok: true, sources };
   };
   return [
-    tool(async (input) => register(await deps.search(input)), { name: "search_book", description: "在当前书籍版本内检索关键词，返回可引用且可跳转的原文来源。空结果不表示全书不存在概念，可改关键词。", schema: searchBookSchema }),
+    tool(async (input) => {
+      const result = await deps.search(input);
+      if (Array.isArray(result)) return register(result);
+      const registered = register(result.sources);
+      return { ...registered, ok: result.retrieval.effectiveMode !== "none", retrieval: result.retrieval };
+    }, { name: "search_book", description: "按需检索当前书籍：支持并行关键词、语义和最多两个补充查询，返回真实原文、来源及每路耗时/降级情况。需要书内事实、其他章节或证据时主动使用；已有上下文足够时不必检索。不能建索引或访问其他书籍。", schema: searchBookSchema }),
     tool(async (input) => {
       // WHY：只允许扩展本轮已经真实提供的来源，不准用模型猜出的 ID 读取其他版本。
       if (!deps.sources.has(input.sourceId)) return { ok: false, code: "unknown_source", error: "来源未在本轮检索中出现，请先调用 search_book" };

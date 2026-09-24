@@ -359,8 +359,10 @@ describe("P0 独立验收：消息来源完整性优先于残缺标注", () => {
     const marker = paragraph(index).querySelector<HTMLElement>(".judu-history-marker");
     expect(marker).not.toBeNull(); await click(marker!); await click(button("查看完整句读", document));
     // 请求成功加载该消息，来源卡片已有全部片段，不能把 annotations 的子集冒充完整选区。
-    const source = host.querySelector('[data-message-id="message-review"] [data-testid="message-source"] blockquote');
-    expect(source?.textContent).toBe(fullSelection().text);
+    // WHY：分点后仍逐字验证完整来源，不能只检查首段。
+    const sources = host.querySelectorAll('[data-message-id="message-review"] [data-testid="message-source"] blockquote');
+    expect(sources).toHaveLength(2);
+    expect([...sources].map(source=>source.textContent).join("\n\n")).toBe(fullSelection().text);
     expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + countReadingCharacters(fullSelection().text) + " / 1000 字");
     expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p0", offset: 0 });
   });

@@ -11,5 +11,16 @@ export function saveEmbeddingConfig(db:EmbeddingStore,apiKey:unknown):void{
 export function ensureEmbeddingSchema(db:EmbeddingStore):void{
  // WHY：同步 schema 及短事务仅用于本地 SQLite；网络 IO 必须在事务外 await，避免锁住书库。
  db.exec(`CREATE TABLE IF NOT EXISTS paragraph_embeddings(edition_id TEXT NOT NULL,paragraph_id TEXT NOT NULL,chunk_start INTEGER NOT NULL,chunk_end INTEGER NOT NULL,text_hash TEXT NOT NULL,profile TEXT NOT NULL,vector_json TEXT NOT NULL,PRIMARY KEY(edition_id,paragraph_id,chunk_start,profile));
+ CREATE TABLE IF NOT EXISTS embedding_preferences(id INTEGER PRIMARY KEY CHECK(id=1),agent_semantic INTEGER NOT NULL CHECK(agent_semantic IN (0,1)));
  CREATE TABLE IF NOT EXISTS embedding_build_leases(edition_id TEXT PRIMARY KEY,token TEXT NOT NULL,expires_at INTEGER NOT NULL);`);
+}
+
+export function readAgentRetrievalEnabled(db:EmbeddingStore):boolean {
+ ensureEmbeddingSchema(db);
+ const row=db.prepare("SELECT agent_semantic FROM embedding_preferences WHERE id=1").get();
+ return !(row&&typeof row==="object"&&"agent_semantic" in row&&row.agent_semantic===0);
+}
+export function saveAgentRetrievalEnabled(db:EmbeddingStore,value:unknown):void {
+ if(typeof value!=="boolean")throw new Error("自动检索设置必须是布尔值");
+ ensureEmbeddingSchema(db);db.prepare("INSERT INTO embedding_preferences(id,agent_semantic) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET agent_semantic=excluded.agent_semantic").run(value?1:0);
 }

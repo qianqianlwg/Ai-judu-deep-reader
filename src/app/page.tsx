@@ -1,5 +1,6 @@
 "use client";
 
+import { readRetrievalReport } from "@/lib/retrieval-report";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import {useShelfHistoryRecorder} from "@/hooks/use-shelf-history-recorder";
@@ -284,10 +285,12 @@ export default function Home() {
     const currentBookSequence = bookLoadSequence.current;
     try {
       const response = await fetch(`/api/search?editionId=${encodeURIComponent(book.editionId ?? "demo")}&q=${encodeURIComponent(searchQuery)}&context=1&retrieval=${searchRetrieval}`);
-      if (!response.ok) throw new Error("搜索失败");
-      const data = await response.json() as { results?: SearchResult[] };
+      const data = await response.json() as { results?: SearchResult[]; retrieval?: unknown; error?: string };
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "搜索失败");
       if (currentBookSequence !== bookLoadSequence.current) return;
-      setSearchResults(data.results ?? []); setNotice(`找到 ${data.results?.length ?? 0} 个结果`);
+      setSearchResults(data.results ?? []);
+      const report = readRetrievalReport(data.retrieval);
+      setNotice(`找到 ${data.results?.length ?? 0} 个结果${report?.degraded ? "；部分检索策略不可用，已保留可用结果" : ""}`);
     } catch (searchError: unknown) {
       console.error("搜索失败", searchError);
       setNotice(searchError instanceof Error ? searchError.message : "搜索失败");

@@ -10,7 +10,7 @@ export function validateVector(value:unknown,dimensions=EMBEDDING_DIMENSIONS):nu
  if(!Array.isArray(value)||value.length!==dimensions||value.some(n=>typeof n!=='number'||!Number.isFinite(n))||!value.some(n=>n!==0))throw new EmbeddingError('向量服务返回了无效的维度或数值');
  return value as number[];
 }
-export async function embedTexts(config:EmbeddingConfig,texts:readonly string[],signal?:AbortSignal,fetcher:typeof fetch=fetch):Promise<number[][]>{
+export async function embedTexts(config:EmbeddingConfig,texts:readonly string[],signal?:AbortSignal,fetcher:typeof fetch=fetch,onUsage?:(usage:{promptTokens:number})=>void):Promise<number[][]>{
  if(!config.apiKey.trim())throw new EmbeddingError('请先在设置中保存向量模型 API Key');
  if(!texts.length||texts.length>32||texts.some(text=>!text.trim()||Array.from(text).length>6000))throw new EmbeddingError('向量输入长度或批量数量不合法');
  const abort=signal?AbortSignal.any([signal,AbortSignal.timeout(60000)]):AbortSignal.timeout(60000);
@@ -21,6 +21,7 @@ export async function embedTexts(config:EmbeddingConfig,texts:readonly string[],
   if(!record(body)||!Array.isArray(body.data)||body.data.length!==texts.length)throw new EmbeddingError('向量服务返回的条数不匹配');
   const result=new Map<number,number[]>();
   for(const item of body.data){if(!record(item)||!Number.isInteger(item.index)||Number(item.index)<0||Number(item.index)>=texts.length||result.has(Number(item.index)))throw new EmbeddingError('向量服务返回了无效序号');result.set(Number(item.index),validateVector(item.embedding));}
+  if(record(body.usage)&&typeof body.usage.prompt_tokens==="number"&&Number.isInteger(body.usage.prompt_tokens)&&body.usage.prompt_tokens>=0)onUsage?.({promptTokens:body.usage.prompt_tokens});
   return texts.map((_,i)=>result.get(i)!);
  }catch(error:unknown){
   if(error instanceof EmbeddingError)throw error;

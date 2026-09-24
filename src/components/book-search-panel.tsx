@@ -8,9 +8,9 @@ export type SearchResult = {
   matchedText?: string;
   startOffset?: number;
   sourceId?: string;
-  retrieval?: { backend: "postgres" | "sqlite"; keywordScore: number; vectorSimilarity: number; rrfScore: number; vectorUsed: boolean };
+  retrieval?: { backend: "sqlite"; keywordScore: number; vectorSimilarity: number; rrfScore: number; vectorUsed: boolean };
 };
-export type SearchStatus = { backend: "postgres" | "sqlite"; editionId: string; paragraphCount: number; indexedCount: number; vectorIndexed: boolean; note: string };
+export type SearchStatus = { backend: "sqlite"; editionId: string; paragraphCount: number; indexedCount: number; vectorIndexed: boolean; note: string };
 
 type Props={editionId?:string;query:string;onQuery:(query:string)=>void;retrieval:string;onRetrieval:(value:string)=>void;status:SearchStatus|null;results:SearchResult[];onSearch:()=>void;onReady:()=>void;onResult:(result:SearchResult)=>void};
 export function BookSearchPanel({editionId,query,onQuery,retrieval,onRetrieval,status,results,onSearch,onReady,onResult}:Props){return (        <details className="workspace-book-search"><summary>书内搜索</summary>

@@ -231,11 +231,11 @@ describe("第四阶段：正常回复、工具结果与 Token footer", () => {
   it("工具状态增量、结果和 warning 独立展示，不把 JSON 填进回复", async () => {
     const base: PanelMessage = { id: "a1", role: "assistant", outputFormat: "text", content: "正常回答", status: "streaming", tools: [{ id: "call-1", name: "search_book", status: "running" }] };
     await render({ messages: [base] });
-    const tool = message("a1").querySelector<HTMLDetailsElement>('[data-tool-id="call-1"]')!;
-    expect(tool.querySelector("summary")?.textContent).toContain("执行中");
-    await render({ messages: [{ ...base, status: "completed", tools: [{ id: "call-1", name: "search_book", status: "completed", result: { ok: true, sources: [{ sourceId: "book:e1:paragraph:p1", paragraphId: "p1", text: "仅工具结果里的原文" }] } }], warnings: ["本轮检索结果有限"] }] });
-    expect(message("a1").querySelector('[data-tool-id="call-1"]')).toBe(tool);
-    expect(tool.querySelector("summary")?.textContent).toContain("已完成");
+    const tool = message("a1").querySelector<HTMLDetailsElement>('[data-testid="retrieval-activity"]')!;
+    expect(tool.querySelector("summary")?.textContent).toContain("正在检索本书");
+    await render({ messages: [{ ...base, status: "completed", tools: [{ id: "call-1", name: "search_book", status: "completed", result: { ok: true, sources: [{ sourceId: "book:e1:paragraph:p1", paragraphId: "p1", chapterTitle: "第一章", text: "仅工具结果里的原文" }] } }], warnings: ["本轮检索结果有限"] }] });
+    expect(message("a1").querySelector('[data-testid="retrieval-activity"]')).toBe(tool);
+    expect(tool.querySelector("summary")?.textContent).toContain("已检索本书");
     expect(tool.open).toBe(false);
     expect(message("a1").querySelector('[data-output-format="text"]')?.textContent).toBe("正常回答");
     expect(message("a1").querySelector('[data-testid="message-warning"]')?.textContent).toContain("本轮检索结果有限");
@@ -305,7 +305,7 @@ describe("工具结果可读呈现与停止生成", () => {
     await click(tool.querySelector("summary")!);
     expect(tool.textContent).toContain("导论"); expect(tool.textContent).toContain(quote);
     expect(tool.querySelector("pre")).toBeNull();
-    await click(tool.querySelector<HTMLButtonElement>('[aria-label="定位检索原文"]')!);
+    await click(tool.querySelector<HTMLButtonElement>('[aria-label="定位原文：导论"]')!);
     expect(onOpenCitation).toHaveBeenCalledWith("p1", quote, "a1");
     expect(message("a1").querySelector('[data-output-format="text"]')?.textContent).toBe("正常回复仍然存在");
   });
