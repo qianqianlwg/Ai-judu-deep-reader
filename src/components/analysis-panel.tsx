@@ -12,6 +12,7 @@ import styles from "./analysis-panel.module.css";
 import { MessageSourceCard as SourceCard } from "./message-source-card";
 import { RetrievalActivity } from "./retrieval-activity";
 import { MessageActions } from "./message-actions";
+import { SpeechButton } from "./speech-controls";
 import { ComposerOptions, type ReasoningEffort } from "./composer-options";
 
 export type { Analysis, ChatMessage } from "@/lib/chat-stream";
@@ -55,7 +56,7 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
 }) {
   const citations = Array.isArray(analysis.citations) ? analysis.citations.filter(validCitation) : [];
   return <div className="message-content assistant-readable">
-    {analysis.readingText && <section><h4>句读文本</h4><p className="reading-text-result">{analysis.readingText}</p></section>}
+    {analysis.readingText && <section><h4>句读文本 <SpeechButton text={analysis.readingText} label="AI句读正文" /></h4><p className="reading-text-result">{analysis.readingText}</p></section>}
     {analysis.summary && <p className="assistant-summary">{analysis.summary}</p>}
     {analysis.breakdown.length > 0 && <section><h4>句子拆解</h4>{analysis.breakdown.map((item, index) => <div className="answer-row" key={index}><b>{item.label}</b><span>{item.text}</span></div>)}</section>}
     {analysis.concepts.length > 0 && <section><h4>关键概念</h4>{analysis.concepts.map((item, index) => <div className="answer-row" key={index}><b>{item.name}</b><span>{item.text}</span></div>)}</section>}

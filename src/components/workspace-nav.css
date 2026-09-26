@@ -85,7 +85,7 @@
 /* WHY：调整只影响桌面第三列；小屏保持原有全屏聊天，避免挤压正文。 */
 @media (min-width: 901px) {
   .workspace-shell .reader-layout { position: relative; grid-template-columns: 220px minmax(0, 1fr) var(--chat-panel-width,390px) !important; }
-  .workspace-shell .reader-layout > .workspace-chat-resizer { left: auto; right: calc(var(--chat-panel-width,390px) - 5px); z-index: 20; }
+  .workspace-shell .reader-layout > .workspace-chat-resizer { left: auto; right: calc(var(--chat-panel-width,390px) - 8px); z-index: 20; }
 }
 @media (min-width: 961px) and (max-width: 1180px) { .workspace-shell .reader-layout { grid-template-columns: 190px minmax(0,1fr) var(--chat-panel-width,390px) !important; } }
 @media (min-width: 681px) and (max-width: 960px) { .workspace-shell .reader-layout { grid-template-columns: minmax(0,1fr) var(--chat-panel-width,390px) !important; } }

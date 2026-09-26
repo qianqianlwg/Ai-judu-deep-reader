@@ -1,13 +1,14 @@
 "use client";
 
 import { readRetrievalReport } from "@/lib/retrieval-report";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import {useShelfHistoryRecorder} from "@/hooks/use-shelf-history-recorder";
 import { useBookshelfAssistant } from "@/hooks/use-bookshelf-assistant";
 import { ReaderModeSwitch, useReaderMode } from "@/components/reader-mode";
 import "@/components/epub-reader.css";
 import { ChatPanelResizer } from "@/components/chat-panel-resizer";
+import { maxChatWidth } from "@/lib/chat-layout";
 import { ReaderOptions } from "@/components/reader-options";
 import { AnalysisPanel } from "@/components/analysis-panel";
 import { type Analysis, type ChatMessage, type MessageAnchor, type TokenUsage } from "@/lib/chat-stream";
@@ -40,6 +41,7 @@ import { anchorParts } from "@/lib/reading-anchors";
 import { createAnnotation, sourceSelectionHighlights } from "@/lib/annotations";
 import { countReadingCharacters, readingSelectionError } from "@/lib/reading-detail";
 import { SelectionActions } from "@/components/selection-actions";
+import { SpeechPlaybackBar } from "@/components/speech-controls";
 import { DEFAULT_READING_APPEARANCE, applyReadingAppearanceToRoot, getReadingAppearanceVariables, getReadingTextStyle, readReadingAppearance, writeReadingAppearance, type ReadingAppearancePreferences } from "@/lib/reading-appearance";
 
 type RestoredMessage = { id: string; role: "user" | "assistant"; content: string; structuredOutput?: string | null; status?: "streaming" | "completed" | "error" };
@@ -52,13 +54,14 @@ function flatten(book: Book): PaginatedParagraph[] {
   return book.chapters.flatMap((chapter) => chapter.paragraphs.map((paragraph) => ({ ...paragraph, chapterId: chapter.id, chapterTitle: chapter.title })));
 }
 
-const maxChatWidth = (width: number,collapsed=false) => Math.min(760, width - (width>960 && collapsed?44:width > 1180 ? 220 : width > 960 ? 190 : 0) - 360);
 
 export default function Home() {
   const layoutRef=useRef<HTMLElement>(null);
   const [chatWidth,setChatWidth]=useState(390);
   const model = useWorkspaceModel();
   const navigation=useNavCollapse();
+  // WHY：宽度变化会重渲染本页；保持回调身份稳定，避免拖动 effect 被重建后中断。
+  const getMaxChatWidth = useCallback((width: number) => maxChatWidth(width, navigation.collapsed), [navigation.collapsed]);
   const bookshelfAssistant = useBookshelfAssistant();
   const [book, setBook] = useState<Book>(emptyBook);
   const readerMode = useReaderMode(book);
@@ -488,10 +491,11 @@ export default function Home() {
         <div className="selection-bar"><div className="reading-settings" aria-label="阅读设置"><span>Aa</span><button aria-label="缩小字号" onClick={() => setReaderScale(-0.05)}>−</button><button aria-label="放大字号" onClick={() => setReaderScale(0.05)}>+</button></div><div className="selection-actions">{selected ? <span>已选 {countReadingCharacters(selected)} / 1000 字</span> : <span>{imageChapters.imageOnly?"图片页无文字来源，OCR尚未启用":"选择一句或一段原文开始句读"}</span>}</div></div>
         <div className="page-nav" style={readerMode.original ? {display:"none"} : undefined}><button disabled={paginating || safePageIndex === 0} onClick={() => setPageIndex(safePageIndex - 1)}>上一页</button><span>{pages.length ? safePageIndex + 1 : 0} / {pages.length}</span><button disabled={paginating || safePageIndex >= pages.length - 1} onClick={() => setPageIndex(safePageIndex + 1)}>下一页</button></div>
       </article>
+      <SpeechPlaybackBar/>
         {workspaceView === "bookshelf" && <Bookshelf assistantOpen={bookshelfAssistant.open} onToggleAssistant={bookshelfAssistant.toggle} preferenceError={bookshelfAssistant.error} books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={loading || conversationLoading || importing} error={libraryError} onBookArchived={id=>{setBooks(items=>items.filter(item=>item.id!==id));setNotice("书籍已下架，文件和阅读记录已保留，可在已下架书籍中恢复。");}} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
         {workspaceView === "knowledge" && <KnowledgeWorkspace editionId={book.editionId ?? null} bookTitle={book.title + (book.edition ? " · " + book.edition.fileName : "")} refreshToken={knowledgeRevision} onRefreshRequested={() => setKnowledgeRevision(value => value + 1)} onReturnReading={() => navigateWorkspace("reader")} onOpenSource={openKnowledgeSource} onOpenMark={openKnowledgeSource} onOpenConversation={openConversation} />}
       </div>
-      <ChatPanelResizer containerRef={layoutRef} getMaxWidth={width=>maxChatWidth(width,navigation.collapsed)} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
+      <ChatPanelResizer containerRef={layoutRef} getMaxWidth={getMaxChatWidth} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
       <AnalysisPanel id="chat-panel" className={assistantMobileOpen ? "analysis-panel mobile-open" : "analysis-panel"} selected={selected} analysis={analysis} loading={loading} error={error} messages={messages}
         conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook || importing} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel}
         onNewConversation={book.editionId ? newConversation : undefined} onRenameConversation={renameConversation}

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import type { Analysis, ChatMessage } from "@/lib/chat-stream";
+import { isAnalysis, type Analysis, type ChatMessage } from "@/lib/chat-stream";
+import { SpeechButton } from "./speech-controls";
+import { speechPlainText } from "@/lib/speech";
 import styles from "./message-actions.module.css";
 
 type CopyableMessage = Pick<ChatMessage, "role" | "content" | "analysis" | "outputFormat">;
 export type MessageActionsProps = {
-  message: CopyableMessage & { id?: string };
+  message: CopyableMessage & { id?: string; status?: ChatMessage["status"] };
   editingDisabled?: boolean;
   onEditMessage?: (userMessageId: string, newPrompt: string) => void;
 };
@@ -41,7 +43,7 @@ function legacyReadable(value: string): string | undefined {
 }
 
 export function readableAssistantText(message: CopyableMessage): string {
-  if (message.analysis) return analysisText(message.analysis);
+  if (isAnalysis(message.analysis)) return analysisText(message.analysis);
   const content = message.content.trim();
   if (message.outputFormat === "legacy-json" || content.startsWith("{")) return legacyReadable(content) ?? message.content;
   return message.content;
@@ -76,6 +78,7 @@ export function MessageActions({ message, editingDisabled = false, onEditMessage
   if (!message.content && !message.analysis) return null;
   return <div className={styles.actions}>
     <button type="button" aria-label="复制回答" onClick={() => { setFeedback(""); void copyText(readableAssistantText(message)).then(() => setFeedback("已复制")).catch(error => setFeedback(error instanceof Error ? error.message : "复制失败，请重试")); }}>复制</button>
+    <SpeechButton text={speechPlainText(readableAssistantText(message))} label="AI回答" disabled={message.status === "streaming"} />
     {feedback && <span className={styles.feedback} role="status">{feedback}</span>}
   </div>;
 }

@@ -7,7 +7,7 @@ export const READING_APPEARANCE_STORAGE_KEYS = Object.freeze({
 });
 
 export type ReadingThemeId = "gray" | "light" | "paper" | "green" | "dark" | "mist";
-export type ReadingFontId = "song" | "hei" | "kai" | "serif" | "sans";
+export type ReadingFontId = "song" | "hei" | "kai" | "wenkai" | "serif" | "sans";
 export type ReadingColumnWidth = 520 | 650 | 780 | "auto";
 export type ReadingLanguage = "zh-CN" | "en";
 export interface ReadingAppearancePreferences {
@@ -36,6 +36,7 @@ export const READING_FONTS: ReadonlyArray<{ id: ReadingFontId; label: string; fa
   { id: "song", label: "宋体", family: '"Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", serif' },
   { id: "hei", label: "黑体", family: '"PingFang SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", sans-serif' },
   { id: "kai", label: "楷体", family: '"Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif' },
+  { id: "wenkai", label: "霞鹜文楷", family: '"LXGW WenKai Reader", "LXGW WenKai", "Kaiti SC", "STKaiti", "KaiTi", serif' },
   { id: "serif", label: "系统衬线", family: 'ui-serif, Georgia, "Times New Roman", "Songti SC", "SimSun", serif' },
   { id: "sans", label: "无衬线", family: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif' },
 ];

@@ -167,3 +167,16 @@ it("默认灰白且旧浅色偏好仍保持浅绿配色",()=>{
  expect(READING_THEMES.find(theme=>theme.id==='light')).toMatchObject({label:'浅绿',paper:'#FFFDF9'});
  expect(normalizeReadingAppearance({theme:'light'}).theme).toBe('light');
 });
+
+describe("霞鹜文楷字体选项", () => {
+  it("默认字体不变，保存与恢复后只选中时使用本地字库，切换字体触发重排", () => {
+    expect(defaults.font).toBe("song");
+    expect(READING_FONTS.find(item => item.id === "wenkai")?.label).toBe("霞鹜文楷");
+    const selected = normalizeReadingAppearance({ ...defaults, font: "wenkai" });
+    expect(selected.font).toBe("wenkai");
+    expect(getReadingTextStyle(selected).fontFamily).toContain('"LXGW WenKai Reader"');
+    expect(getReadingAppearanceVariables(selected)["--reading-font-family"]).toContain('"LXGW WenKai Reader"');
+    expect(normalizeReadingAppearance(JSON.parse(serializeReadingAppearance(selected))).font).toBe("wenkai");
+    expect(getReadingAppearanceLayoutKey(selected)).not.toBe(getReadingAppearanceLayoutKey(defaults));
+  });
+});

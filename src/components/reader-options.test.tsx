@@ -10,3 +10,15 @@ it('选项可打开、修改主题、复位并用Escape关闭',async()=>{
  await act(async()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));expect(el.querySelector('[aria-label="阅读选项"]')).toBeNull();expect(document.activeElement).toBe(el.querySelector('button'));
  }finally{await act(async()=>root.unmount());el.remove();vi.unstubAllGlobals();}
 });
+
+it("阅读快捷选项列出霞鹜文楷", async () => {
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const el=document.createElement('div');document.body.append(el);const root=createRoot(el);const change=vi.fn();
+ try {
+  await act(async () => root.render(<ReaderOptions value={DEFAULT_READING_APPEARANCE} onChange={change}/>));
+  await act(async () => el.querySelector<HTMLButtonElement>('button[aria-label="更多阅读选项"]')!.click());
+  const select=el.querySelector<HTMLSelectElement>('select[aria-label="阅读字体"]')!;
+  expect(Array.from(select.options).some(option => option.value === "wenkai" && option.textContent === "霞鹜文楷")).toBe(true);
+  await act(async () => { select.value='wenkai';select.dispatchEvent(new Event('change',{bubbles:true})); });
+  expect(change).toHaveBeenCalledWith(expect.objectContaining({font:'wenkai'}));
+ } finally { await act(async()=>root.unmount());el.remove();vi.unstubAllGlobals(); }
+});

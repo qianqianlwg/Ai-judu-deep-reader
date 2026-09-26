@@ -40,7 +40,9 @@ function documentMaps(doc:Document, index:number, session:Session, book:LibraryB
 }
 export function appearanceCss(appearance:ReadingAppearancePreferences):string {
   const style=getReadingTextStyle(appearance), theme=READING_THEMES.find(item=>item.id===appearance.theme)!;
-  return `html{color-scheme:${theme.scheme};}body{color:${theme.text};background:${theme.paper};font-family:${style.fontFamily};font-size:${appearance.fontSize}px;line-height:${appearance.lineHeight};text-align:${appearance.textAlign};letter-spacing:${appearance.letterSpacing}em;}img,svg{max-width:100%;}a{cursor:pointer;}`;
+  const localFont = appearance.font === "wenkai" ? '@font-face{font-family:"LXGW WenKai Reader";src:url("/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap;}' : "";
+  // WHY：原版 EPUB 正文在独立文档内，必须在那里声明相同的自托管字库；其它字体不加载此资源。
+  return `${localFont}html{color-scheme:${theme.scheme};}body{color:${theme.text};background:${theme.paper};font-family:${style.fontFamily};font-size:${appearance.fontSize}px;line-height:${appearance.lineHeight};text-align:${appearance.textAlign};letter-spacing:${appearance.letterSpacing}em;}img,svg{max-width:100%;}a{cursor:pointer;}`;
 }
 
 export function EpubReader(props:EpubReaderProps) {

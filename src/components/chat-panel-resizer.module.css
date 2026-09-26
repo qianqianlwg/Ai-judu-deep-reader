@@ -1,9 +1,9 @@
 .resizer {
   /* WHY：覆盖在聊天面板左边缘，不占用宿主现有 grid 列。宿主需要 position: relative。 */
   position: absolute;
-  inset: 0 auto 0 -5px;
+  inset: 0 auto 0 -8px;
   z-index: 2;
-  width: 10px;
+  width: 16px;
   /* WHY：命中区域可以宽，但不能把整条命中区域画成主题色竖条。 */
   background: transparent;
   cursor: col-resize;
@@ -14,7 +14,7 @@
 .resizer::after {
   content: "";
   position: absolute;
-  inset: 0 auto 0 5px;
+  inset: 0 auto 0 7px;
   width: 1px;
   background: transparent;
   transition: background-color 120ms ease;

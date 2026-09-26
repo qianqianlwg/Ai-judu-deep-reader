@@ -35,6 +35,9 @@ describe("ReadingAppearanceSettings", () => {
     await act(async () => (host.querySelector('select[name="font"]') as HTMLSelectElement).value = "kai");
     const fontSelect = host.querySelector<HTMLSelectElement>('select[name="font"]')!; await act(async () => fontSelect.dispatchEvent(new Event("change", { bubbles: true })));
     current = onChange.mock.lastCall![0]; await rerender(); expect(current.font).toBe("kai");
+    expect(Array.from(host.querySelectorAll('select[name="font"] option')).some(option => option.textContent === "霞鹜文楷")).toBe(true);
+    fontSelect.value = "wenkai"; await act(async () => fontSelect.dispatchEvent(new Event("change", { bubbles: true })));
+    current = onChange.mock.lastCall![0]; await rerender(); expect(current.font).toBe("wenkai");
     await changeValue('input[name="fontSize"]', "32"); current = onChange.mock.lastCall![0]; expect(current.fontSize).toBe(32); await rerender();
     await changeValue('input[name="lineHeight"]', "1.4"); current = onChange.mock.lastCall![0]; expect(current.lineHeight).toBe(1.4); await rerender();
     await changeValue('input[name="letterSpacing"]', "0.08"); current = onChange.mock.lastCall![0]; expect(current.letterSpacing).toBe(0.08); await rerender();

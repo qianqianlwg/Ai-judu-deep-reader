@@ -472,3 +472,11 @@ it("生成锁定选区时仍能操作原版下一页",async()=>{
  await act(async()=>{next.click();});
  expect(view.next).toHaveBeenCalledOnce();
 });
+
+it("霞鹜文楷只在原版选中时注入同源字库，并保留系统字体默认样式", () => {
+ const wenkai = appearanceCss({...DEFAULT_READING_APPEARANCE,font:"wenkai"});
+ expect(wenkai).toContain('@font-face{font-family:"LXGW WenKai Reader"');
+ expect(wenkai).toContain('/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf');
+ expect(wenkai).toContain('font-display:swap');
+ expect(appearanceCss(DEFAULT_READING_APPEARANCE)).not.toContain('@font-face');
+});

@@ -108,7 +108,7 @@ export function ReadingAppearanceSettings({ value, onChange, ready = true, disab
               {READING_FONTS.map((font) => <option key={font.id} value={font.id} style={{ fontFamily: font.family }}>{font.label}</option>)}
             </select>
           </label>
-          <p className={styles.hint}>使用设备已安装字体；缺失时按同类字体回退，不下载字体。</p>
+          <p className={styles.hint}>霞鹜文楷为本地托管字体，仅选中时加载；其他字体优先使用设备字体，缺失时回退。</p>
           <RangeSetting id={id + "-size"} name="fontSize" label="字号" value={preferences.fontSize} unit="px" onChange={(fontSize) => update({ fontSize })} />
           <RangeSetting id={id + "-height"} name="lineHeight" label="行距" value={preferences.lineHeight} unit=" 倍" onChange={(lineHeight) => update({ lineHeight })} />
           <RangeSetting id={id + "-spacing"} name="letterSpacing" label="字距" value={preferences.letterSpacing} unit="em" onChange={(letterSpacing) => update({ letterSpacing })} />
