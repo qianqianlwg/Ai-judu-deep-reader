@@ -37,7 +37,7 @@ type Input = {
 type Failure = { code: string; message: string; retryable: boolean };
 type RequestMeta = {
   version: 1; clientUserMessageId: string; clientAssistantMessageId: string;
-  fingerprint: string; attemptId: string; leaseUntil: number; input: Input; contextSnapshot: ReadingContextSnapshot; executionSettings?: ContextSettings; failure?: Failure;
+  fingerprint: string; attemptId: string; leaseUntil: number; input: Input; contextSnapshot: ReadingContextSnapshot; executionSettings?: ContextSettings; failure?: Failure; timeline?: { tools: Record<string, number>; analysis?: number };
 };
 type MessageRow = { id: string; thread_id: string; role: string; content: string; structured_output: string | null; status: string; usage_json?: string | null };
 type SavedAnalysis = Analysis & { anchor?: ReadingAnchor };
@@ -119,15 +119,17 @@ const encode = (event: string, payload: unknown) => encoder.encode("event: " + e
 const streamHeaders = { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" };
 function replayMessage(db: Db, threadId: string, meta: RequestMeta, row: MessageRow): Response {
   const saved = parseSaved(row);
+  const timeline = isRecord(saved._request) && isRecord(saved._request.timeline) ? saved._request.timeline : {};
+  const offsets = isRecord(timeline.tools) ? timeline.tools : {};
   const stream = new ReadableStream<Uint8Array>({ start(controller) {
     controller.enqueue(encode("meta", { threadId, mode: meta.input.mode, messageId: row.id, userMessageId: meta.clientUserMessageId, outputFormat: saved.outputFormat === "text" || !isAnalysis(saved) ? "text" : "legacy-json", replayed: true }));
     controller.enqueue(encode("raw_delta", { text: row.content }));
-    for (const event of toolReplayEvents(db, { threadId, messageId: row.id, editionId: meta.input.editionId })) controller.enqueue(encode("tool", { tool: event.tool }));
+    for (const event of toolReplayEvents(db, { threadId, messageId: row.id, editionId: meta.input.editionId })) controller.enqueue(encode("tool", { tool: { ...event.tool, contentOffset: offsets[event.tool.id] } }));
     if (isAnalysis(saved)) {
       const result: Record<string, unknown> = { ...saved };
       delete result._request;
       delete result.outputFormat;
-      controller.enqueue(encode("structured", { result, messageId: row.id }));
+      controller.enqueue(encode("structured", { result, messageId: row.id, contentOffset: timeline.analysis }));
     }
     if (row.usage_json) { const usage: unknown = JSON.parse(row.usage_json); if (isTokenUsage(usage)) controller.enqueue(encode("usage", { usage })); }
     controller.enqueue(encode("done", { content: row.content, messageId: row.id }));
@@ -190,6 +192,7 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
   let closed = false;
   let terminal = false;
   let raw = "";
+  meta.timeline = { tools: {} };
   let analysis: SavedReadingAnalysis | undefined;
   let usage: TokenUsage | undefined;
   let lastSaved = 0;
@@ -250,7 +253,8 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
                 analysis = value;
                 logAgentEvent("info", "analysis_save_requested", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, detail: meta.input.detail, readingTextLength: value.readingText?.length ?? 0, selectedTextLength: meta.input.selectedText.length });
                 persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage);
-                send("structured", { result: analysis, messageId: meta.clientAssistantMessageId });
+                meta.timeline!.analysis = raw.length;
+                send("structured", { result: analysis, messageId: meta.clientAssistantMessageId, contentOffset: raw.length });
               },
             },
             async audit(run) {
@@ -263,8 +267,12 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
                 raw += event.text;
                 if (Date.now() - lastSaved > 500) { persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage); lastSaved = Date.now(); }
               } else if (event.type === "usage") usage = event.usage;
-              const { type, ...payload } = event;
-              send(type, payload);
+              if (event.type === "tool") {
+                // WHY：保存首次调用位置，完成事件不覆盖；重放和刷新后仍按真实执行顺序穿插。
+                const offset = meta.timeline!.tools[event.tool.id] ?? raw.length;
+                meta.timeline!.tools[event.tool.id] = offset;
+                send("tool", { tool: { ...event.tool, contentOffset: offset } });
+              } else { const { type, ...payload } = event; send(type, payload); }
             },
           });
           if (terminal) return;
@@ -277,8 +285,10 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
             analysis = { readingText: raw.trim(), summary: "", breakdown: [], concepts: [], context: "", uncertainty: "", citations: [], ...(anchor ? {anchor} : {}) };
             logAgentEvent("warn", "analysis_tool_fallback", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, readingTextLength: analysis.readingText?.length ?? 0 });
             persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage);
-            send("structured", { result: analysis, messageId: meta.clientAssistantMessageId });
-            send("tool", { tool: { id: "fallback-save-" + meta.clientAssistantMessageId, name: "save_reading_analysis", status: "completed", result: "句读正文已保存（兼容网关未发送结构化工具调用）" } });
+            meta.timeline!.analysis = raw.length;
+            send("structured", { result: analysis, messageId: meta.clientAssistantMessageId, contentOffset: raw.length });
+            meta.timeline!.tools["fallback-save-" + meta.clientAssistantMessageId] = raw.length;
+            send("tool", { tool: { id: "fallback-save-" + meta.clientAssistantMessageId, name: "save_reading_analysis", status: "completed", contentOffset: raw.length, result: "句读正文已保存（兼容网关未发送结构化工具调用）" } });
           }
           persistAssistant(db, threadId, meta, raw, "completed", analysis, undefined, usage);
           terminal = true;

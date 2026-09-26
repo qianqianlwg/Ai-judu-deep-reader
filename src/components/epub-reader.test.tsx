@@ -463,3 +463,12 @@ it("真实有效CFI正文偏移通过预检，仍使用原位置而不回退",as
 });
 
 it("拖选过程中即使停顿也不弹菜单，iframe外释放后提交",async()=>{await render();Object.defineProperty(doc.createRange().constructor.prototype,'getBoundingClientRect',{configurable:true,value:()=>({left:10,top:60,width:30})});await act(async()=>{doc.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0}));const range=doc.createRange();range.selectNodeContents(doc.querySelector('p')!);doc.getSelection()!.removeAllRanges();doc.getSelection()!.addRange(range);doc.dispatchEvent(new Event('selectionchange'));await new Promise(resolve=>setTimeout(resolve,150));});expect(props.onSelect).not.toHaveBeenCalled();await act(async()=>document.dispatchEvent(new MouseEvent('pointerup',{button:0})));expect(props.onSelect).toHaveBeenCalledTimes(1);});
+
+it("生成锁定选区时仍能操作原版下一页",async()=>{
+ await render();
+ await render({disabled:true,navigationDisabled:false});
+ const next=[...host.querySelectorAll('button')].find(button=>button.textContent==="原版下一页") as HTMLButtonElement;
+ expect(next.disabled).toBe(false);
+ await act(async()=>{next.click();});
+ expect(view.next).toHaveBeenCalledOnce();
+});

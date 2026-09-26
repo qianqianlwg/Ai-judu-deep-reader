@@ -17,7 +17,7 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
   if(message.structuredOutput){try{value=JSON.parse(message.structuredOutput);}catch(error:unknown){console.error("恢复消息结构失败",error);}}
   const analysis=isAnalysis(value)?value:undefined;
   let usage = isTokenUsage(message.usage) ? message.usage : undefined;
-  const tools: ToolActivity[] = Array.isArray(message.tools) ? message.tools.flatMap(item => isRecord(item) && typeof item.id === "string" && typeof item.name === "string" && (item.status === "completed" || item.status === "error" || item.status === "running") ? [{ id: item.id, name: item.name, status: item.status === "running" ? "error" : item.status, result: item.result }] : []) : [];
+  const tools: ToolActivity[] = Array.isArray(message.tools) ? message.tools.flatMap(item => isRecord(item) && typeof item.id === "string" && typeof item.name === "string" && (item.status === "completed" || item.status === "error" || item.status === "running") ? [{ id: item.id, name: item.name, status: item.status === "running" ? "error" : item.status, result: item.result, contentOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && isRecord(value._request.timeline.tools) && Number.isSafeInteger(value._request.timeline.tools[item.id]) && (value._request.timeline.tools[item.id] as number) >= 0 && (value._request.timeline.tools[item.id] as number) <= message.content.length ? value._request.timeline.tools[item.id] as number : undefined }] : []) : [];
   const historicalTools = readHistoricalTools(message.historicalTools);
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((item): item is string => typeof item === "string") : [];
   if (!usage && message.usageJson) { try { const parsed: unknown = JSON.parse(message.usageJson); if (isTokenUsage(parsed)) usage = parsed; } catch (error: unknown) { console.error("恢复 Token 统计失败", error); } }
@@ -34,7 +34,7 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
    if(anchor&&typeof meta.clientUserMessageId==="string")sourceByUser.set(meta.clientUserMessageId,anchor);
   }
   // WHY：旧线程的最后选文不等于每一条消息的选文；缺少消息级位置时保持未知，禁止误跳。
-  return {id:message.id,role:message.role,content:message.content,analysis,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
+  return {id:message.id,role:message.role,content:message.content,analysis,analysisOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && Number.isSafeInteger(value._request.timeline.analysis) && (value._request.timeline.analysis as number) >= 0 && (value._request.timeline.analysis as number) <= message.content.length ? value._request.timeline.analysis as number : undefined,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
  });
  return result.map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??"")}:message);
 }

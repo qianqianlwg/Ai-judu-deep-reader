@@ -461,3 +461,15 @@ it("失败状态作为圆角消息卡在滚动区内，不挤占输入区并保�
  const b=card.querySelector('button')!;await act(async()=>b.click());expect(retry).toHaveBeenCalledOnce();
  expect(container.querySelector('textarea[aria-label="继续追问"]')).not.toBeNull();
 });
+
+it("句读记录和保存调用按正文产生时点穿插，而非全部落在末尾", async () => {
+ await render({messages:[{id:"timed",role:"assistant",status:"completed",outputFormat:"text",content:"前段\n\n后段",analysis,analysisOffset:2,tools:[{id:"save",name:"save_reading_analysis",status:"completed",contentOffset:2,result:{ok:true,saved:true}}]}]});
+ const group=message("timed");
+ const children=[...group.querySelector('[data-streaming-format="markdown"]')!.children];
+ expect(children).toHaveLength(4);
+ expect(children[0].textContent).toBe("前段");
+ expect(children[1].matches("[data-tool-id=save]")).toBe(true);
+ expect(children[2].matches("[data-testid=analysis-record]")).toBe(true);
+ expect(children[3].textContent).toBe("后段");
+ expect(group.querySelectorAll('[data-tool-id="save"]')).toHaveLength(1);
+});

@@ -24,3 +24,13 @@ describe("chat stream", () => {
 });
 
 it("并行工具乱序完成时保持首次出现顺序，重复事件不追加卡片",()=>{let messages: ChatMessage[]= [{id:'a',role:'assistant' as const,content:''}];for(const id of ['first','second'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'running'}});for(const id of ['first','second','first'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'completed'}});expect(messages[0].tools?.map(t=>t.id)).toEqual(['first','second']);});
+
+it("工具与句读记录固定在首次事件的正文偏移，完成后不漂移", () => {
+ let messages: ChatMessage[] = [{ id: "a", role: "assistant", content: "前段" }];
+ messages = applyChatEvent(messages, "a", { type: "tool", tool: { id: "save", name: "save_reading_analysis", status: "running" } });
+ messages = applyChatEvent(messages, "a", { type: "structured", result: { summary: "记录", breakdown: [], concepts: [], context: "", uncertainty: "" } });
+ messages = applyChatEvent(messages, "a", { type: "raw_delta", text: "后段" });
+ messages = applyChatEvent(messages, "a", { type: "tool", tool: { id: "save", name: "save_reading_analysis", status: "completed" } });
+ expect(messages[0].tools?.[0].contentOffset).toBe(2);
+ expect(messages[0].analysisOffset).toBe(2);
+});

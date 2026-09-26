@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { isTokenUsage, type TokenUsage } from "@/lib/token-usage";
@@ -104,9 +104,9 @@ function ToolActivityResult({ tool, messageId, onOpenCitation, historical = fals
   return tool.result === undefined ? <p>{tool.status === "running" ? "等待工具返回结果…" : "工具没有返回展示结果。"}</p> : <pre className={styles.toolOutput}>{toolResultText(tool.result)}</pre>;
 }
 const TOOL_LABELS: Record<string, string> = { search_book: "本书检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
-function ToolRecords({ message, onOpenCitation, includeAnalysis = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean }) {
+function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds, includeExtras = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean; toolIds?: readonly string[]; includeExtras?: boolean }) {
   const analysis = includeAnalysis && isAnalysis(message.analysis) ? message.analysis : undefined;
-  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && tool.name !== "search_book" && tool.name !== "read_source" && ["running", "completed", "error"].includes(String(tool.status))) : [];
+  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && (toolIds === undefined || toolIds.includes(tool.id)) && tool.name !== "search_book" && tool.name !== "read_source" && ["running", "completed", "error"].includes(String(tool.status))) : [];
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((warning): warning is string => typeof warning === "string") : [];
   return <>
     {analysis && <details className={styles.toolRecord} data-testid="analysis-record"><summary>句读记录 <span>工具结果</span></summary>
@@ -116,7 +116,7 @@ function ToolRecords({ message, onOpenCitation, includeAnalysis = true }: { mess
       <summary>{TOOL_LABELS[tool.name] ?? tool.name}<span>{tool.status === "running" ? "执行中" : tool.status === "error" ? "执行失败" : "已完成"}</span></summary>
       <ToolActivityResult tool={tool} messageId={message.id} onOpenCitation={onOpenCitation} />
     </details>)}
-    {!!message.historicalTools?.length && <details className={styles.toolRecord} data-testid="historical-tools">
+    {includeExtras && !!message.historicalTools?.length && <details className={styles.toolRecord} data-testid="historical-tools">
       <summary>历史尝试工具 <span>{message.historicalTools.length} 项</span></summary>
       <p>仅保留审计记录，不属于本轮回复；归属未知的旧记录未自动关联到当前尝试。</p>
       {message.historicalTools.map(tool => <details className={styles.toolRecord} key={tool.auditId} data-historical-tool-id={tool.auditId}>
@@ -124,7 +124,27 @@ function ToolRecords({ message, onOpenCitation, includeAnalysis = true }: { mess
         <ToolActivityResult tool={tool} messageId={message.id} onOpenCitation={onOpenCitation} historical />
       </details>)}
     </details>}
-    {warnings.map((warning, index) => <p className={styles.messageWarning} data-testid="message-warning" role="status" key={index}>提示：{warning}</p>)}
+    {includeExtras && warnings.map((warning, index) => <p className={styles.messageWarning} data-testid="message-warning" role="status" key={index}>提示：{warning}</p>)}
+  </>;
+}
+// WHY：首次收到工具/句读记录时固定正文偏移；完成事件只更新卡片，不把它们推到答案末尾。
+function TimedAnswer({ message, onOpenCitation }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"] }) {
+  const timed = [
+    ...(message.tools ?? []).filter(tool => Number.isSafeInteger(tool.contentOffset) && tool.contentOffset! >= 0 && tool.contentOffset! <= message.content.length && !["search_book", "read_source", "search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name)).map(tool => ({ offset: tool.contentOffset!, id: tool.id, analysis: false })),
+    ...(isAnalysis(message.analysis) && Number.isSafeInteger(message.analysisOffset) && message.analysisOffset! >= 0 && message.analysisOffset! <= message.content.length ? [{ offset: message.analysisOffset!, id: "", analysis: true }] : []),
+  ].sort((a, b) => a.offset - b.offset || Number(a.analysis) - Number(b.analysis));
+  let cursor = 0;
+  const segments: ReactNode[] = [];
+  for (const [index, item] of timed.entries()) {
+    if (item.offset > cursor) segments.push(<MarkdownText key={"text-" + index} content={message.content.slice(cursor, item.offset)} />);
+    segments.push(<ToolRecords key={"tool-" + item.id + index} message={message} onOpenCitation={onOpenCitation} includeAnalysis={item.analysis} toolIds={item.analysis ? [] : [item.id]} includeExtras={false} />);
+    cursor = item.offset;
+  }
+  const tail = message.content.slice(cursor);
+  if (tail || !timed.length) segments.push(<MarkdownText key="tail" content={tail || (message.status === "streaming" ? "正在生成回答…" : "")} />);
+  const timedIds = new Set(timed.filter(item => !item.analysis).map(item => item.id));
+  return <><div className={message.status === "streaming" ? "streaming-cursor" : undefined} data-streaming-format="markdown">{segments}</div>
+    <ToolRecords message={{ ...message, tools: message.tools?.filter(tool => !timedIds.has(tool.id)) }} onOpenCitation={onOpenCitation} includeAnalysis={!timed.some(item => item.analysis)} />
   </>;
 }
 function AssistantMessage({ message, onOpenCitation }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"] }) {
@@ -140,10 +160,7 @@ function AssistantMessage({ message, onOpenCitation }: { message: PanelMessage; 
     return <>{content}<MessageActions message={message} /></>;
   }
   return <>
-    <div className={message.status === "streaming" ? "streaming-cursor" : undefined} data-streaming-format="markdown">
-      <MarkdownText content={message.content || (message.status === "streaming" ? "正在生成回答…" : "")} />
-    </div>
-    <ToolRecords message={message} onOpenCitation={onOpenCitation} />
+    <TimedAnswer message={message} onOpenCitation={onOpenCitation} />
     <MessageActions message={message} />
     {message.status === "error" && <p className={styles.failedMessage} role="status">生成未完成，可在原消息上重试。</p>}
   </>;

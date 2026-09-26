@@ -416,7 +416,7 @@ describe("完整SDK的旧工具迟到与新attempt交错",()=>{
     expect(row()).toMatchObject({status:"completed",content:"你好，世界"});expect(count()).toBe(2);
     expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM agent_tool_runs").get()).toEqual({count:0});expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"save_reading_analysis"');expect(fetcher).toHaveBeenCalledTimes(number);expect(count()).toBe(2);});
+  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"save_reading_analysis"');expect(replay.text).toContain('"contentOffset":0');const timeline=JSON.parse(row().structured_output) as {_request:{timeline:{tools:Record<string,number>;analysis:number}}};expect(timeline._request.timeline.tools["call-save"]).toBe(0);expect(timeline._request.timeline.analysis).toBe(0);expect(fetcher).toHaveBeenCalledTimes(number);expect(count()).toBe(2);});
 });
 
 it.each([{threadId:"thread-1\n"},{clientAssistantMessageId:"assistant-1\n"},{editionId:"edition-1\n"}])("流式入口也拒绝尾换行ID，不再制造不可打开的新会话 %j",async input=>{expect((await call(input)).status).toBe(400);expect(count()).toBe(0);expect(fetcher).not.toHaveBeenCalled();});
