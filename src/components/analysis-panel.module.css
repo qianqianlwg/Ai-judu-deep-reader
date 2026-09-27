@@ -65,9 +65,9 @@
 
 .header { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 10px 12px; }
 .markdown { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
-/* WHY：只给句读正文提供两种克制的视觉锚点；原文引用、工具卡和普通追问不被染色。 */
-.markdown[data-reading-markup="true"] strong { color: var(--reading-accent); background: color-mix(in srgb, var(--reading-accent) 12%, transparent); border-radius: 3px; padding: 0 .08em; font-weight: 650; }
-.markdown[data-reading-markup="true"] em { font-style: normal; text-decoration-line: underline; text-decoration-color: var(--reading-accent); text-decoration-thickness: 2px; text-underline-offset: .22em; text-decoration-skip-ink: auto; }
+/* WHY：使用各阅读主题的浅色选中层和柔和下划线；文字仍用正文色，暗色主题也保持可读。 */
+.markdown[data-reading-markup="true"] strong { color: var(--reading-text); background: color-mix(in srgb, var(--reading-selected) 70%, var(--reading-surface) 30%); border-radius: 3px; padding: 0 .08em; font-weight: 650; }
+.markdown[data-reading-markup="true"] em { font-style: normal; text-decoration-line: underline; text-decoration-color: color-mix(in srgb, var(--reading-accent) 45%, var(--reading-selected) 55%); text-decoration-thickness: 1.5px; text-underline-offset: .22em; text-decoration-skip-ink: auto; }
 .markdown p { margin: 0 0 10px; }
 .markdown p:last-child { margin-bottom: 0; }
 .markdown :is(h1,h2,h3,h4) { margin: 16px 0 8px; line-height: 1.4; font-family: inherit; color: inherit; }

@@ -490,6 +490,9 @@ describe("句读重点的两种视觉标注", () => {
     expect(css).toContain('.markdown[data-reading-markup="true"] strong');
     expect(css).toContain('.markdown[data-reading-markup="true"] em');
     expect(css).toContain("text-decoration-line: underline");
+    expect(css).toContain('var(--reading-selected) 70%, var(--reading-surface) 30%');
+    expect(css).toContain('var(--reading-accent) 45%, var(--reading-selected) 55%');
+    expect(css).toContain('color: var(--reading-text)');
   });
   it("普通追问不套用句读标注，旧句读记录仍能读出带标记的正文", async () => {
     const text = "**关键词**与*关键句。*";
