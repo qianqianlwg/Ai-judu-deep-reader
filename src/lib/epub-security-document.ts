@@ -42,7 +42,12 @@ export function parseEpubXml(source: string): Document {
     });
   if (normalized.length > EPUB_LIMITS.text) throw new Error('EPUB XML 文本超过 2 MiB 限制');
   // WHY：XML 解析是惰性的；不使用可能预取图片/iframe 的 text/html 解析器。
-  const doc = new DOMParser().parseFromString(normalized, 'application/xml');
+  let doc = new DOMParser().parseFromString(normalized, 'application/xml');
+  // WHY：仅在原始 XML 解析失败且没有 SVG 开始标签时，修复封面 img 后孤立的一个 </svg>；有效内容不做改写。
+  if (doc.getElementsByTagName('parsererror').length && !/<(?:[\w.-]+:)?svg(?=[\s/>])/i.test(normalized)) {
+    const repaired = normalized.replace(/(<img\b[^>]*\/>)(\s*)<\/svg\s*>/i, '$1$2');
+    if (repaired !== normalized) doc = new DOMParser().parseFromString(repaired, 'application/xml');
+  }
   if (doc.getElementsByTagName('parsererror').length || !doc.documentElement)
     throw new Error('EPUB XML 无效或编码不受支持');
   return doc;

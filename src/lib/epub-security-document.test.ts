@@ -60,6 +60,17 @@ describe('EPUB inert document sanitation', () => {
     expect(doc.querySelectorAll('script')).toHaveLength(0);
     expect(result).not.toContain('DOCTYPE');
   });
+  it('repairs one orphan SVG close after a self-closing cover image without relaxing XML parsing', async () => {
+    const result = await sanitizeDocument(wrap('<div><img src="images/p.png" alt="封面" />\n</svg></div>'), policy);
+    const doc = new DOMParser().parseFromString(result, 'application/xhtml+xml');
+    expect(doc.querySelector('parsererror')).toBeNull();
+    expect(doc.querySelector('img')?.getAttribute('src')).toBe('blob:owned-image');
+    expect(doc.querySelector('svg')).toBeNull();
+    const valid = await sanitizeDocument(wrap('<p><![CDATA[<img/> </svg>]]></p>'), policy);
+    expect(new DOMParser().parseFromString(valid, 'application/xhtml+xml').querySelector('p')?.textContent).toBe('<img/> </svg>');
+    await expect(sanitizeDocument(wrap('<div><img src="images/p.png"/></svg></svg></div>'), policy)).rejects.toThrow('XML');
+    await expect(sanitizeDocument(wrap('<svg xmlns="http://www.w3.org/2000/svg"><img/></svg></svg>'), policy)).rejects.toThrow('XML');
+  });
   it('still rejects unknown named entities and internal DTD expansion', async () => {
     await expect(sanitizeDocument(wrap('<p>&notAnXhtmlEntity;</p>'), policy)).rejects.toThrow('XML');
     await expect(sanitizeDocument('<!DOCTYPE html [<!ENTITY x "expanded">]>' + wrap('&x;'), policy)).rejects.toThrow('DTD');
