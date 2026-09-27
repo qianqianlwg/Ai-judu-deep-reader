@@ -100,3 +100,6 @@
   .themeOption > input:focus-visible + .themeCard, .alignment input:focus-visible + span { outline-color: Highlight; }
   .thumbnail { forced-color-adjust: none; }
 }
+
+.checkboxField { display: flex; align-items: center; gap: 9px; color: var(--reading-text); font-size: 13px; }
+.checkboxField input { accent-color: var(--reading-accent); }

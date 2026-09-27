@@ -54,6 +54,7 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(onOpen).not.toHaveBeenCalled();
     expect(element("p").textContent).toBe(source);
     expect(prose.getAttribute("tabindex")).toBeNull();
+    expect(element("p").dataset.showAnalysisHints).toBe("true");
     expect(document.querySelector(".reading-annotation, .concept-mark, .annotation-popover")).toBeNull();
   });
 
@@ -78,9 +79,15 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     expect(element('[role="dialog"]').textContent).not.toContain(annotation.summary);
   });
 
+  it("历史标符悬停或聚焦不显示，点击才打开", () => {
+    render(); const marker = element(".judu-history-marker");
+    hover(marker); act(() => marker.focus());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    click(marker); expect(element('[role="dialog"]').textContent).toContain("句读历史");
+  });
   it("句末图标展示历史；点击完整句读才调用装配回调", () => {
     const older = { ...annotation, id: "a2", summary: "第一次解释", createdAt: "2026-09-13" };
-    render({ annotations: [older, annotation] }); hover(element(".judu-history-marker"));
+    render({ annotations: [older, annotation] }); click(element(".judu-history-marker"));
     expect(element('[role="dialog"]').textContent).toContain("句读历史");
     expect(element('[role="dialog"]').textContent).toContain("第一次解释");
     expect(document.querySelectorAll(".judu-history-marker")).toHaveLength(1);
@@ -99,7 +106,7 @@ describe("AnnotatedParagraph 实测组件交互", () => {
   });
 
   it("Escape 从浮层归还触发点焦点，不会被 onFocus 立即重新打开", () => {
-    render(); const marker = element(".judu-history-marker"); act(() => marker.focus());
+    render(); const marker = element(".judu-history-marker"); act(() => marker.focus()); click(marker);
     act(() => marker.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     expect(document.activeElement).toBe(element('[aria-label="关闭浮层"]'));
     act(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
@@ -141,9 +148,9 @@ describe("AnnotatedParagraph 实测组件交互", () => {
       const anchor = getComputedStyle(element(".judu-history-anchor"));
       expect(marker.position).toBe("absolute"); expect(anchor.width).toBe("0px"); expect(anchor.height).toBe("0px");
       expect(element(".judu-history-anchor").textContent).toBe("");
-      expect(getComputedStyle(element(".judu-concept-term")).fontWeight).toBe("650");
+      expect(getComputedStyle(element(".judu-concept-term")).fontWeight).toBe("normal");
       expect(getComputedStyle(element(".judu-annotation-text")).backgroundColor).toBe("rgba(0, 0, 0, 0)");
-      expect(css).toContain("text-decoration-style: dashed"); expect(css).toContain("font-weight: 650"); expect(css).not.toMatch(/.judu-annotated-paragraphs*{/);
+      expect(css).toContain("text-decoration: underline solid rgb"); expect(css).not.toContain("text-decoration-style: dashed"); expect(css).toContain("data-show-analysis-hints"); expect(css).toContain("font-weight: inherit"); expect(css).not.toMatch(/.judu-annotated-paragraphs*{/);
     } finally { style.remove(); }
   });
 });
@@ -214,4 +221,48 @@ describe("AnnotatedParagraph 全书字典概念", () => {
     render({ annotations: [], bookConcepts, showConcepts: false });
     expect(document.querySelector(".judu-concept-term")).toBeNull(); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
+});
+
+
+describe("句读线模式", () => {
+  it("开关仅控制句读线，不隐藏历史入口与概念", () => {
+    render({showAnalysisHints:false, analysisHintOpacity:.22});
+    expect(element('p').dataset.showAnalysisHints).toBe('false');
+    expect(element('p').style.getPropertyValue('--analysis-hint-opacity')).toBe('0.22');
+    expect(element('.judu-history-marker')).toBeTruthy();
+    expect(element('.judu-concept-term')).toBeTruthy();
+    expect(element('.judu-annotation-text.judu-has-concept')).toBeTruthy();
+  });
+});
+
+it("页内重复概念是普通文字，不再包含弹窗入口", () => {
+ const html=renderToStaticMarkup(<AnnotatedParagraph paragraphId="p" text="理性与理性" annotations={[]} showConcepts bookConcepts={[{name:"理性",text:"定义"}]} highlightedConceptStarts={new Set([0])} onOpenAnnotation={()=>{}}/>);
+ const node=document.createElement("div");node.innerHTML=html;
+ const terms=node.querySelectorAll('[data-concept-word="理性"]');
+ expect(terms).toHaveLength(1);expect(terms[0].getAttribute("role")).toBe("button");expect(node.textContent).toBe("理性与理性");
+ expect(node.querySelectorAll('[aria-label="查看概念：理性"]')).toHaveLength(1);
+});
+
+it("首次概念与重复词均保留底层句读标记，重复词不加粗或生成入口", async()=>{
+ const css=await readFile(path.resolve("src/components/annotation-popover.css"),"utf8");
+ const style=document.createElement("style");style.textContent=css;document.head.append(style);
+ try{
+  render({paragraphId:"p",text:"理性与理性。",sourceText:"理性与理性。",bookConcepts:[{name:"理性",text:"定义"}],highlightedConceptStarts:new Set([0]),annotations:[{...annotation,paragraphId:"p",startOffset:0,endOffset:6,concepts:[],conceptDetails:[]}]});
+  const spans=host.querySelectorAll<HTMLElement>('[data-reader-text]');
+  const repeat=[...spans].find(span=>span.dataset.sourceStart==="3")!;
+  expect(repeat.textContent).toBe("理性");expect(repeat.classList.contains("judu-annotation-text")).toBe(true);
+  expect(repeat.querySelector('[role="button"]')).toBeNull();
+  expect(css).not.toContain('.judu-annotation-text:not(.judu-has-concept)');
+  expect(getComputedStyle(repeat).textDecoration).toContain("underline");
+  expect(host.querySelectorAll('[data-concept-word="理性"]')).toHaveLength(1);
+ }finally{style.remove();}
+});
+
+it("同次多段句读只在终点显示历史入口，前段保留下横线",()=>{
+ const items=[{...annotation,id:"part-1",paragraphId:"p1",messageId:"m",startOffset:0,endOffset:3},{...annotation,id:"part-2",paragraphId:"p2",messageId:"m",startOffset:0,endOffset:3}];
+ const ids=new Set(["part-2"]);
+ const first=renderToStaticMarkup(<AnnotatedParagraph paragraphId="p1" text="第一段" annotations={items} historyMarkerIds={ids} showConcepts={false} onOpenAnnotation={()=>{}}/>);
+ const last=renderToStaticMarkup(<AnnotatedParagraph paragraphId="p2" text="第二段" annotations={items} historyMarkerIds={ids} showConcepts={false} onOpenAnnotation={()=>{}}/>);
+ expect(first).not.toContain('class="judu-history-marker"');expect(first).toContain("judu-annotation-text");
+ expect(last).toContain('class="judu-history-marker"');expect(last).toContain("第二段");
 });

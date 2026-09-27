@@ -70,7 +70,7 @@ describe("EPUB 非侵入交互投影", () => {
   it("同一末端的历史合并为一个入口并按时间倒序，其他末端分开", () => {
     const { maps } = fixture();
     const newer = annotation({ id: "newer", messageId: "newer", createdAt: "2026-09-18T03:00:00Z" });
-    const other = annotation({ id: "other", startOffset: 7, endOffset: text.length });
+    const other = annotation({ id: "other", messageId: "other-message", startOffset: 7, endOffset: text.length });
     const targets = buildEpubInteractions(maps, [annotation(), other, newer], []);
     const histories = targets.filter(item => item.kind === "history");
     expect(histories).toHaveLength(2);

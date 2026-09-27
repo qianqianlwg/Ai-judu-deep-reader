@@ -245,7 +245,7 @@ describe("阅读器主页面交互回归", () => {
     const before = callCount("/api/knowledge", "edition-A");
     await click(element('button[aria-label="刷新本书知识"]'));
     expect(callCount("/api/knowledge", "edition-A")).toBe(before + 2);
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(2);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
     expect(element('aside[aria-label="本书知识卡片"]').textContent).toContain("新补充的互相确认定义");
     await settle(); await settle();
     expect(callCount("/api/knowledge", "edition-A")).toBe(before + 2);
@@ -254,12 +254,12 @@ describe("阅读器主页面交互回归", () => {
   it("旧概念无定义仍进入全书词典，未句读段落也能标记名称", async () => {
     bookKnowledge = knowledge({ name: "承认", text: "" });
     await loadA();
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(2);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
     expect(host.querySelector(".judu-history-marker")).toBeNull();
     await click(element(".concept-toggle"));
     expect(host.querySelector('.reading-content [data-concept-word="承认"]')).toBeNull();
     await click(element(".concept-toggle"));
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(2);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
   });
 
   it("过时的切书结果不覆盖最后选择，书籍加载期间禁止发起句读", async () => {

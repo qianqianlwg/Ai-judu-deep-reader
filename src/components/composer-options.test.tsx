@@ -27,11 +27,15 @@ describe("聊天输入框选项", () => {
     const onPluginSelect = vi.fn(), onCitationSelect = vi.fn();
     await act(() => root.render(<ComposerOptions onPluginSelect={onPluginSelect} onCitationSelect={onCitationSelect} />)); await clickLabel("打开插件和引用菜单");
     const buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("button"));
-    await act(async () => { buttons.find(button => button.textContent?.startsWith("插件"))?.click(); buttons.find(button => button.textContent?.startsWith("引用"))?.click(); });
+    await act(async () => { buttons.find(button => button.textContent?.startsWith("本地插件"))?.click(); buttons.find(button => button.textContent?.startsWith("引用"))?.click(); });
     expect(onPluginSelect).toHaveBeenCalledWith("knowledge-base"); expect(onCitationSelect).toHaveBeenCalledTimes(1);
   });
-  it("运行中禁用加号和菜单内操作", async () => {
+  it("运行中可展开和收起菜单但选项只读", async () => {
     await act(() => root.render(<ComposerOptions disabled modelOptions={["模型A"]} />));
-    const plus = host.querySelector<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'); expect(plus?.disabled).toBe(true); expect(host.querySelector('[role="menu"]')).toBeNull();
+    const plus=host.querySelector<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]')!;
+    expect(plus.disabled).toBe(false);await clickLabel("打开插件和引用菜单");
+    expect(host.querySelector('[role="menu"]')).not.toBeNull();
+    expect([...host.querySelectorAll<HTMLButtonElement>('[role="menu"] button')].every(button=>button.disabled)).toBe(true);
+    await clickLabel("打开插件和引用菜单");expect(host.querySelector('[role="menu"]')).toBeNull();
   });
 });

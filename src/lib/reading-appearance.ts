@@ -20,16 +20,21 @@ export interface ReadingAppearancePreferences {
   columnWidth: ReadingColumnWidth;
   textAlign: "left" | "justify";
   language: ReadingLanguage;
+  originalBodyFontOverride: boolean;
+  showAnalysisHints: boolean;
+  analysisHintOpacity: number;
 }
 
 export const DEFAULT_READING_APPEARANCE: Readonly<ReadingAppearancePreferences> = Object.freeze({
   version: 1, theme: "gray", font: "song", fontSize: 16, lineHeight: 2,
   letterSpacing: 0, columnWidth: 650, textAlign: "left", language: "zh-CN",
+  originalBodyFontOverride: false, showAnalysisHints: true, analysisHintOpacity: 0.25,
 });
 export const READING_APPEARANCE_LIMITS = Object.freeze({
   fontSize: { min: 14, max: 32, step: 1 },
   lineHeight: { min: 1.4, max: 2.4, step: 0.1 },
   letterSpacing: { min: 0, max: 0.08, step: 0.01 },
+  analysisHintOpacity: { min: 0.05, max: 0.35, step: 0.01 },
 });
 export const READING_COLUMN_WIDTHS = [520, 650, 780, "auto"] as const;
 export const READING_FONTS: ReadonlyArray<{ id: ReadingFontId; label: string; family: string }> = [
@@ -99,12 +104,15 @@ export function normalizeReadingAppearance(value: unknown): ReadingAppearancePre
     columnWidth: READING_COLUMN_WIDTHS.find((width) => width === item.columnWidth) ?? DEFAULT_READING_APPEARANCE.columnWidth,
     textAlign: item.textAlign === "justify" ? "justify" : "left",
     language: item.language === "en" ? "en" : "zh-CN",
+    originalBodyFontOverride: typeof item.originalBodyFontOverride === "boolean" ? item.originalBodyFontOverride : DEFAULT_READING_APPEARANCE.originalBodyFontOverride,
+    showAnalysisHints: typeof item.showAnalysisHints === "boolean" ? item.showAnalysisHints : DEFAULT_READING_APPEARANCE.showAnalysisHints,
+    analysisHintOpacity: numeric(item.analysisHintOpacity, "analysisHintOpacity"),
   };
 }
 export function isReadingAppearance(value: unknown): value is ReadingAppearancePreferences {
   const item = record(value);
   const normalized = normalizeReadingAppearance(value);
-  const keys = ["version", "theme", "font", "fontSize", "lineHeight", "letterSpacing", "columnWidth", "textAlign", "language"];
+  const keys = ["version", "theme", "font", "fontSize", "lineHeight", "letterSpacing", "columnWidth", "textAlign", "language", "originalBodyFontOverride", "showAnalysisHints", "analysisHintOpacity"];
   return Object.keys(item).every((key) => keys.includes(key)) && keys.every((key) => item[key] === normalized[key as keyof ReadingAppearancePreferences]);
 }
 export interface LegacyReadingAppearance { theme?: string | null; fontScale?: string | null }

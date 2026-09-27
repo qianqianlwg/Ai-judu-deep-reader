@@ -44,11 +44,14 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
   let frame:number|undefined,disposed=false;
   const paint=()=>{
    frame=undefined;const bounds=container.getBoundingClientRect();
+   const seenConcepts=new Set<string>();
    const next:Located[]=targets.flatMap(({doc,target})=>{
     const source=Array.from(target.range.getClientRects()).filter(rect=>rect.width>0&&rect.height>0);
     const raw=target.kind==="history" ? source.slice(-1) : source;
     const rects=raw.map(rect=>epubRectToHost(doc,rect)).flatMap(rect=>{const clipped=clipReaderRect(rect,bounds);return clipped?[clipped]:[];});
     if(!rects.length)return [];
+    // WHY：同一可见页的同词只保留首处弹窗入口，翻页重新计数。
+    if(target.kind==="concept"){if(seenConcepts.has(target.concept.name))return [];seenConcepts.add(target.concept.name);}
     const last=rects[rects.length-1];
     // WHY：末端标识只在真实结束点所在页显示，不把跨页裁剪的假末尾当作句读结尾。
     if(target.kind==="history"&&source.length){const end=epubRectToHost(doc,source[source.length-1]);if(end.right>bounds.right+1||end.bottom>bounds.bottom+1||end.right<=bounds.left)return [];}

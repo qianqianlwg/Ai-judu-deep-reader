@@ -10,3 +10,6 @@
 .editorActions button:last-child { background: var(--reading-selected); color: var(--reading-text); }
 .feedback { color: var(--reading-accent); font-size: 11px; }
 .editor .feedback { margin: 0; color: var(--reading-accent); font-size: 11px; }
+
+/* WHY：复制/朗读是辅助操作，缩小文字但不压缩点击区。 */
+.actions button{font-size:10px;}

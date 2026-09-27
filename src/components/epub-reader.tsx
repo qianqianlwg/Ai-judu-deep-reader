@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LibraryBookContent, LibraryChapter } from "@/lib/library";
 import type { TextAnnotation, ConceptDetail } from "@/lib/annotations";
+import { analysisHistoryMarkerIds } from "@/lib/analysis-history-markers";
 import type { ReadingAnchor } from "@/lib/pagination";
 import { bindSettledSelection } from "@/lib/settled-selection";
 import type { ReadingSelection } from "@/lib/reader-selection";
@@ -26,7 +27,7 @@ type LoadedDocument = { doc: Document; index: number; maps: EpubParagraphMap[]; 
 type Session = { sourceBook: LibraryBookContent; artifact: ConvertedEpubArtifact | null; view: View; book: EpubBook; documents: Map<number, LoadedDocument>; anchor: ReadingAnchor | null; shouldSave: boolean; navigating: number; closed: boolean; stop():void; signal:AbortSignal; operations:ReturnType<typeof createReaderOperationQueue> };
 export type EpubReaderProps = {
   book: LibraryBookContent; anchor: ReadingAnchor | null; appearance: ReadingAppearancePreferences;
-  annotations: readonly TextAnnotation[]; concepts: readonly ConceptDetail[]; disabled?: boolean; navigationDisabled?: boolean;
+  annotations: readonly TextAnnotation[]; concepts: readonly ConceptDetail[]; showAnalysisHints?: boolean; analysisHintOpacity?: number; disabled?: boolean; navigationDisabled?: boolean;
   onSelect(selection: ReadingSelection, box: {left:number;top:number}): void;
   onOpenAnnotation?(annotation: TextAnnotation): void;
   onStartSelection?(): void; onClearSelection?(): void; onPosition(anchor: ReadingAnchor): void; onNotice(message: string): void; onFallback(): void;
@@ -38,14 +39,21 @@ function documentMaps(doc:Document, index:number, session:Session, book:LibraryB
   const chapter=chapterFor(book,section?.id ?? section?.href);
   return chapter ? book.edition?.fileType===".mobi"?mapMobiDocument(doc,chapter):mapEpubDocument(doc,chapter,isFb2Format(book.edition?.fileType??"")?"[data-fb2-paragraph]":undefined) : [];
 }
-export function appearanceCss(appearance:ReadingAppearancePreferences):string {
+export function appearanceCss(appearance:ReadingAppearancePreferences, documentOrigin?:string):string {
   const style=getReadingTextStyle(appearance), theme=READING_THEMES.find(item=>item.id===appearance.theme)!;
-  const localFont = appearance.font === "wenkai" ? '@font-face{font-family:"LXGW WenKai Reader";src:url("/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap;}' : "";
+  // WHY：部分 EPUB 在 body 类上以 1em 指定字号，类选择器会覆盖 body 规则；同时调整根字号，才能让书内相对字号随阅读设置缩放。
+  // WHY：正文段落的出版方 class 往往自行设置 line-height；只覆盖正文块的行距/字距，不改标题、表格和图片。
+  // WHY：原版 EPUB 是 blob: 文档，根相对 URL 无法解析；从宿主页面传入同源 origin 后生成绝对字体地址。
+  const fontUrl = documentOrigin ? new URL("/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf", documentOrigin).href : "/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf";
+  const localFont = appearance.font === "wenkai" ? `@font-face{font-family:"LXGW WenKai Reader";src:url("${fontUrl}") format("truetype");font-style:normal;font-weight:400;font-display:swap;}` : "";
   // WHY：原版 EPUB 正文在独立文档内，必须在那里声明相同的自托管字库；其它字体不加载此资源。
-  return `${localFont}html{color-scheme:${theme.scheme};}body{color:${theme.text};background:${theme.paper};font-family:${style.fontFamily};font-size:${appearance.fontSize}px;line-height:${appearance.lineHeight};text-align:${appearance.textAlign};letter-spacing:${appearance.letterSpacing}em;}img,svg{max-width:100%;}a{cursor:pointer;}`;
+  // WHY：仅在用户显式选择时覆盖书内正文及内联文字字体，不改字号、缩进和对齐。
+  const overrideBodyFont = appearance.originalBodyFontOverride ? `body :is(p,li,blockquote),body :is(p,li,blockquote) :not(svg,svg *){font-family:${style.fontFamily} !important;}` : "";
+  return `${localFont}html{color-scheme:${theme.scheme};font-size:${appearance.fontSize}px;}body{color:${theme.text};background:${theme.paper};font-family:${style.fontFamily};font-size:${appearance.fontSize}px;line-height:${appearance.lineHeight};text-align:${appearance.textAlign};letter-spacing:${appearance.letterSpacing}em;}body :is(p,li,blockquote){line-height:${appearance.lineHeight} !important;letter-spacing:${appearance.letterSpacing}em !important;}img,svg{max-width:100%;}a{cursor:pointer;}${overrideBodyFont}`;
 }
 
 export function EpubReader(props:EpubReaderProps) {
+  const historyMarkerIds = useMemo(() => analysisHistoryMarkerIds(props.annotations, props.book.chapters.flatMap(chapter => chapter.paragraphs.map(paragraph => paragraph.id))), [props.annotations, props.book]);
   const host=useRef<HTMLDivElement>(null), latest=useRef(props), sessionRef=useRef<Session|null>(null);
   const [status,setStatus]=useState(props.book.edition?.fileType === ".umd" ? "正在加载 UMD 转换版…" : "正在加载 EPUB 原版…"), [error,setError]=useState(""), [ready,setReady]=useState(false);
   const [progress,setProgress]=useState(""), [retry,setRetry]=useState(0);
@@ -145,7 +153,7 @@ export function EpubReader(props:EpubReaderProps) {
         };
         const cleanupSelection=bindSettledSelection(doc,{onCommit:onSelection,onStart:()=>{lastSelectionKey="";(latest.current.onStartSelection??latest.current.onClearSelection)?.();},onCancel:()=>latest.current.onClearSelection?.()});
         const loaded:LoadedDocument={doc,index,maps,paintCleanup:()=>{},cleanup:cleanupSelection};
-        loaded.paintCleanup=paintEpubAnnotations(doc,maps,latest.current.annotations,latest.current.concepts);s.documents.set(index,loaded);
+        loaded.paintCleanup=paintEpubAnnotations(doc,maps,latest.current.annotations,latest.current.concepts,{ enabled: latest.current.showAnalysisHints ?? true, opacity: latest.current.analysisHintOpacity ?? 0.25 }, { bounds: () => host.current?.getBoundingClientRect() ?? null, changes: view });s.documents.set(index,loaded);
         setDocuments([...s.documents.values()]);
       });
       view.addEventListener("relocate",event=>{
@@ -161,7 +169,7 @@ export function EpubReader(props:EpubReaderProps) {
       });
       setStatus("正在装配原版阅读器…");
       await operations.run("装配原版阅读器",async()=>{try{await view.open(epub);}finally{if(!currentSession(s))view.close();}}); if(cancelled)return;
-      view.renderer?.setStyles(appearanceCss(latest.current.appearance));
+      view.renderer?.setStyles(appearanceCss(latest.current.appearance, window.location.origin));
       // WHY：触摸/滚动翻页来自 renderer 而非工具栏。只记录主动位移，字体 reflow 不覆盖 canonical 锚点。
       view.renderer.addEventListener("relocate",event=>{
         const reason=(event as CustomEvent<{reason?:string}>).detail?.reason;
@@ -225,8 +233,8 @@ export function EpubReader(props:EpubReaderProps) {
     }
   }
   useEffect(()=>{if(session&&currentSession(session)&&!sameReadingAnchor(session.anchor,props.anchor))void navigateToAnchor(session,props.anchor).catch(cause=>failSession(session,cause));},[session,props.anchor]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(()=>{if(session&&!session.closed)session.view.renderer?.setStyles(appearanceCss(props.appearance));},[session,props.appearance]);
-  useEffect(()=>{if(session&&!session.closed)for(const loaded of session.documents.values()){loaded.paintCleanup();loaded.paintCleanup=paintEpubAnnotations(loaded.doc,loaded.maps,props.annotations,props.concepts);}},[session,props.annotations,props.concepts]);
+  useEffect(()=>{if(session&&!session.closed)session.view.renderer?.setStyles(appearanceCss(props.appearance, window.location.origin));},[session,props.appearance]);
+  useEffect(()=>{if(session&&!session.closed)for(const loaded of session.documents.values()){loaded.paintCleanup();loaded.paintCleanup=paintEpubAnnotations(loaded.doc,loaded.maps,props.annotations,props.concepts,{ enabled: props.showAnalysisHints ?? true, opacity: props.analysisHintOpacity ?? 0.14 }, { bounds: () => host.current?.getBoundingClientRect() ?? null, changes: session.view });}},[session,props.annotations,props.concepts,props.showAnalysisHints,props.analysisHintOpacity]);
 
   async function jumpPreview(preview:EpubLinkPreview) {
     const s=sessionRef.current;
@@ -256,6 +264,6 @@ export function EpubReader(props:EpubReaderProps) {
     {error&&<div className="epub-error" role="alert"><p>{error}</p><button onClick={()=>setRetry(x=>x+1)}>重试{modeLabel}</button><button onClick={props.onFallback}>切回精读</button></div>}
     {conversionState.kind==="ready"&&<div className="epub-conversion-notice" role="note"><span>UMD → EPUB 转换版 · 保留原文，不代表原文件版式</span><a href={conversionState.artifact.originalUrl} download aria-label="下载 UMD 原件（未经转换）">下载 UMD 原件</a></div>}
     <nav className="epub-navigation" aria-label={modeLabel+"翻页"}><button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("prev")}>{modeLabel}上一页</button><span>{progress || (converted?"转换章节":"原书布局")}</span>{toc.length>0&&<select aria-label="原书目录" value="" disabled={!ready||props.disabled} onChange={event=>void openToc(event.target.value)}><option value="" disabled>原书目录</option>{toc.map((item,index)=><option key={index} value={item.href}>{item.label}</option>)}</select>}<button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("next")}>{modeLabel}下一页</button></nav>
-    {session&&!session.closed&&!error&&<EpubInteractionLayer host={host} documents={documents} view={session.view} book={session.book} annotations={props.annotations} concepts={props.concepts} disabled={props.disabled} onOpenAnnotation={props.onOpenAnnotation} onJump={jumpPreview} onNotice={props.onNotice}/>} 
+    {session&&!session.closed&&!error&&<EpubInteractionLayer host={host} documents={documents} view={session.view} book={session.book} annotations={props.annotations} concepts={props.concepts} historyMarkerIds={historyMarkerIds} disabled={props.disabled} onOpenAnnotation={props.onOpenAnnotation} onJump={jumpPreview} onNotice={props.onNotice}/>}
   </section>;
 }

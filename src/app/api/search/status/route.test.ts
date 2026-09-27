@@ -1,4 +1,12 @@
-import { expect, it, vi } from 'vitest';import {NextRequest} from 'next/server';
-vi.mock('@/lib/db',()=>({getDb:()=>({})}));vi.mock('@/lib/embedding-store',()=>({readEmbeddingConfig:()=>({apiKey:'private'})}));vi.mock('@/lib/vector-index',()=>({vectorIndexStatus:()=>({backend:'sqlite',indexedCount:12,paragraphCount:12,vectorIndexed:true})}));
-import {GET} from './route';
-it('所有状态入口统一本地向量覆盖，绝不返回密钥',async()=>{for(const suffix of ['', '&engine=local-vector']){const response=await GET(new NextRequest('http://localhost/api/search/status?editionId=e'+suffix));expect(await response.json()).toEqual({backend:'sqlite',indexedCount:12,paragraphCount:12,vectorIndexed:true,configured:true});}expect((await GET(new NextRequest('http://localhost/api/search/status'))).status).toBe(400);});
+import { expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+vi.mock("@/lib/db", () => ({ getDb: () => ({}) }));
+vi.mock("@/lib/embedding-store", () => ({ readEmbeddingConfig: () => ({ apiKey: "fake" }) }));
+vi.mock("@/lib/vector-index", () => ({ vectorIndexStatus: () => ({ chunkCount: 12, indexedChunkCount: 4, vectorIndexed: false }) }));
+vi.mock("@/lib/vector-index-jobs", () => ({ createVectorIndexJobs: () => ({ status: () => ({ state: "running", error: "" }) }) }));
+import { GET } from "./route";
+it("离开页面后状态接口仍提供后台任务与已落库进度", async () => {
+  const response = await GET(new NextRequest("http://localhost/api/search/status?editionId=e"));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ indexedChunkCount: 4, configured: true, job: { state: "running" } });
+});

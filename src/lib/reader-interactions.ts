@@ -1,8 +1,9 @@
+import { analysisHistoryMarkerIds } from "./analysis-history-markers";
 import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type TextAnnotation } from "./annotations";
 import type {LibraryParagraph} from "./library";
 export type ReaderInteraction = {key:string;range:Range} & ({kind:"concept";concept:AnnotationConcept}|{kind:"history";annotations:TextAnnotation[]}|{kind:"mark";annotation:TextAnnotation});
 export type ReaderRect={left:number;right:number;top:number;bottom:number;width:number;height:number};
-export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],rangeFor:(paragraphId:string,start:number,end:number)=>Range|null,annotations:readonly TextAnnotation[],concepts:readonly ConceptDetail[]):ReaderInteraction[]{
+export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],rangeFor:(paragraphId:string,start:number,end:number)=>Range|null,annotations:readonly TextAnnotation[],concepts:readonly ConceptDetail[],historyMarkerIds:ReadonlySet<string>=analysisHistoryMarkerIds(annotations,paragraphs.map(p=>p.id))):ReaderInteraction[]{
  const result:ReaderInteraction[]=[];
  for(const paragraph of paragraphs){
   const segments=segmentAnnotatedText({paragraphId:paragraph.id,text:paragraph.text,sourceText:paragraph.text,annotations,bookConcepts:concepts,showConcepts:concepts.length>0});
@@ -15,7 +16,7 @@ export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],r
      else {previousConcept={kind:"concept",key:paragraph.id+":concept:"+segment.startOffset,range,concept:segment.concept};result.push(previousConcept);}
     } else previousConcept=undefined;
    } else previousConcept=undefined;
-   const history=segment.endingAnnotations.filter(annotation=>!annotation.kind||annotation.kind==="analysis");
+   const history=segment.endingAnnotations.filter(annotation=>(!annotation.kind||annotation.kind==="analysis")&&historyMarkerIds.has(annotation.id));
    const end=segment.endOffset,lastCharacter=Array.from(paragraph.text.slice(0,end)).at(-1);
    const range=history.length ? rangeFor(paragraph.id,Math.max(0,end-(lastCharacter?.length??1)),end) : null;
    if(range)result.push({kind:"history",key:paragraph.id+":history:"+segment.endOffset,range,annotations:history});

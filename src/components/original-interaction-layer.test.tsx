@@ -314,3 +314,17 @@ describe("引用标题：真实文本、回退和不可信字符串", () => {
     expect(fetch).not.toHaveBeenCalled(); expect(window.open).not.toHaveBeenCalled();
   });
 });
+
+it("同页同词只保留首个弹窗入口，翻页后可在新页首处查看", async () => {
+ const first=concept("财政体制","首处",sourceRange(2,6,box(40,40,80,20)));
+ const second={...concept("财政体制","重复处",sourceRange(2,6,box(180,40,80,20))),key:"second"};
+ await render({documents:[{...props.documents[0],targets:[first,second]}]});
+ expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
+ await mouse(paragraph,"mousemove",190,50);expect(dialog()).toBeNull();
+ await mouse(paragraph,"click",190,50);expect(dialog()).toBeNull();
+ await mouse(paragraph,"mousemove",55,50);expect(dialog()?.textContent).toContain("首处");
+ geometries.set(first.range,[box(-200,40,80,20)]);
+ await act(async()=>window.dispatchEvent(new Event("resize")));await flushFrames();
+ expect(dialog()).toBeNull();expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
+ await mouse(paragraph,"mousemove",190,50);expect(dialog()?.textContent).toContain("重复处");
+});

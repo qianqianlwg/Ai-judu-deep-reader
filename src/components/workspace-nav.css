@@ -117,3 +117,11 @@
 }
 @media(min-width:961px) and (max-width:1180px){.workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"]:not([data-nav-collapsed="true"]){grid-template-columns:190px minmax(0,1fr)!important;}}
 @media(max-width:960px){.workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"]{grid-template-columns:minmax(0,1fr)!important;}}
+
+/* WHY：目录标题作为结构锚点突出；导航与章节属于次级操作，缩小字号但保留原点击高度。 */
+.app-shell.workspace-shell .workspace-nav [aria-label="主导航"] .workspace-nav-item { font-size: max(14px, calc(var(--ui-text-size, 13px) + 1px)); font-weight: 520; }
+.app-shell.workspace-shell .workspace-nav [aria-label="主导航"] .workspace-nav-item.active { font-weight: 620; }
+.app-shell.workspace-shell .workspace-nav [aria-label="本书目录"] .toc-item { min-height: 32px; padding: 5px 7px; font-size: max(12px, calc(var(--ui-text-size, 13px) - 1px)); line-height: 1.35; color: var(--reading-muted); }
+.app-shell.workspace-shell .workspace-nav [aria-label="本书目录"] .toc-item.active { color: var(--reading-text); font-weight: 600; }
+.app-shell.workspace-shell .workspace-nav [aria-label="本书目录"] .toc-item small { font-size: 10px; font-weight: 400; color: var(--reading-muted); }
+.app-shell.workspace-shell .workspace-nav .workspace-section-title button { font-size: max(14px, calc(var(--ui-text-size, 13px) + 1px)); font-weight: 600; color: var(--reading-muted); }

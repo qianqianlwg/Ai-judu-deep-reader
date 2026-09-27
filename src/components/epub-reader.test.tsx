@@ -66,6 +66,28 @@ it("翻页定位段内字符，使用上游 section.current，不以段首覆盖
  await act(async()=>{next.click();view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},range,cfi:"epubcfi(/6/2!/4:4)"}}));});
  expect(props.onPosition).toHaveBeenCalledWith({paragraphId:"p",offset:4});
 });
+it("原版书内 body 类用 1em 时字号仍有可调基准", () => {
+ const small=appearanceCss({...DEFAULT_READING_APPEARANCE,fontSize:16});
+ const large=appearanceCss({...DEFAULT_READING_APPEARANCE,fontSize:24});
+ // WHY：书内 .calibre7 { font-size: 1em } 比 body 规则优先，必须由根字号提供相对单位基准。
+ expect(small).toContain("html{color-scheme:light;font-size:16px;}");
+ expect(large).toContain("html{color-scheme:light;font-size:24px;}");
+ expect(large).toContain("body{color:");
+ expect(large).toContain("body :is(p,li,blockquote){line-height:2 !important;letter-spacing:0em !important;}");
+});
+it("原版书内段落显式行距不遮盖用户行距与字距", () => {
+ const css=appearanceCss({...DEFAULT_READING_APPEARANCE,lineHeight:2.2,letterSpacing:.06});
+ expect(css).toContain("html{color-scheme:light;font-size:16px;}");
+ expect(css).toContain("body :is(p,li,blockquote){line-height:2.2 !important;letter-spacing:0.06em !important;}");
+ expect(css).not.toContain("font-size:16px !important");
+});
+it("原版字体覆盖默认关闭，仅开启时作用于正文和内联文字", () => {
+ const defaultCss=appearanceCss(DEFAULT_READING_APPEARANCE);
+ const unified=appearanceCss({...DEFAULT_READING_APPEARANCE,font:"kai",originalBodyFontOverride:true});
+ expect(defaultCss).not.toContain("body :is(p,li,blockquote) :not(svg,svg *)");
+ expect(unified).toContain('body :is(p,li,blockquote),body :is(p,li,blockquote) :not(svg,svg *){font-family:"Kaiti SC"');
+ expect(unified).not.toContain("text-indent:0 !important");
+});
 it("字体与 canonical 跳转不重复下载，切书释放资源",async()=>{
  await render();await render({anchor:{paragraphId:"p2",offset:1},appearance:{...props.appearance,fontSize:24}});
  expect(loader.loadEpub).toHaveBeenCalledOnce();expect(view.renderer.goTo).toHaveBeenCalled();expect(view.renderer.setStyles).toHaveBeenLastCalledWith(expect.stringContaining("font-size:24px"));
@@ -478,5 +500,8 @@ it("霞鹜文楷只在原版选中时注入同源字库，并保留系统字体�
  expect(wenkai).toContain('@font-face{font-family:"LXGW WenKai Reader"');
  expect(wenkai).toContain('/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf');
  expect(wenkai).toContain('font-display:swap');
+ const absolute = appearanceCss({...DEFAULT_READING_APPEARANCE,font:"wenkai"},"http://localhost:3100");
+ expect(absolute).toContain('src:url("http://localhost:3100/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf")');
+ expect(absolute).not.toContain('src:url("/fonts/');
  expect(appearanceCss(DEFAULT_READING_APPEARANCE)).not.toContain('@font-face');
 });

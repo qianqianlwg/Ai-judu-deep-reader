@@ -184,11 +184,11 @@
   color: var(--composer-text);
 }
 .composer :is(button, summary):focus-visible { outline: 2px solid var(--composer-accent); outline-offset: 3px; }
-.composer .usageFooter { align-items: center; gap: 6px 10px; margin-bottom: 0; color: var(--composer-muted); font-size: 11px; line-height: 1.5; }
+.composer .usageFooter { align-items: center; gap: 6px 10px; margin-bottom: 0; color: var(--composer-muted); font-size: 10px; line-height: 1.5; }
 .composer .modelName { max-width: 100%; flex: 1 1 110px; padding: 3px 0; }
 .composer .usageDetails { margin-left: auto; }
 .composer .usageDetails > summary { min-height: 28px; flex-wrap: wrap; gap: 5px; }
-.composer .usageSource { color: inherit; font-size: 10px; }
+.composer .usageSource { color: inherit; font-size: 9px; }
 .composer :is(.usageBreakdown, .usageUnknown) { background: color-mix(in srgb, var(--composer-border) 25%, var(--composer-surface)); color: var(--composer-muted); }
 .composer .usageBreakdown dd { color: var(--composer-text); overflow-wrap: anywhere; }
 .composer .usageBreakdown dl { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -217,3 +217,16 @@
 .errorCard button:disabled { opacity: .5; cursor: not-allowed; }
 .errorCard button:focus-visible { outline: 2px solid var(--reading-accent); outline-offset: 3px; }
 @media(max-width:480px){.panel{--chat-inset:12px}.panel .composer{margin:8px var(--chat-inset) 12px;border-radius:var(--ui-radius-input,20px)}}
+
+/* WHY：回答正文与输入文字共用阅读字号；辅助标签仍保持较小层级，界面字号偏好也能同步放大两者。 */
+:global(.app-shell.workspace-shell) .panel :global(.chat-message.assistant .message-content),
+:global(.app-shell.workspace-shell) .panel :global(.chat-message.assistant .message-content :is(p,li,blockquote)),
+:global(.app-shell.workspace-shell) .panel .composerInput { font-size: max(16px, var(--ui-text-size, 16px)); }
+
+/* WHY：目录与 AI 正文同级，比主导航低一档；输入文字沿用正文大小，不改变工具/Token 等辅助层。 */
+:global(.app-shell.workspace-shell) .panel :global(.chat-message.assistant .message-content),
+:global(.app-shell.workspace-shell) .panel :global(.chat-message.assistant .message-content :is(p,li,blockquote)),
+:global(.app-shell.workspace-shell) .panel .composerInput { font-size: max(15px, calc(var(--ui-text-size, 13px) + 2px)); }
+
+/* WHY：占位提示是辅助文案，字号低于正文与真实输入；只缩占位文字，不缩用户输入。 */
+:global(.app-shell.workspace-shell) .panel .composerInput::placeholder { font-size: 13px; }
