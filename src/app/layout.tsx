@@ -5,8 +5,8 @@ import {
   DEFAULT_READING_APPEARANCE, getReadingAppearanceBootstrapScript, getReadingAppearanceVariables,
 } from "@/lib/reading-appearance";
 import { SpeechProvider } from "@/components/speech-controls";
-import { uiTextSizeBootstrapScript } from "@/lib/ui-typography";
 import "@/components/lxgw-wenkai.css";
+import { uiTextSizeBootstrapScript } from "@/lib/ui-typography";
 import "@/components/ui-typography.css";
 import "./globals.css";
 import "@/components/workspace-theme.css";

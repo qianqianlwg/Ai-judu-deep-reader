@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CONTEXT_INPUT_TOKEN_OPTIONS, DEFAULT_CONTEXT_SETTINGS, normalizeContextInputTokens } from "@/lib/context-compaction";
-import { normalizeReadingDetail } from "@/lib/reading-detail";
 import {
   DEFAULT_READING_APPEARANCE, READING_APPEARANCE_STORAGE_KEYS, applyReadingAppearanceToRoot, readReadingAppearance, writeReadingAppearance,
   type ReadingAppearancePreferences,
@@ -29,7 +28,6 @@ export default function SettingsPage() {
   const [contextTokens, setContextTokens] = useState(String(DEFAULT_CONTEXT_SETTINGS.maxInputTokens));
   const [outputTokens, setOutputTokens] = useState("4096");
   const [compression, setCompression] = useState("balanced");
-  const [readingDetail, setReadingDetail] = useState("standard");
   const [appearance, setAppearance] = useState<ReadingAppearancePreferences>(DEFAULT_READING_APPEARANCE);
   const [appearanceReady, setAppearanceReady] = useState(false);
   const [appearanceError, setAppearanceError] = useState("");
@@ -66,7 +64,6 @@ export default function SettingsPage() {
         setContextTokens(String(normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens"))));
         setOutputTokens(localStorage.getItem("judu:maxOutputTokens") ?? "4096");
         setCompression(localStorage.getItem("judu:compressionStrategy") ?? "balanced");
-        setReadingDetail(normalizeReadingDetail(localStorage.getItem("judu:readingDetail")));
       } catch (error: unknown) {
         console.error("读取阅读运行设置失败", { name: error instanceof Error ? error.name : "UnknownError" });
       }
@@ -99,7 +96,6 @@ export default function SettingsPage() {
   const saveContext = (value: string): void => { setContextTokens(value); localStorage.setItem("judu:maxInputTokens", value); };
   const saveOutput = (value: string): void => { setOutputTokens(value); localStorage.setItem("judu:maxOutputTokens", value); };
   const saveCompression = (value: string): void => { setCompression(value); localStorage.setItem("judu:compressionStrategy", value); };
-  const saveReadingDetail = (value: string): void => { const normalized = normalizeReadingDetail(value); setReadingDetail(normalized); localStorage.setItem("judu:readingDetail", normalized); };
 
   async function saveAi(): Promise<void> {
     setAiNotice("保存中…");
@@ -122,7 +118,7 @@ export default function SettingsPage() {
   return <main className={styles.page} data-settings-page="true"><div className={styles.content}>
     <header className={styles.header}><Link href="/" className={styles.backLink}>← 返回阅读器</Link><div><span className={styles.kicker}>JUDU SETTINGS</span><h1>设置</h1></div></header>
     <ReadingAppearanceSettings value={appearance} ready={appearanceReady} error={appearanceError} onChange={saveAppearance} />
-    <section className={styles.card}><h2>上下文</h2><label>最大输入 Token<select aria-label="最大输入 Token" value={contextTokens} onChange={(event) => saveContext(event.target.value)}>{CONTEXT_INPUT_TOKEN_OPTIONS.map((value) => <option key={value} value={value}>{value === 1000000 ? "1M" : value / 1000 + "K"}</option>)}</select></label><label>最大输出 Token<select aria-label="最大输出 Token" value={outputTokens} onChange={(event) => saveOutput(event.target.value)}><option value="1024">1K</option><option value="2048">2K</option><option value="4096">4K</option><option value="8192">8K</option><option value="16384">16K</option></select></label><label>压缩触发<select value={compression} onChange={(event) => saveCompression(event.target.value)}><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">激进</option></select></label><label>句读详细程度<select aria-label="句读详细程度" value={readingDetail} onChange={(event) => saveReadingDetail(event.target.value)}><option value="concise">精简（约 1:1.2）</option><option value="standard">标准（约 1:1.5）</option><option value="detailed">详细（约 1:2）</option></select></label><p className={styles.hint}>接近预算时将已有对话整理成阅读记忆，保留关键约定、概念和未解问题；不按最近条数截取。新消息追加在检查点之后。调整预算后，可在原消息上重试；选文和原问题不会改变。</p></section>
+    <section className={styles.card}><h2>上下文</h2><label>最大输入 Token<select aria-label="最大输入 Token" value={contextTokens} onChange={(event) => saveContext(event.target.value)}>{CONTEXT_INPUT_TOKEN_OPTIONS.map((value) => <option key={value} value={value}>{value === 1000000 ? "1M" : value / 1000 + "K"}</option>)}</select></label><label>最大输出 Token<select aria-label="最大输出 Token" value={outputTokens} onChange={(event) => saveOutput(event.target.value)}><option value="1024">1K</option><option value="2048">2K</option><option value="4096">4K</option><option value="8192">8K</option><option value="16384">16K</option></select></label><label>压缩触发<select value={compression} onChange={(event) => saveCompression(event.target.value)}><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">激进</option></select></label><p className={styles.hint}>解读方式与回复长度在回复框的加号菜单设置，按书保存，下次回复生效。</p><p className={styles.hint}>接近预算时将已有对话整理成阅读记忆，保留关键约定、概念和未解问题；不按最近条数截取。新消息追加在检查点之后。调整预算后，可在原消息上重试；选文和原问题不会改变。</p></section>
     <UiTypographySettings />
     <SpeechSettings />
     <section className={styles.card}><h2>AI 句读</h2><label>协议<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="claude">Claude</option></select></label><label>API URL<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label><label>模型列表<textarea aria-label="模型列表" rows={4} value={models} onChange={event=>{setModels(event.target.value);const first=event.target.value.split(/[\n,，;；]+/u).map(value=>value.trim()).filter(Boolean);if(!first.includes(model))setModel(first[0]??"");}} placeholder="每行一个模型名称，也可用逗号分隔" /></label><label>默认模型<select aria-label="默认模型" value={model} onChange={event=>setModel(event.target.value)}>{[...new Set(models.split(/[\n,，;；]+/u).map(value=>value.trim()).filter(Boolean))].map(value=><option key={value} value={value}>{value}</option>)}</select></label><p className={styles.hint}>多个模型共用此 API 地址、协议和密钥；聊天框可以逐次选择，默认模型用于未指定模型的请求。</p><label>API Key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空则保留已保存 Key" /></label><div className={styles.actions}><button type="button" onClick={() => void testAi()}>测试连接</button><button type="button" onClick={() => void saveAi()}>保存</button></div>{aiNotice && <p className={styles.hint} role="status">{aiNotice}</p>}</section>

@@ -74,3 +74,24 @@ it("关闭选文菜单后仍可在底部控制，切换到 AI 回答始终只有
   expect(host.querySelectorAll('[aria-label="语音朗读控制"]')).toHaveLength(1);
   expect(host.querySelector('[aria-label="语音朗读控制"]')?.textContent).toContain("AI回答");
 });
+
+it("生成锁住再次句读与标注时，新选区仍可朗读且不更改请求", async () => {
+  const onAnalyze = vi.fn(), onHighlight = vi.fn();
+  await act(async () => root.render(<SpeechProvider><SelectionActions left={100} top={100} selectedText="新选的文字。" disabled speechDisabled={false} onAnalyze={onAnalyze} onHighlight={onHighlight} onFavorite={vi.fn()} onNote={vi.fn()} /></SpeechProvider>));
+  const speech = host.querySelector<HTMLButtonElement>('[aria-label="朗读选中文本"]')!;
+  expect(speech.disabled).toBe(false);
+  expect(Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "句读一下")?.disabled).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>('[aria-label="黄色标亮"]')?.disabled).toBe(true);
+  await act(async () => speech.click());
+  expect(fetcher.mock.calls.find(call => call[0] === "/api/speech")?.[1]?.body).toBe(JSON.stringify({ text: "新选的文字。" }));
+  expect(onAnalyze).not.toHaveBeenCalled(); expect(onHighlight).not.toHaveBeenCalled();
+});
+
+it("流式回答可以朗读已收到文字，后续增量不改变已发出的语音请求", async () => {
+  await act(async () => root.render(<SpeechProvider><MessageActions message={{ role: "assistant", content: "已收到的第一段。", status: "streaming" }} /></SpeechProvider>));
+  const read = host.querySelector<HTMLButtonElement>('[aria-label="朗读AI回答"]')!; expect(read.disabled).toBe(false);
+  await act(async () => read.click());
+  expect(fetcher.mock.calls.find(call => call[0] === "/api/speech")?.[1]?.body).toBe(JSON.stringify({ text: "已收到的第一段。" }));
+  await act(async () => root.render(<SpeechProvider><MessageActions message={{ role: "assistant", content: "已收到的第一段。第二段也到了。", status: "streaming" }} /></SpeechProvider>));
+  expect(fetcher.mock.calls.filter(call => call[0] === "/api/speech")).toHaveLength(1);
+});

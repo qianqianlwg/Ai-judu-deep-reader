@@ -7,6 +7,8 @@ import styles from "./knowledge-panel.module.css";
 
 export type KnowledgePanelProps = {
   editionId: string | null;
+  activeTab?: KnowledgeTab;
+  hideTabs?: boolean;
   bookTitle?: string;
   refreshToken?: string | number;
   className?: string;
@@ -22,6 +24,7 @@ export type KnowledgePanelState =
   | { status: "ready"; data: BookKnowledge };
 export type KnowledgePanelViewProps = Omit<KnowledgePanelProps, "editionId" | "refreshToken"> & {
   state: KnowledgePanelState;
+  hideTabs?: boolean;
   tab: KnowledgeTab;
   query: string;
   idPrefix: string;
@@ -56,8 +59,8 @@ function RecordActions({ record, onOpenSource, onOpenConversation }: {
   </>;
 }
 
-function RecordCard({ record, ...callbacks }: {
-  record: KnowledgeRecord;
+function RecordCard({ record, compact = false, ...callbacks }: {
+  record: KnowledgeRecord; compact?: boolean;
 } & Pick<KnowledgePanelProps, "onOpenSource" | "onOpenConversation">) {
   return <article className={styles.card} data-record-id={record.id}>
     <div className={styles.meta}>
@@ -65,11 +68,8 @@ function RecordCard({ record, ...callbacks }: {
       <time dateTime={record.createdAt}>{formatTime(record.createdAt)}</time>
     </div>
     <p className={styles.summary}>{record.summary || "这次句读已保存概念解释。"}</p>
-    {record.excerpt ? <details className={styles.source} open={record.excerpt.length < 160}>
-      <summary>{record.anchor ? "原文摘录" : "历史选文（未定位）"} · {record.excerpt.length} 字</summary>
-      <blockquote>{record.excerpt}</blockquote>
-    </details> : <p className={styles.notice}>旧记录未保存可核验的原文摘录。</p>}
-    {record.concepts.length > 0 && <ul className={styles.tags} aria-label="本次关键概念">
+    {record.excerpt ? <div className={styles.source}><span>{record.anchor ? "原文摘录" : "历史选文（未定位）"} · {Array.from(record.excerpt).length} 字</span><blockquote>{record.excerpt}</blockquote></div> : <p className={styles.notice}>旧记录未保存可核验的原文摘录。</p>}
+    {!compact && record.concepts.length > 0 && <ul className={styles.tags} aria-label="本次关键概念">
       {[...new Set(record.concepts.map((item) => item.name))].map((name) => <li key={name}>{name}</li>)}
     </ul>}
     <RecordActions record={record} {...callbacks} />
@@ -88,15 +88,14 @@ function ConceptCard({ concept, records, ...callbacks }: {
         {concept.definitions.length > 1 && <small>解释 {index + 1} · {definition.recordIds.length} 次句读来源</small>}
         <p>{definition.text}</p>
       </div>) : <p className={styles.notice}>这条历史记录未保存概念定义，可打开所属对话查看。</p>}
-    <details className={styles.sources}>
-      <summary>查看 {sources.length} 条句读来源</summary>
-      {sources.map((record) => <RecordCard key={record.id} record={record} {...callbacks} />)}
-    </details>
+    <section className={styles.sources} aria-label="句读来源"><h4>句读来源 <span>{sources.length}</span></h4>
+      {sources.length ? sources.map((record) => <RecordCard key={record.id} record={record} compact {...callbacks} />) : <p className={styles.notice}>暂无可用来源。</p>}
+    </section>
   </article>;
 }
 
 export function KnowledgePanelView({ state, tab, query, idPrefix, onTabChange, onQueryChange,
-  onRefresh, bookTitle, className, onClose, onOpenSource, onOpenConversation }: KnowledgePanelViewProps) {
+  onRefresh, bookTitle, className, onClose, onOpenSource, onOpenConversation, hideTabs=false }: KnowledgePanelViewProps) {
   const data = state.status === "ready" ? state.data : null;
   const filtered = data ? filterBookKnowledge(data, query) : null;
   const allRecords = new Map(data?.records.map((record) => [record.id, record]) ?? []);
@@ -105,14 +104,14 @@ export function KnowledgePanelView({ state, tab, query, idPrefix, onTabChange, o
   return <aside className={[styles.panel, className].filter(Boolean).join(" ")}
     aria-label="本书知识卡片" aria-busy={state.status === "loading"}>
     <header className={styles.header}>
-      <div><h2>本书知识</h2><p>{bookTitle || "当前书籍"} · 全书范围</p></div>
+      <div><h2>{hideTabs ? "当前书籍" : "本书知识"}</h2><p title={bookTitle || undefined}>{bookTitle || "当前书籍"} · 全书范围</p></div>
       <div className={styles.headerActions}>
         <button type="button" disabled={state.status === "idle" || state.status === "loading"}
           onClick={onRefresh} aria-label="刷新本书知识">刷新</button>
         {onClose && <button type="button" onClick={onClose} aria-label="返回对话">返回对话</button>}
       </div>
     </header>
-    <div className={styles.tabs} role="tablist" aria-label="知识分类">
+    {!hideTabs && <div className={styles.tabs} role="tablist" aria-label="知识分类">
       {(["concepts", "records"] as const).map((value) => <button type="button" role="tab" key={value}
         id={idPrefix + "-" + value} aria-controls={idPrefix + "-content"} aria-selected={tab === value}
         tabIndex={tab === value ? 0 : -1} onClick={() => onTabChange(value)}
@@ -128,14 +127,15 @@ export function KnowledgePanelView({ state, tab, query, idPrefix, onTabChange, o
         {value === "concepts" ? "概念" : "句读记录"}
         <span>{data ? value === "concepts" ? data.concepts.length : data.records.length : "—"}</span>
       </button>)}
-    </div>
+    </div>}
     <label className={styles.search}>
       <span className={styles.srOnly}>搜索本书概念和句读记录</span>
       <input type="search" value={query} onChange={(event) => onQueryChange(event.currentTarget.value)}
         placeholder="搜索概念、解释或原文…" disabled={state.status === "idle"} />
     </label>
-    <div className={styles.content} role="tabpanel" id={idPrefix + "-content"}
-      aria-labelledby={idPrefix + "-" + tab} tabIndex={0}>
+    <div className={styles.content} role={hideTabs ? "region" : "tabpanel"} id={idPrefix + "-content"}
+      aria-label={hideTabs ? tab === "concepts" ? "本书概念" : "句读记录" : undefined}
+      aria-labelledby={hideTabs ? undefined : idPrefix + "-" + tab} tabIndex={0}>
       {state.status === "idle" && <div className={styles.empty}>请先选择或导入一本书。</div>}
       {state.status === "loading" && <div className={styles.empty} role="status">正在读取本书知识…</div>}
       {state.status === "error" && <div className={styles.empty} role="alert">
@@ -178,7 +178,7 @@ function KnowledgePanelSession(props: KnowledgePanelProps) {
   }, [editionId, requestKey]);
   const state: KnowledgePanelState = !editionId ? { status: "idle" }
     : resource?.key === requestKey ? resource.state : { status: "loading" };
-  return <KnowledgePanelView {...props} state={state} tab={tab} query={query} idPrefix={idPrefix}
+  return <KnowledgePanelView {...props} state={state} tab={props.activeTab ?? tab} query={query} idPrefix={idPrefix}
     onTabChange={setTab} onQueryChange={setQuery} onRefresh={() => { setRevision((value) => value + 1); props.onRefreshRequested?.(); }} />;
 }
 

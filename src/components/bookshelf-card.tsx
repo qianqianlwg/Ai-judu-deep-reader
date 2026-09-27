@@ -7,11 +7,11 @@ import {formatName, shelfTitle} from "./bookshelf-model";
 
 export type BookshelfCardProps = {
   book: WorkspaceBook; location?: string; resumeEdition?: string; currentBookId: string;
-  coverRevision?: number; busy?: boolean;
+  coverRevision?: number; busy?: boolean; navigationDisabled?: boolean;
   onOpen: (id: string, editionId?: string) => void;
   onDetails: (id: string, section: BookDetailsSection) => void;
 };
-export function BookshelfCard({book, location, resumeEdition, currentBookId, coverRevision = 0, busy, onOpen, onDetails}: BookshelfCardProps) {
+export function BookshelfCard({book, location, resumeEdition, currentBookId, coverRevision = 0, busy, navigationDisabled = false, onOpen, onDetails}: BookshelfCardProps) {
   const menu = useRef<HTMLDetailsElement>(null);
   const title = shelfTitle(book);
   const formats = [...new Set(book.editions?.map(e => formatName(e.fileType)))].join(" / ");
@@ -31,7 +31,7 @@ export function BookshelfCard({book, location, resumeEdition, currentBookId, cov
     onDetails(book.id, section);
   };
   return <article className="bookshelf-card" data-book-id={book.id}>
-    <button type="button" className="bookshelf-open" disabled={busy} aria-label={"阅读《" + title + "》"}
+    <button type="button" className="bookshelf-open" disabled={busy || navigationDisabled} aria-label={"阅读《" + title + "》"}
       onClick={() => resumeEdition ? onOpen(book.id, resumeEdition) : onOpen(book.id)}>
       <BookCover key={coverRevision + ":" + book.id + ":" + (resumeEdition ?? book.editions?.[0]?.id ?? "")} book={book} editionId={resumeEdition} />
       <span className="bookshelf-card-copy"><strong title={title}>{title}</strong><span className="bookshelf-author">{book.author || "作者未注明"}</span>

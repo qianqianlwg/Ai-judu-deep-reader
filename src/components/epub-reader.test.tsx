@@ -53,11 +53,12 @@ it("按版本拉取原件，保留 DOM，展示目录与翻页",async()=>{
  await act(async()=>next.click());expect(view.next).toHaveBeenCalledOnce();
 });
 it("原版选区转换为既有 UTF-16 锚点，保留 emoji",async()=>{
- await render();const text=doc.querySelector("p")!.firstChild!,range=doc.createRange();range.setStart(text,2);range.setEnd(text,6);
+ const onSelectionDocument=vi.fn();await render({onSelectionDocument});const text=doc.querySelector("p")!.firstChild!,range=doc.createRange();range.setStart(text,2);range.setEnd(text,6);
  Object.defineProperty(range,"getBoundingClientRect",{value:()=>({left:10,top:60,width:30})});
  vi.spyOn(doc.defaultView!,"getSelection").mockReturnValue({rangeCount:1,isCollapsed:false,getRangeAt:()=>range} as unknown as Selection);
  await act(async()=>doc.dispatchEvent(new MouseEvent("mouseup")));
  expect(props.onSelect).toHaveBeenCalledWith({paragraphId:"p",startOffset:2,endOffset:6,text:"😀原版"},expect.any(Object));
+ expect(onSelectionDocument).toHaveBeenCalledWith(doc);
  expect(JSON.parse(localStorage.getItem(originalPositionKey("e"))!).anchor.offset).toBe(2);
 });
 it("翻页定位段内字符，使用上游 section.current，不以段首覆盖",async()=>{
@@ -65,6 +66,28 @@ it("翻页定位段内字符，使用上游 section.current，不以段首覆盖
  const range=doc.createRange();range.setStart(doc.querySelector("p")!.firstChild!,4);range.setEnd(doc.querySelector("p")!.firstChild!,8);
  await act(async()=>{next.click();view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},range,cfi:"epubcfi(/6/2!/4:4)"}}));});
  expect(props.onPosition).toHaveBeenCalledWith({paragraphId:"p",offset:4});
+});
+it("原版书内 body 类用 1em 时字号仍有可调基准", () => {
+ const small=appearanceCss({...DEFAULT_READING_APPEARANCE,fontSize:16});
+ const large=appearanceCss({...DEFAULT_READING_APPEARANCE,fontSize:24});
+ // WHY：书内 .calibre7 { font-size: 1em } 比 body 规则优先，必须由根字号提供相对单位基准。
+ expect(small).toContain("html{color-scheme:light;font-size:16px;}");
+ expect(large).toContain("html{color-scheme:light;font-size:24px;}");
+ expect(large).toContain("body{color:");
+ expect(large).toContain("body :is(p,li,blockquote){line-height:2 !important;letter-spacing:0em !important;}");
+});
+it("原版书内段落显式行距不遮盖用户行距与字距", () => {
+ const css=appearanceCss({...DEFAULT_READING_APPEARANCE,lineHeight:2.2,letterSpacing:.06});
+ expect(css).toContain("html{color-scheme:light;font-size:16px;}");
+ expect(css).toContain("body :is(p,li,blockquote){line-height:2.2 !important;letter-spacing:0.06em !important;}");
+ expect(css).not.toContain("font-size:16px !important");
+});
+it("原版字体覆盖默认关闭，仅开启时作用于正文和内联文字", () => {
+ const defaultCss=appearanceCss(DEFAULT_READING_APPEARANCE);
+ const unified=appearanceCss({...DEFAULT_READING_APPEARANCE,font:"kai",originalBodyFontOverride:true});
+ expect(defaultCss).not.toContain("body :is(p,li,blockquote) :not(svg,svg *)");
+ expect(unified).toContain('body :is(p,li,blockquote),body :is(p,li,blockquote) :not(svg,svg *){font-family:"Kaiti SC"');
+ expect(unified).not.toContain("text-indent:0 !important");
 });
 it("字体与 canonical 跳转不重复下载，切书释放资源",async()=>{
  await render();await render({anchor:{paragraphId:"p2",offset:1},appearance:{...props.appearance,fontSize:24}});
@@ -289,26 +312,27 @@ it("MOBI嵌套裸文本及后续标题走真实映射，跨段选区写入独立
  expect(JSON.parse(localStorage.getItem("judu:original-position:mobi:e-mobi")!)).toEqual({version:1,originalHash:mobiIdentity,cfi:"epubcfi(/6/2!/4)",anchor:{paragraphId:"p",offset:2}});
  expect(localStorage.getItem(originalPositionKey("e-mobi"))).toBe(legacy);expect(localStorage.getItem(convertedPositionKey("e-mobi"))).toBe(converted);
  expect(doc.body.innerHTML).toBe(before);
+ const unmapped=doc.createElement("aside");unmapped.textContent="未索引脚注";doc.body.append(unmapped);
  range.selectNodeContents(doc.body);await act(async()=>doc.dispatchEvent(new MouseEvent("mouseup")));
  expect(onClearSelection).toHaveBeenCalledOnce();expect(props.onSelect).toHaveBeenCalledOnce();expect(props.onNotice).toHaveBeenCalledWith(expect.stringContaining("此次未提交"));
  await render({anchor:{paragraphId:"p2",offset:1}});
  const navigation=vi.mocked(view.renderer.goTo).mock.calls.at(-1)![0];expect(navigation.anchor(doc).toString()).toBe("二");
  expect(fetch).toHaveBeenCalledOnce();expect(loader.loadEpub).not.toHaveBeenCalled();
 });
-it.each([false,true])("MOBI跨段沿用既有1000字cap并收紧真实选区，反向=%s",async reverse=>{
- const book=assembleMobi(),texts=["😀".repeat(600),"乙".repeat(600)];
+it.each([false,true])("MOBI跨段沿用既有3000字cap并收紧真实选区，反向=%s",async reverse=>{
+ const book=assembleMobi(),texts=["😀".repeat(1800),"乙".repeat(1800)];
  book.chapters[0].paragraphs=texts.map((text,index)=>({id:index?"p2":"p",text}));
  doc.body.innerHTML=`<h1>章</h1><div>${texts[0]}<p>${texts[1]}</p></div>`;
  Object.defineProperty(doc.createRange().constructor.prototype,"getBoundingClientRect",{configurable:true,value:()=>({left:10,top:60,width:30})});
  await render({book});
  const selection=doc.defaultView!.getSelection()!,first=doc.querySelector("div")!.firstChild!,last=doc.querySelector("p")!.firstChild!;
- selection.setBaseAndExtent(reverse?last:first,reverse?600:0,reverse?first:last,reverse?0:600);
+ selection.setBaseAndExtent(reverse?last:first,reverse?1800:0,reverse?first:last,reverse?0:1800);
  const expected=capReadingSelection(selectionFromParts(book.chapters[0].paragraphs.map(paragraph=>({paragraphId:paragraph.id,startOffset:0,endOffset:paragraph.text.length,text:paragraph.text}))),reverse);
  // WHY：不mock映射或cap；原版事件必须修改实际Selection，不能仅截断交给上层的请求文本。
  await act(async()=>doc.dispatchEvent(new MouseEvent("mouseup")));
- expect(props.onSelect).toHaveBeenCalledExactlyOnceWith(expected,expect.any(Object));expect(Array.from(expected.text)).toHaveLength(1000);
+ expect(props.onSelect).toHaveBeenCalledExactlyOnceWith(expected,expect.any(Object));expect(Array.from(expected.text)).toHaveLength(3000);
  expect(selection.toString()).toBe(selectionParts(expected).map(part=>part.text).join(""));
- expect(props.onNotice).toHaveBeenCalledWith("最多选择 1000 字，选区已限制到上限。");expect(fetch).toHaveBeenCalledOnce();
+ expect(props.onNotice).toHaveBeenCalledWith("最多选择 3000 字符，选区已限制到上限。");expect(fetch).toHaveBeenCalledOnce();
 });
 it("MOBI loaded warnings明确通知但不触发失败回退",async()=>{
  mobiloader.loadMobiPublication.mockResolvedValueOnce({book:original,warnings:["部分图片缺失。","一个引用不可定位。"]});
@@ -464,6 +488,17 @@ it("真实有效CFI正文偏移通过预检，仍使用原位置而不回退",as
 
 it("拖选过程中即使停顿也不弹菜单，iframe外释放后提交",async()=>{await render();Object.defineProperty(doc.createRange().constructor.prototype,'getBoundingClientRect',{configurable:true,value:()=>({left:10,top:60,width:30})});await act(async()=>{doc.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0}));const range=doc.createRange();range.selectNodeContents(doc.querySelector('p')!);doc.getSelection()!.removeAllRanges();doc.getSelection()!.addRange(range);doc.dispatchEvent(new Event('selectionchange'));await new Promise(resolve=>setTimeout(resolve,150));});expect(props.onSelect).not.toHaveBeenCalled();await act(async()=>document.dispatchEvent(new MouseEvent('pointerup',{button:0})));expect(props.onSelect).toHaveBeenCalledTimes(1);});
 
+it("霞鹜文楷只在原版选中时注入同源字库，并保留系统字体默认样式", () => {
+ const wenkai = appearanceCss({...DEFAULT_READING_APPEARANCE,font:"wenkai"});
+ expect(wenkai).toContain('@font-face{font-family:"LXGW WenKai Reader"');
+ expect(wenkai).toContain('/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf');
+ expect(wenkai).toContain('font-display:swap');
+ const absolute = appearanceCss({...DEFAULT_READING_APPEARANCE,font:"wenkai"},"http://localhost:3100");
+ expect(absolute).toContain('src:url("http://localhost:3100/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf")');
+ expect(absolute).not.toContain('src:url("/fonts/');
+ expect(appearanceCss(DEFAULT_READING_APPEARANCE)).not.toContain('@font-face');
+});
+
 it("生成锁定选区时仍能操作原版下一页",async()=>{
  await render();
  await render({disabled:true,navigationDisabled:false});
@@ -473,10 +508,12 @@ it("生成锁定选区时仍能操作原版下一页",async()=>{
  expect(view.next).toHaveBeenCalledOnce();
 });
 
-it("霞鹜文楷只在原版选中时注入同源字库，并保留系统字体默认样式", () => {
- const wenkai = appearanceCss({...DEFAULT_READING_APPEARANCE,font:"wenkai"});
- expect(wenkai).toContain('@font-face{font-family:"LXGW WenKai Reader"');
- expect(wenkai).toContain('/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf');
- expect(wenkai).toContain('font-display:swap');
- expect(appearanceCss(DEFAULT_READING_APPEARANCE)).not.toContain('@font-face');
+it("生成锁住原版操作但仍可重新选文，便于朗读且不触发新句读", async () => {
+ await render({disabled:true,selectionDisabled:false});
+ const range=doc.createRange();range.selectNodeContents(doc.querySelectorAll("p")[1]);
+ Object.defineProperty(range,"getBoundingClientRect",{value:()=>({left:10,top:60,width:30,height:20})});
+ vi.spyOn(doc.defaultView!,"getSelection").mockReturnValue({rangeCount:1,isCollapsed:false,getRangeAt:()=>range} as unknown as Selection);
+ await act(async()=>doc.dispatchEvent(new MouseEvent("mouseup")));
+ expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({paragraphId:"p2",text:"第二段"}),expect.any(Object));
+ expect([...host.querySelectorAll("nav button")].every(button=>(button as HTMLButtonElement).disabled)).toBe(true);
 });

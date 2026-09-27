@@ -3,7 +3,7 @@ import { DEFAULT_SPEECH_PREFERENCES } from "./speech";
 import { SpeechPlayer, type SpeechState } from "./speech-player";
 class FakeOutput {
   running = true;
-  configure = vi.fn(); append = vi.fn(async (_bytes: Uint8Array) => undefined);
+  configure = vi.fn(); append = vi.fn<(bytes: Uint8Array) => Promise<void>>(async () => undefined);
   resume = vi.fn(async () => { this.running = true; }); pause = vi.fn(async () => { this.running = false; });
   private end?: () => void;
   finish = vi.fn(() => new Promise<void>(resolve => { this.end = resolve; }));

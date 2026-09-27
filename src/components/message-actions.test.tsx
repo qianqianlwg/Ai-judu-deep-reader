@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageActions } from "./message-actions";
 
 let root: Root; let container: HTMLDivElement;
-beforeEach(() => { container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container); });
-afterEach(() => { act(() => root.unmount()); container.remove(); });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",true); container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container); });
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const user = (content = "原始问题") => ({ id: "user-1", role: "user" as const, content });
 const assistant = (content: string, extra: Record<string, unknown> = {}) => ({ id: "assistant-1", role: "assistant" as const, content, ...extra });
 
@@ -49,6 +49,22 @@ describe("消息回溯编辑与复制", () => {
     const onEdit = vi.fn(); await act(() => { root.render(<MessageActions message={user()} onEditMessage={onEdit} />); });
     await click('[aria-label="编辑原始问题"]'); const editor = container.querySelector<HTMLTextAreaElement>("textarea")!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "   "); editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContent" })); await click('button[type="submit"]');
-    expect(onEdit).not.toHaveBeenCalled(); expect(container.textContent).toContain("问题不能为空");
+    expect(onEdit).not.toHaveBeenCalled(); expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
   });
+});
+
+it("用户问题可复制且有真实时间，编辑时原位替换气泡",async()=>{
+ const writeText=vi.fn().mockResolvedValue(undefined),onEdit=vi.fn();Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText}});
+ await act(()=>root.render(<MessageActions message={{...user(),createdAt:"2026-09-26T04:00:00Z"}} onEditMessage={onEdit}><div className="original-prompt">原始问题</div></MessageActions>));
+ expect(container.querySelector('time')?.dateTime).toBe("2026-09-26T04:00:00.000Z");
+ await click('[aria-label="复制问题"]');expect(writeText).toHaveBeenCalledWith("原始问题");
+ await click('button[aria-label="编辑原始问题"]');expect(container.querySelector('.original-prompt')).toBeNull();expect(container.querySelectorAll('textarea')).toHaveLength(1);expect(document.activeElement).toBe(container.querySelector('textarea'));expect(container.querySelector('button[type="submit"]')?.textContent).toBe("发送");
+ await act(()=>container.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+ expect(container.querySelector('textarea')).toBeNull();expect(container.querySelector('.original-prompt')?.textContent).toBe("原始问题");expect(onEdit).not.toHaveBeenCalled();expect(document.activeElement).toBe(container.querySelector('button[aria-label="编辑原始问题"]'));
+});
+it("Ctrl+Enter重新发送且生成中提交不能越过锁",async()=>{
+ const onEdit=vi.fn();await act(()=>root.render(<MessageActions message={user()} onEditMessage={onEdit}/>));await click('button[aria-label="编辑原始问题"]');
+ await act(()=>container.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true})));expect(onEdit).toHaveBeenCalledExactlyOnceWith('user-1','原始问题');expect(container.querySelector('textarea')).toBeNull();
+ await click('button[aria-label="编辑原始问题"]');await act(()=>root.render(<MessageActions message={user()} editingDisabled onEditMessage={onEdit}/>));
+ await act(()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));expect(onEdit).toHaveBeenCalledOnce();expect(container.querySelector('textarea')?.disabled).toBe(true);
 });

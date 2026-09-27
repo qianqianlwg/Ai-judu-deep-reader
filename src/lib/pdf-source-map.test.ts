@@ -175,37 +175,37 @@ describe("PDF Range 精确多段选区与来源反查", () => {
   });
 });
 
-describe("PDF 1000 Unicode 硬上限同步可见DOM", () => {
-  it.each([999, 1000])("%s字原样保留，不触发限长反馈", length => {
+describe("PDF 3000 Unicode 硬上限同步可见DOM", () => {
+  it.each([2999, 3000])("%s字原样保留，不触发限长反馈", length => {
     const f = fixture([["甲".repeat(length)]]), selection = nativeSelection(whole(f.root)), notice = vi.fn();
     expect(readLimitedPdfSelection(selection, f.dom, f.paragraphs, notice)?.text).toBe("甲".repeat(length)); expect(notice).not.toHaveBeenCalled(); expect(selection.toString()).toHaveLength(length);
   });
-  it.each([false, true])("1001字%s反向选取时，保留手势锚点一侧并同步实际Range", reverse => {
-    const text = "起" + "甲".repeat(999) + "终", f = fixture([[text]]), range = withBoundary(f, 0, text.length), selection = nativeSelection(range, reverse), notice = vi.fn();
+  it.each([false, true])("3001字%s反向选取时，保留手势锚点一侧并同步实际Range", reverse => {
+    const text = "起" + "甲".repeat(2999) + "终", f = fixture([[text]]), range = withBoundary(f, 0, text.length), selection = nativeSelection(range, reverse), notice = vi.fn();
     const snapshot = readLimitedPdfSelection(selection, f.dom, f.paragraphs, notice)!;
-    expect(snapshot.text).toBe(reverse ? text.slice(1) : text.slice(0, -1)); expect(countReadingCharacters(snapshot.text)).toBe(1000);
+    expect(snapshot.text).toBe(reverse ? text.slice(1) : text.slice(0, -1)); expect(countReadingCharacters(snapshot.text)).toBe(3000);
     expect(selection.toString()).toBe(snapshot.text); expect(selectionFromPdfRange(selection.getRangeAt(0), f.dom, f.paragraphs)).toEqual(snapshot); expect(notice).toHaveBeenCalledOnce();
     if (reverse) expect(selection.anchorOffset).toBe(text.length);
     readLimitedPdfSelection(selection, f.dom, f.paragraphs, notice); expect(notice).toHaveBeenCalledOnce();
   });
   it.each([false, true])("emoji上限按字符而非UTF-16，反向=%s", reverse => {
-    const f = fixture([["😀".repeat(1001)]]), selection = nativeSelection(withBoundary(f, 0, 2002), reverse);
+    const f = fixture([["😀".repeat(3001)]]), selection = nativeSelection(withBoundary(f, 0, 6002), reverse);
     const snapshot = readLimitedPdfSelection(selection, f.dom, f.paragraphs)!;
-    expect(snapshot.text).toBe("😀".repeat(1000)); expect(snapshot.startOffset).toBe(reverse ? 2 : 0); expect(snapshot.endOffset).toBe(reverse ? 2002 : 2000);
-    expect(selection.toString()).toBe(snapshot.text); expect(Array.from(selection.toString())).toHaveLength(1000);
+    expect(snapshot.text).toBe("😀".repeat(3000)); expect(snapshot.startOffset).toBe(reverse ? 2 : 0); expect(snapshot.endOffset).toBe(reverse ? 6002 : 6000);
+    expect(selection.toString()).toBe(snapshot.text); expect(Array.from(selection.toString())).toHaveLength(3000);
   });
   it.each([false, true])("跨页多段上限含段间分隔符，反向=%s", reverse => {
-    const f = fixture([["甲".repeat(600)], ["乙".repeat(600)]]), selection = nativeSelection(withBoundary(f, 0, 600), reverse);
+    const f = fixture([["甲".repeat(1800)], ["乙".repeat(1800)]]), selection = nativeSelection(withBoundary(f, 0, 1800), reverse);
     const snapshot = readLimitedPdfSelection(selection, f.dom, f.paragraphs)!;
-    expect(countReadingCharacters(snapshot.text)).toBe(1000);
-    expect(selectionParts(snapshot).map(part => part.text.length)).toEqual(reverse ? [398, 600] : [600, 398]);
+    expect(countReadingCharacters(snapshot.text)).toBe(3000);
+    expect(selectionParts(snapshot).map(part => part.text.length)).toEqual(reverse ? [1198, 1800] : [1800, 1198]);
     expect(pdfCompact(selection.toString())).toBe(pdfCompact(snapshot.text)); expect(selectionFromPdfRange(selection.getRangeAt(0), f.dom, f.paragraphs)).toEqual(snapshot);
   });
   it("跨item且 canonical 内有空白，限长后可见选区重新读取得到相同快照", () => {
-    const text = "甲".repeat(600) + " " + "乙".repeat(600), f = fixture([[text]], [["甲".repeat(600), "乙".repeat(600)]]), selection = nativeSelection(whole(f.root));
+    const text = "甲".repeat(1800) + " " + "乙".repeat(1800), f = fixture([[text]], [["甲".repeat(1800), "乙".repeat(1800)]]), selection = nativeSelection(whole(f.root));
     const snapshot = readLimitedPdfSelection(selection, f.dom, f.paragraphs)!;
-    expect(countReadingCharacters(snapshot.text)).toBe(1000); expect(snapshot.endOffset).toBe(1000);
-    expect(selectionFromPdfRange(selection.getRangeAt(0), f.dom, f.paragraphs)).toEqual(snapshot); expect(selection.toString()).toBe("甲".repeat(600) + "乙".repeat(399));
+    expect(countReadingCharacters(snapshot.text)).toBe(3000); expect(snapshot.endOffset).toBe(3000);
+    expect(selectionFromPdfRange(selection.getRangeAt(0), f.dom, f.paragraphs)).toEqual(snapshot); expect(selection.toString()).toBe("甲".repeat(1800) + "乙".repeat(1199));
   });
   it("无可映射来源时不截断、回调或发送伪造选文", () => {
     const f = fixture([["甲乙"]]), selection = nativeSelection(whole(f.root)), notice = vi.fn();
@@ -231,12 +231,12 @@ describe("PDF 选区生命周期补充验收", () => {
     expect(selectionFromPdfRange(range, f.dom, f.paragraphs)).toEqual({ paragraphId: "p1-1", startOffset: 1, endOffset: 3, text: "😀" });
   });
   it.each([false, true])("限长恰好落在canonical空白时，快照必须与修改后的DOM Range一致，反向=%s", reverse => {
-    const text = reverse ? "乙 " + "甲".repeat(999) : "甲".repeat(999) + " 乙";
-    const f = fixture([[text]], [reverse ? ["乙", "甲".repeat(999)] : ["甲".repeat(999), "乙"]]);
+    const text = reverse ? "乙 " + "甲".repeat(2999) : "甲".repeat(2999) + " 乙";
+    const f = fixture([[text]], [reverse ? ["乙", "甲".repeat(2999)] : ["甲".repeat(2999), "乙"]]);
     const range = document.createRange(), first = f.dom[0].points[0], last = f.dom[0].points.at(-1)!;
     range.setStart(first.node, first.offset); range.setEnd(last.node, last.offset + 1);
     const selection = nativeSelection(range, reverse), snapshot = readLimitedPdfSelection(selection, f.dom, f.paragraphs);
-    expect(snapshot).not.toBeNull(); expect(countReadingCharacters(snapshot!.text)).toBeLessThanOrEqual(1000);
+    expect(snapshot).not.toBeNull(); expect(countReadingCharacters(snapshot!.text)).toBeLessThanOrEqual(3000);
     expect(selectionFromPdfRange(selection.getRangeAt(0), f.dom, f.paragraphs)).toEqual(snapshot);
   });
 });

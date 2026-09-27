@@ -100,11 +100,51 @@ export function selectionFromEpubRange(range: Range, maps: readonly EpubParagrap
   return selection;
 }
 
-export function readLimitedEpubSelection(selection: Selection, maps: readonly EpubParagraphMap[], onLimit?: () => void): ReadingSelection | null {
+function rangeWithoutLeadingHeading(range: Range, maps: readonly EpubParagraphMap[]): Range | null {
+  const doc = range.startContainer.ownerDocument;
+  if (!doc || range.endContainer.ownerDocument !== doc) return null;
+  const pointRange = doc.createRange();
+  const start = range.cloneRange(); start.collapse(true);
+  const end = range.cloneRange(); end.collapse(false);
+  let first: TextPoint | undefined;
+  for (const map of maps) {
+    if (!range.intersectsNode(map.element)) continue;
+    for (const point of map.points) {
+      pointRange.setStart(point.node, point.offset); pointRange.collapse(true);
+      const beforeEnd = pointRange.compareBoundaryPoints(0, end) < 0;
+      pointRange.setStart(point.node, point.offset + 1); pointRange.collapse(true);
+      if (beforeEnd && pointRange.compareBoundaryPoints(0, start) > 0) { first = point; break; }
+    }
+    if (first) break;
+  }
+  if (!first) return null;
+  const prefix = range.cloneRange(); prefix.setEnd(first.node, first.offset);
+  const walker = doc.createTreeWalker(prefix.cloneContents(), 4);
+  let hasHeadingText = false;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!compact(node.nodeValue ?? "")) continue;
+    // WHY：只舍弃选区开头真实的标题 DOM；脚注、遗漏正文或标题之后的杂质不能被静默吞掉。
+    if (!node.parentElement?.closest("h1,h2,h3,h4,h5,h6")) return null;
+    hasHeadingText = true;
+  }
+  if (!hasHeadingText) return null;
+  const trimmed = range.cloneRange(); trimmed.setStart(first.node, first.offset);
+  return selectionFromEpubRange(trimmed, maps) ? trimmed : null;
+}
+
+export function readLimitedEpubSelection(selection: Selection, maps: readonly EpubParagraphMap[], onLimit?: () => void, onHeadingOmitted?: (limited: boolean) => void): ReadingSelection | null {
   if (!selection.rangeCount || selection.isCollapsed) return null;
-  const range = selection.getRangeAt(0), full = selectionFromEpubRange(range,maps);
-  if (!full) return null;
+  let range = selection.getRangeAt(0), full = selectionFromEpubRange(range,maps);
   const reverse = selection.anchorNode === range.endContainer && selection.anchorOffset === range.endOffset;
+  let omittedHeading = false;
+  if (!full) {
+    const trimmed = rangeWithoutLeadingHeading(range,maps);
+    if (!trimmed) return null;
+    range = trimmed; full = selectionFromEpubRange(range,maps);
+    if (!full) return null;
+    selection.setBaseAndExtent(reverse?range.endContainer:range.startContainer,reverse?range.endOffset:range.startOffset,reverse?range.startContainer:range.endContainer,reverse?range.startOffset:range.endOffset);
+    omittedHeading = true;
+  }
   const limited = capReadingSelection(full,reverse);
   if (limited !== full) {
     const parts=selectionParts(limited), first=parts[0], last=parts[parts.length-1];
@@ -114,6 +154,7 @@ export function readLimitedEpubSelection(selection: Selection, maps: readonly Ep
     selection.setBaseAndExtent(reverse?end.endContainer:start.startContainer,reverse?end.endOffset:start.startOffset,reverse?start.startContainer:end.endContainer,reverse?start.startOffset:end.endOffset);
     onLimit?.();
   }
+  if (omittedHeading) onHeadingOmitted?.(limited !== full);
   return limited;
 }
 

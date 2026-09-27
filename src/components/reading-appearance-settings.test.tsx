@@ -46,6 +46,20 @@ describe("ReadingAppearanceSettings", () => {
     const language = host.querySelector<HTMLSelectElement>('select[name="language"]')!; language.options[1].selected = true; await act(async () => { language.dispatchEvent(new Event("change", { bubbles: true })); }); current = onChange.mock.lastCall![0]; expect(current.language).toBe("en"); await rerender();
     expect(host.querySelector('[data-testid="reading-appearance-preview"]')?.getAttribute("lang")).toBe("en");
   });
+  it("原版字体覆盖默认关闭，用户可在设置中开启", async () => {
+    const checkbox = host.querySelector<HTMLInputElement>('input[name="originalBodyFontOverride"]')!;
+    expect(checkbox.checked).toBe(false);
+    await act(async () => checkbox.click());
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ originalBodyFontOverride: true }));
+  });
+  it("句读提示开关和透明度在设置中可调整", async () => {
+    const checkbox = host.querySelector<HTMLInputElement>('input[name="showAnalysisHints"]')!;
+    await act(async () => checkbox.click());
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({showAnalysisHints:false}));
+    current = onChange.mock.lastCall![0]; await rerender();
+    await changeValue('input[name="analysisHintOpacity"]', '0.25');
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({analysisHintOpacity:.25, showAnalysisHints:false}));
+  });
   it("预览随受控值反映字号、行距、列宽；恢复默认是单一 onChange", async () => {
     current = { ...defaults, fontSize: 32, lineHeight: 2.4, columnWidth: 520 }; await rerender();
     const preview = host.querySelector<HTMLElement>('[data-testid="reading-appearance-preview"]')!;
@@ -74,6 +88,6 @@ describe("ReadingAppearanceSettings", () => {
 describe("局部样式约束", () => {
   it("样式独立、无外部资源且文件不超 500 行", async () => {
     const source = await fs.readFile("src/components/reading-appearance-settings.module.css", "utf8");
-    expect(source.split(/\r?\n/)).toHaveLength(103); expect(source).not.toMatch(/url\(/); expect(source).toContain("prefers-reduced-motion");
+    expect(source.split(/\r?\n/).length).toBeLessThan(500); expect(source).not.toMatch(/url\(/); expect(source).toContain("prefers-reduced-motion");
   });
 });

@@ -62,6 +62,7 @@ let delayedBook: Promise<Response> | null;
 let conversationList: ConversationSummary[];
 let delayedHistory: Promise<Response> | null;
 let importedFile: FormDataEntryValue | null;
+let invalidMaterialB = false;
 const fetcher = vi.fn<typeof fetch>();
 
 function endpoint(input: Parameters<typeof fetch>[0]): URL {
@@ -137,7 +138,7 @@ async function selectOriginal() {
 }
 async function openKnowledge() {
   await click(button("知识库"));
-  expect(element('aside[aria-label="本书知识卡片"]').getAttribute("aria-busy")).toBe("false");
+  expect(element('.knowledge-library')).toBeTruthy();
 }
 
 beforeEach(() => {
@@ -147,13 +148,14 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("ResizeObserver", undefined);
   vi.stubGlobal("CSS", { escape: (value: string) => value });
-  frames = new Map(); frameId = 0; pendingStreams = []; delayedBook = null; bookKnowledge = knowledge(); conversationList = [conversation("thread-A")]; delayedHistory = null; importedFile = null;
+  frames = new Map(); frameId = 0; pendingStreams = []; delayedBook = null; bookKnowledge = knowledge(); conversationList = [conversation("thread-A")]; delayedHistory = null; importedFile = null; invalidMaterialB = false;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; });
   vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   localStorage.clear(); localStorage.setItem("judu:thread:A", "thread-A");
   fetcher.mockImplementation(async (input, init) => {
     const url = endpoint(input);
     if (url.pathname === "/api/settings/ai") return Response.json({ model: "workspace-test-model", hasApiKey: true });
+    if (url.pathname === "/api/external-sources") return Response.json({ available: { openalex: true, crossref: true, web: true } });
     if (url.pathname === "/api/library") return Response.json([book("A"), book("B")]);
     if (url.pathname === "/api/books/A") return Response.json(book("A"));
     if (url.pathname === "/api/books/B") return delayedBook ?? Response.json(book("B"));
@@ -170,6 +172,7 @@ beforeEach(() => {
     }
     if (url.pathname === "/api/annotations") return Response.json(init?.method === "POST" ? { saved: true } : { annotations: [] });
     if (url.pathname === "/api/reading-marks") return Response.json({ marks: [] });
+    if (url.pathname === "/api/knowledge/materials") { const editionId=url.searchParams.get("editionId")??"edition-A"; const item=editionId==="edition-A"?bookKnowledge.records[0]:undefined; const all=url.searchParams.get("scope")==="all"; const materialB={id:"passage:B",kind:"passage",origin:"original",title:"章节B",body:"乙书只讨论劳动与交换。",quote:"乙书",createdAt:"2026-09-14",source:{bookId:"B",editionId:"edition-B",bookTitle:"测试书B",author:"作者",fileName:"b.txt",fileType:".txt",createdAt:"2026-09-14",paragraphCount:1},chapterTitle:"章节B",anchor:{editionId:"edition-B",chapterId:"chapter-B",paragraphId:"paragraph-B",startOffset:invalidMaterialB?2:0,endOffset:invalidMaterialB?4:2,selectedText:"乙书"},locationReason:null,concepts:[],conversation:null}; const items=[...(item?[{id:item.id,kind:"understanding",origin:"ai",title:"句读解释",body:item.summary,quote:item.excerpt,createdAt:item.createdAt,source:{bookId:"A",editionId:"edition-A",bookTitle:"测试书A",author:"作者",fileName:"test.txt",fileType:".txt",createdAt:"2026-09-14",paragraphCount:1},chapterTitle:item.chapterTitle,anchor:item.anchor,locationReason:item.locationReason,concepts:item.concepts,conversation:{threadId:"thread-A",messageId:"assistant-A"}}]:[]),...(all?[materialB]:[])]; const body={version:1,scope:all?"all":"current",editionId:all?null:editionId,query:url.searchParams.get("q")??"",counts:{source:all?1:0,excerpt:0,understanding:item?1:0,passage:all?1:0},total:items.length,offset:0,limit:60,warnings:[],items}; return Response.json(body); }
     if (url.pathname === "/api/knowledge") {
       const editionId = url.searchParams.get("editionId");
       return Response.json(editionId === "edition-A" ? bookKnowledge : { editionId, records: [], concepts: [] });
@@ -195,6 +198,28 @@ afterEach(async () => {
 });
 
 describe("阅读器主页面交互回归", () => {
+  it("每书解读设置在生成中可改，下一轮使用新值且切书不串用", async () => {
+    await loadA(); await selectOriginal(); await click(button("句读一下"));
+    expect(pendingStreams[0].payload).toMatchObject({ difficulty: "normal", detail: "standard" });
+    await click(element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'));
+    const length = element<HTMLSelectElement>('[aria-label="回复长度"]');
+    const difficulty = element<HTMLSelectElement>('[aria-label="解读方式"]');
+    expect(length.disabled).toBe(false); expect(difficulty.disabled).toBe(false);
+    await act(async () => { length.value = "gist"; length.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { difficulty.value = "accessible"; difficulty.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(pendingStreams[0].payload).toMatchObject({ difficulty: "normal", detail: "standard" });
+    expect(JSON.parse(localStorage.getItem("judu:reading-preferences:A")!)).toEqual({ difficulty: "accessible", detail: "gist" });
+    await complete(pendingStreams[0]); await selectOriginal(); await click(button("句读一下"));
+    expect(pendingStreams[1].payload).toMatchObject({ difficulty: "accessible", detail: "gist" });
+    await complete(pendingStreams[1]); await openShelfBook("B");
+    await click(element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'));
+    expect(element<HTMLSelectElement>('[aria-label="回复长度"]').value).toBe("standard");
+    expect(element<HTMLSelectElement>('[aria-label="解读方式"]').value).toBe("normal");
+    await openShelfBook("A");
+    if (!host.querySelector('[aria-label="回复长度"]')) await click(element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'));
+    expect(element<HTMLSelectElement>('[aria-label="回复长度"]').value).toBe("gist");
+    expect(element<HTMLSelectElement>('[aria-label="解读方式"]').value).toBe("accessible");
+  });
   it("同书继续阅读保留历史，知识记录仍能打开同线程回复及每条 user 的原文", async () => {
     await loadA();
     expect(element('[data-message-id="assistant-A"]').textContent).toContain("A书既存回复");
@@ -203,10 +228,7 @@ describe("阅读器主页面交互回归", () => {
     expect(callCount("/api/threads/thread-A")).toBe(1);
     expect(element('[data-message-id="assistant-A"]').textContent).toContain("A书既存回复");
     await openKnowledge();
-    const recordsTab = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((item) => item.textContent?.startsWith("句读记录"));
-    if (!recordsTab) throw new Error("没有句读记录标签");
-    await click(recordsTab);
-    await click(button("打开对话", element('[data-record-id="message:assistant-A"]')));
+    await click(button("打开句读", element('[data-record-id="message:assistant-A"]')));
     expect(callCount("/api/threads/thread-A")).toBe(2);
     expect(host.querySelectorAll(".chat-message")).toHaveLength(2);
     expect(element(".workspace-main").dataset.workspaceView).toBe("knowledge");
@@ -215,6 +237,29 @@ describe("阅读器主页面交互回归", () => {
     await click(element('[data-message-id="user-A"] button[aria-label="定位本次选文"]'));
     expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "paragraph-A", offset: 0 });
     expect(element(".workspace-main").dataset.workspaceView).toBe("reader");
+  });
+
+  it("句读一下沿用长期插件设置：默认全开，取消后跨轮保留且生成时可收起菜单看回复", async () => {
+    await loadA();
+    await click(element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'));
+    const options = element('[aria-label="外部资料授权"]');
+    const checks = [...options.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    expect(checks.map(box => box.checked)).toEqual([true, true, true]);
+    await click(checks[1]);
+    expect(localStorage.getItem("judu:external-sources:v1")).toContain('"crossref":false');
+    await selectOriginal(); await click(button("句读一下"));
+    expect(pendingStreams[0].payload.externalPermissions).toEqual({ openalex: true, crossref: false, web: true });
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    const plus = element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]');
+    expect(plus.disabled).toBe(false);
+    await act(async () => event(pendingStreams[0], "raw_delta", { text: "正在解释原文。" }));
+    expect(element('[data-message-id="' + pendingStreams[0].payload.clientAssistantMessageId + '"]').textContent).toContain("正在解释原文。");
+    await click(plus); expect(element('[role="menu"]').textContent).toContain("下一轮生效");
+    await click(plus); expect(host.querySelector('[role="menu"]')).toBeNull();
+    await complete(pendingStreams[0]);
+    await selectOriginal(); await click(button("句读一下"));
+    expect(pendingStreams[1].payload.externalPermissions).toEqual({ openalex: true, crossref: false, web: true });
+    await complete(pendingStreams[1]);
   });
 
   it("生成中书架入口不能绕过切书保护，完成后切书不会把旧回复或概念带入 B", async () => {
@@ -244,22 +289,22 @@ describe("阅读器主页面交互回归", () => {
     bookKnowledge = knowledge({ name: "承认", text: "新补充的互相确认定义" });
     const before = callCount("/api/knowledge", "edition-A");
     await click(element('button[aria-label="刷新本书知识"]'));
-    expect(callCount("/api/knowledge", "edition-A")).toBe(before + 2);
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(2);
-    expect(element('aside[aria-label="本书知识卡片"]').textContent).toContain("新补充的互相确认定义");
+    expect(callCount("/api/knowledge", "edition-A")).toBe(before + 1);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
+    expect(element('.knowledge-library').textContent).toContain("新补充的互相确认定义");
     await settle(); await settle();
-    expect(callCount("/api/knowledge", "edition-A")).toBe(before + 2);
+    expect(callCount("/api/knowledge", "edition-A")).toBe(before + 1);
   });
 
   it("旧概念无定义仍进入全书词典，未句读段落也能标记名称", async () => {
     bookKnowledge = knowledge({ name: "承认", text: "" });
     await loadA();
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(2);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
     expect(host.querySelector(".judu-history-marker")).toBeNull();
     await click(element(".concept-toggle"));
     expect(host.querySelector('.reading-content [data-concept-word="承认"]')).toBeNull();
     await click(element(".concept-toggle"));
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(2);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
   });
 
   it("过时的切书结果不覆盖最后选择，书籍加载期间禁止发起句读", async () => {
@@ -290,7 +335,7 @@ describe("第四阶段工作台页面集成", () => {
     expect(element(".reading-content")).toBe(reading); expect(element(".reading-pane").getAttribute("aria-hidden")).toBe("true");
     expect(element(".reading-pane").hasAttribute("inert")).toBe(true);
     await openKnowledge();
-    expect(element(".workspace-main").contains(element('[aria-label="本书知识卡片"]'))).toBe(true);
+    expect(element(".workspace-main").contains(element('[aria-label="知识库工作区"]'))).toBe(true);
     expect(element(".chat-messages")).toBe(chat); expect(chat.textContent).toContain("A书既存回复");
     expect(host.querySelectorAll(".reader-layout > .analysis-panel")).toHaveLength(1);
     await click(button("返回阅读")); expect(element(".reading-pane").getAttribute("aria-hidden")).toBe("false");
@@ -313,17 +358,53 @@ describe("第四阶段工作台页面集成", () => {
 describe("书架导入操作", () => {
   it("左侧导入按钮使用真实文件输入，导入完成进入新书正文", async () => {
     await loadA(); const input = element<HTMLInputElement>("#book-file"); const picker = vi.spyOn(input, "click");
-    await click(button("导入书籍")); expect(picker).toHaveBeenCalledOnce(); expect(element(".workspace-main").dataset.workspaceView).toBe("bookshelf");
+    await click(button("导入书籍")); expect(picker).not.toHaveBeenCalled(); expect(element(".import-book-dialog").textContent).toContain("本地关键词检索"); await click(element<HTMLButtonElement>(".import-book-primary")); expect(picker).toHaveBeenCalledOnce(); expect(element(".workspace-main").dataset.workspaceView).toBe("bookshelf");
     const file = new File(["测试正文"], "测试书.epub", { type: "application/epub+zip" });
     Object.defineProperty(input, "files", { configurable: true, value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle();
     expect(importedFile).toBeInstanceOf(File); expect((importedFile as File).name).toBe("测试书.epub");
-    expect(callCount("/api/import")).toBe(1); expect(callCount("/api/books/C")).toBe(0); expect(element(".workspace-main").dataset.workspaceView).toBe("reader");
+    expect(callCount("/api/import")).toBe(1); expect(callCount("/api/search/index")).toBe(0); expect(callCount("/api/books/C")).toBe(0); expect(element(".workspace-main").dataset.workspaceView).toBe("reader");
     expect(localStorage.getItem("judu:active-book")).toBe("C"); expect(element(".chapter-context").textContent).toContain("章节C");
+  });
+  it("勾选后仅在导入成功后建立语义索引，默认导入不调用付费端点", async () => {
+    const original=fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async(input,init)=>{
+      const url=endpoint(input);
+      if(url.pathname==='/api/search/status'&&url.searchParams.get('engine')==='local-vector'&&url.searchParams.get('editionId')==='edition-C')return Response.json({configured:true,chunkCount:1,indexedChunkCount:0,vectorIndexed:false});
+      if(url.pathname==='/api/search/index')return Response.json({chunkCount:1,indexedChunkCount:1,vectorIndexed:true});
+      return original(input,init);
+    });
+    await loadA();await click(button('导入书籍'));
+    expect(callCount('/api/search/index')).toBe(0);
+    await act(async()=>element<HTMLInputElement>('.import-book-option input').click());
+    await click(element<HTMLButtonElement>('.import-book-primary'));
+    const input=element<HTMLInputElement>('#book-file');Object.defineProperty(input,'files',{configurable:true,value:[new File(['正文'],'测试.txt')]});
+    await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true})));await settle();
+    expect(callCount('/api/search/index')).toBe(1);
+    const indexCall=fetcher.mock.calls.find(([url])=>endpoint(url).pathname==='/api/search/index');
+    expect(JSON.parse(indexCall?.[1]?.body as string)).toEqual({editionId:'edition-C',consent:true});
+    expect(host.querySelector('.import-index-task')).toBeNull();
   });
 });
 
 
+describe("跨书知识来源定位", () => {
+  it("全部书籍的原文命中先切换版本，再复核B书段落与选文", async () => {
+    await loadA(); await openKnowledge(); await click(element<HTMLButtonElement>('.knowledge-library-scope button:nth-child(2)'));
+    await click(element<HTMLButtonElement>('[data-record-id="passage:B"] button[aria-label="打开原文"]'));
+    expect(element('.workspace-main').dataset.workspaceView).toBe('reader');
+    expect(localStorage.getItem('judu:active-book')).toBe('B');
+    expect(element('.selection-actions').textContent).toContain('已选 2');
+    expect(navigation.setAnchor).toHaveBeenLastCalledWith({paragraphId:'paragraph-B',offset:0});
+  });
+  it("错误的跨书偏移不沿用A书旧选区", async () => {
+    invalidMaterialB=true;await loadA();await selectOriginal();await openKnowledge();await click(element<HTMLButtonElement>('.knowledge-library-scope button:nth-child(2)'));
+    await click(element<HTMLButtonElement>('[data-record-id="passage:B"] button[aria-label="打开原文"]'));
+    expect(localStorage.getItem('judu:active-book')).toBe('B');
+    expect(element('.selection-actions').textContent).not.toContain('已选');
+    expect(host.textContent).toContain('来源无法在这本书的当前版本核对');
+  });
+});
 describe("工作区切换的浮层边界", () => {
   it("进入书架会卸载原文词义浮层，但保留阅读测量容器", async () => {
     bookKnowledge = knowledge({ name: "承认", text: "这是一条定义" });
@@ -362,7 +443,7 @@ describe("多会话页面隔离", () => {
     expect(pendingStreams[0].payload.chatHistory).toEqual([]); expect(pendingStreams[0].payload.selectedText).toBe("");
     expect(host.querySelector('[data-message-id="assistant-A"]')).toBeNull();
     expect(element<HTMLButtonElement>('[aria-label="新建会话"]').disabled).toBe(true);
-    expect(element<HTMLButtonElement>('[aria-label="切换会话"]').disabled).toBe(true);
+    expect(element<HTMLButtonElement>('[aria-label="切换会话"]').disabled).toBe(false);
     const count = fetcher.mock.calls.filter(([, init]) => init?.method === "POST").length;
     await click(element('[aria-label="新建会话"]'));
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST").length).toBe(count);
@@ -458,8 +539,7 @@ describe("刷新恢复与跨会话知识定位", () => {
     await act(async () => root.unmount()); root = createRoot(host); await mount();
     expect(element(".workspace-main").dataset.workspaceView).toBe("knowledge");
     expect(element('[aria-label="切换会话"]').textContent).toContain("新会话"); expect(host.querySelectorAll(".chat-message")).toHaveLength(0);
-    const tab = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(item => item.textContent?.startsWith("句读记录"))!;
-    await click(tab); await click(button("打开对话", element('[data-record-id="message:assistant-A"]')));
+    await click(button("打开句读", element('[data-record-id="message:assistant-A"]')));
     const target = element('[data-message-id="assistant-A"]'); expect(target.dataset.historyTarget).toBe("true");
     expect(document.activeElement).toBe(target); expect(localStorage.getItem("judu:thread:A:edition-A")).toBe("thread-A");
     expect(element(".workspace-main").dataset.workspaceView).toBe("knowledge");
@@ -479,7 +559,7 @@ describe("可访问选文与输出设置", () => {
       const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
     }); await settle();
-    expect(element(".selection-actions").textContent).toContain("已选 10 / 1000 字");
+    expect(element(".selection-actions").textContent).toContain("已选 10 / 3000 字符");
     await act(async () => { document.getSelection()?.removeAllRanges(); document.dispatchEvent(new Event("selectionchange")); }); await settle();
     await click(button("句读一下"));
     expect(pendingStreams[0].payload.selectedText).toBe(bodyText.slice(0, 10));
@@ -506,4 +586,56 @@ it('主阅读器导入超300MB文件即时提示，不请求上传接口',async(
 
 it("书架默认隐藏助手不卸载聊天，手动展开和返回阅读不清会话",async()=>{
  await loadA();const chat=element(".chat-messages");await click(button("书架"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("true");expect(element(".chat-messages")).toBe(chat);await click(button("展开助手"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("false");await click(button("收起助手"));await click(button("阅读"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("false");expect(element(".chat-messages")).toBe(chat);
+});
+
+it("生成中可重新选取左侧正文但不能发起第二次句读，原请求仍使用首次选文", async () => {
+  await loadA(); await selectOriginal(); await click(button("句读一下"));
+  const first = pendingStreams[0];
+  expect(first.payload.selectedText).toBe(bodyText);
+  expect(window.getSelection()?.rangeCount).toBe(0);
+  expect(host.querySelector('[aria-label="选中文本操作"]')).toBeNull();
+  await act(async () => {
+    const paragraph = element('[data-paragraph-id="paragraph-A"]');
+    const node = element('[data-paragraph-id="paragraph-A"] [data-reader-text]').firstChild!;
+    const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 10);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    paragraph.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  }); await settle();
+  expect(element('.selection-actions').textContent).toContain('已选 10 / 3000 字符');
+  expect(element('[aria-label="选中文本操作"]')).toBeTruthy();
+  expect(button("句读一下").disabled).toBe(true);
+  expect(element<HTMLButtonElement>('[aria-label="黄色标亮"]').disabled).toBe(false);
+  expect(button("添加笔记").disabled).toBe(false);
+  expect(button("收藏").disabled).toBe(false);
+  expect(button("继续选取").disabled).toBe(false);
+  expect(pendingStreams).toHaveLength(1);
+  expect(first.payload.selectedText).toBe(bodyText);
+  await complete(first);
+  expect(first.payload.selectedText).toBe(bodyText);
+});
+
+it("生成中可再次选文和标注，当前请求保持选文快照", async () => {
+  await loadA(); await selectOriginal(); await click(button("句读一下"));
+  const first = pendingStreams[0]; const selectedText = first.payload.selectedText;
+  await selectOriginal();
+  expect(element<HTMLButtonElement>('[aria-label="黄色标亮"]').disabled).toBe(false);
+  expect(button("添加笔记").disabled).toBe(false);
+  expect(button("收藏").disabled).toBe(false);
+  expect(button("继续选取").disabled).toBe(false);
+  expect(button("句读一下").disabled).toBe(true);
+  await click(element('[aria-label="黄色标亮"]'));
+  expect(fetcher.mock.calls.some(([input, init]) => endpoint(input).pathname === "/api/reading-marks" && init?.method === "POST")).toBe(true);
+  expect(pendingStreams).toHaveLength(1); expect(first.closed).toBe(false);
+  expect(first.payload.selectedText).toBe(selectedText); await complete(first);
+});
+
+it("生成中导入只加入书库，不切换当前书籍或结束生成", async () => {
+  await loadA(); await selectOriginal(); await click(button("句读一下"));
+  const first = pendingStreams[0]; const input = element<HTMLInputElement>("#book-file");
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["正文"], "导入.txt")] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle();
+  expect(callCount("/api/import")).toBe(1); expect(callCount("/api/books/C")).toBe(0);
+  expect(element('[data-paragraph-id="paragraph-A"]')).toBeTruthy();
+  expect(host.textContent).toContain("未切换阅读书籍");
+  expect(first.closed).toBe(false); expect(pendingStreams).toHaveLength(1); await complete(first);
 });

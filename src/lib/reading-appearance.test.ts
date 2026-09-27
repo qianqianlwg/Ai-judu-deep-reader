@@ -32,6 +32,12 @@ describe("阅读外观纯函数与本地迁移", () => {
       expect(normalizeReadingAppearance({ fontSize: invalid, lineHeight: invalid, letterSpacing: invalid })).toEqual(defaults);
     }
   });
+  it("旧设置默认保留书内字体，新开关仅接收布尔值并可保存", () => {
+    expect(normalizeReadingAppearance({ originalBodyFontOverride: "true" }).originalBodyFontOverride).toBe(false);
+    expect(normalizeReadingAppearance({ originalBodyFontOverride: true }).originalBodyFontOverride).toBe(true);
+    writeReadingAppearance(localStorage, { ...defaults, originalBodyFontOverride: true });
+    expect(readReadingAppearance(localStorage).preferences.originalBodyFontOverride).toBe(true);
+  });
   it("列宽/字体/对齐/主题/语言仅允许白名单，忽略任意注入字段", () => {
     const result = normalizeReadingAppearance({ theme: "url(https://invalid.test)", font: "evil", columnWidth: "650", textAlign: "center", language: "fr", background: "red" });
     expect(result).toEqual(defaults); expect(result).not.toHaveProperty("background");
@@ -166,6 +172,18 @@ it("默认灰白且旧浅色偏好仍保持浅绿配色",()=>{
  expect(defaults.theme).toBe('gray');
  expect(READING_THEMES.find(theme=>theme.id==='light')).toMatchObject({label:'浅绿',paper:'#FFFDF9'});
  expect(normalizeReadingAppearance({theme:'light'}).theme).toBe('light');
+});
+
+
+describe("句读提示偏好", () => {
+  it("旧配置补全默认值，开关和透明度持久化且边界受限", () => {
+    const old = parseReadingAppearance('{"version":1,"theme":"dark"}');
+    expect(old.preferences.showAnalysisHints).toBe(true);
+    expect(old.preferences.analysisHintOpacity).toBe(.25);
+    const saved = normalizeReadingAppearance({...old.preferences, showAnalysisHints:false, analysisHintOpacity:.9});
+    expect(saved).toMatchObject({showAnalysisHints:false, analysisHintOpacity:.35});
+    expect(parseReadingAppearance(serializeReadingAppearance(saved)).preferences).toEqual(saved);
+  });
 });
 
 describe("霞鹜文楷字体选项", () => {

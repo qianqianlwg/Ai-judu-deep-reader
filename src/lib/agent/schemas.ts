@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { externalSources, type ExternalPermissions } from "./external-permissions";
+import { externalSearchSchema, readExternalSchema } from "./external-tool-schemas";
 
 export const searchBookSchema = z.object({
   query: z.string().trim().min(1).max(500).describe("主要检索问题或精确关键词；自然语言适合语义检索"),
@@ -12,7 +14,7 @@ export const readSourceSchema = z.object({
   neighbors: z.number().int().min(0).max(2).default(1),
 }).strict();
 export const saveAnalysisSchema = z.object({
-  readingText: z.string().trim().min(1).max(24000).describe("第一部分句读文本；长度须符合当前详细程度，并与正常回复的句读文本一致"),
+  readingText: z.string().trim().min(1).max(24000).describe("完整句读文本；与已输出的可见释读一致，长度档位是目标而非硬限制"),
   summary: z.string().trim().max(4000).default(""),
   breakdown: z.array(z.object({ label: z.string().min(1).max(100), text: z.string().min(1).max(12000) }).strict()).max(24).default([]),
   concepts: z.array(z.object({ name: z.string().trim().min(1).max(80).describe("必须逐字出现在选中文本中的概念词"), text: z.string().trim().min(1).max(2000) }).strict()).max(20).default([]),
@@ -24,4 +26,4 @@ export type AnalysisInput = z.infer<typeof saveAnalysisSchema>;
 export type SearchBookInput = z.infer<typeof searchBookSchema>;
 export type ReadSourceInput = z.infer<typeof readSourceSchema>;
 
-export function readingToolSchemaText(save: boolean): string { return JSON.stringify([searchBookSchema, readSourceSchema, ...(save ? [saveAnalysisSchema] : [])].map(schema=>z.toJSONSchema(schema))); }
+export function readingToolSchemaText(save: boolean, external?: ExternalPermissions): string { return JSON.stringify([searchBookSchema, readSourceSchema, ...(save ? [saveAnalysisSchema] : []), ...externalSources.filter(source => external?.[source]).map(() => externalSearchSchema), ...(external?.web || external?.openalex ? [readExternalSchema] : [])].map(schema=>z.toJSONSchema(schema))); }

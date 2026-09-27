@@ -1,12 +1,27 @@
-/* WHY：模块局部样式直接消费主题角色，避免全局选择器无法命中哈希类名。 */
-.actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--reading-muted); }
-.actions button, .editorActions button { border: 0; border-radius: 5px; padding: 4px 7px; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 11px; }
-.actions button:hover, .editorActions button:hover { background: var(--reading-selected); color: var(--reading-accent); }
-.actions button:disabled, .editorActions button:disabled { opacity: .5; cursor: not-allowed; }
-.editor { display: grid; gap: 7px; margin-top: 8px; }
-.editor textarea { min-height: 72px; width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--reading-border); border-radius: 7px; padding: 8px; background: var(--reading-surface); color: var(--reading-text); font: inherit; line-height: 1.6; }
-.editor textarea:focus { outline: 2px solid var(--reading-accent); outline-offset: 1px; }
-.editorActions { display: flex; justify-content: flex-end; gap: 6px; }
-.editorActions button:last-child { background: var(--reading-selected); color: var(--reading-text); }
-.feedback { color: var(--reading-accent); font-size: 11px; }
-.editor .feedback { margin: 0; color: var(--reading-accent); font-size: 11px; }
+/* WHY：消息操作预留高度，悬停只改变透明度，避免出现按钮时聊天列表跳动。 */
+.actions{display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--reading-muted);}
+.actions button,.userActions button,.editorActions button{border:0;border-radius:7px;padding:5px 8px;background:transparent;color:inherit;cursor:pointer;font:11px/1.4 system-ui;}
+/* WHY：AI 回答的复制/朗读属于辅助操作，文字小一档；保持按钮内边距避免压缩点击区。 */
+.actions button{font-size:10px;}
+.actions button:hover,.userActions button:hover,.editorActions button:hover{background:var(--reading-selected);color:var(--reading-accent);}
+.actions button:disabled,.userActions button:disabled,.editorActions button:disabled{opacity:.45;cursor:not-allowed;}
+.userMessage{display:flex;flex-direction:column;align-items:flex-end;max-width:100%;min-width:0;color:var(--reading-text);}
+.userBubble{max-width:100%;min-width:0;padding:11px 14px;background:color-mix(in srgb,var(--reading-text) 5%,var(--reading-surface));border-radius:16px;overflow-wrap:anywhere;font:13px/1.75 system-ui;}
+.userBubble p{margin:0;white-space:pre-wrap;}
+.userBubble p+p{margin-top:8px;}
+.userBubble :global(.message-content){padding:0!important;background:transparent!important;border:0!important;color:inherit;}
+.userActions{display:flex;justify-content:flex-end;align-items:center;gap:3px;min-height:30px;padding-top:3px;color:var(--reading-muted);opacity:0;pointer-events:none;transition:opacity .12s;}
+.userMessage:hover .userActions,.userMessage:focus-within .userActions{opacity:1;pointer-events:auto;}
+.userActions time{margin-right:5px;font:10px/1.5 system-ui;white-space:nowrap;}
+.userActions button{display:grid;place-items:center;width:28px;height:28px;padding:0;}
+.userActions button:focus-visible,.editorActions button:focus-visible{outline:2px solid var(--reading-accent);outline-offset:2px;}
+.userMessage[data-editing="true"]{width:100%;}
+.editor{box-sizing:border-box;width:100%;padding:12px;border-radius:16px;background:color-mix(in srgb,var(--reading-text) 5%,var(--reading-surface));}
+.editor textarea{display:block;box-sizing:border-box;width:100%;min-height:84px;max-height:260px;resize:none;padding:0 2px;border:0;outline:none;background:transparent;color:var(--reading-text);font:13px/1.75 system-ui;}
+.editor:focus-within{box-shadow:0 0 0 1px color-mix(in srgb,var(--reading-accent) 35%,transparent);}
+.editorActions{display:flex;justify-content:flex-end;gap:7px;margin-top:9px;}
+.editorActions button{padding:6px 10px;background:var(--reading-surface);color:var(--reading-text);font-size:12px;}
+.editorActions button[type=submit]{background:var(--reading-text);color:var(--reading-surface);}
+.feedback{margin:3px 0 0;color:var(--reading-accent);font-size:11px;}
+@media(hover:none){.userActions{opacity:1;pointer-events:auto;}}
+@media(prefers-reduced-motion:reduce){.userActions{transition:none;}}

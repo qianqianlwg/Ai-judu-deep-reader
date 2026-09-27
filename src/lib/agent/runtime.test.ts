@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
+import { createExternalReader } from "./external-reading";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReadingAgentError, readingAgentFailure, runReadingAgent } from "./runtime";
 import type { ReadingToolDependencies } from "./tools";
@@ -75,6 +77,52 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
     expect(result.usage.source).toBe("provider");
     expect(result.usage.totalTokens).toBeGreaterThan(result.usage.contextTokens);
   });
+  it("仅装配本轮授权的外部资料工具，并将三路查询结果写入可见审计", async () => {
+    const { config, requests } = await mockProvider("openai", [
+      { name: "search_openalex", args: { query: "ethics" } },
+      { name: "verify_crossref", args: { query: "10.1000/abc" } },
+      { name: "search_web", args: { query: "ethics 2026" } },
+      { text: ["已取得三个来源的条目，请核验链接及证据级别。"] },
+    ]);
+    const f = fixture();
+    const search = vi.fn(async (source: "openalex" | "crossref" | "web", query: string) => ({
+      ok: true as const, source, query, results: [{ title: "测试条目", url: "https://example.org/item", evidence: source === "web" ? "snippet" as const : "metadata" as const }],
+      evidence: source === "web" ? "snippet" as const : "metadata" as const, durationMs: 9,
+    }));
+    const result = await runReadingAgent({ ...f, config, external: { permissions: { openalex: true, crossref: true, web: true }, selectedText: "原书中需要分析的一段正文", search } });
+    expect(JSON.stringify(requests[0].body.tools)).toContain("search_openalex");
+    expect(JSON.stringify(requests[0].body.tools)).toContain("verify_crossref");
+    expect(JSON.stringify(requests[0].body.tools)).toContain("search_web");
+    expect(search.mock.calls.map(call => call.slice(0, 2))).toEqual([["openalex", "ethics"], ["crossref", "10.1000/abc"], ["web", "ethics 2026"]]);
+    expect(f.audit).toHaveBeenCalledTimes(3);
+    expect(f.audit).toHaveBeenCalledWith(expect.objectContaining({ name: "search_web", status: "completed", output: expect.objectContaining({ source: "web", query: "ethics 2026", results: expect.any(Array) }) }));
+    expect(f.events).toContainEqual(expect.objectContaining({ type: "tool", tool: expect.objectContaining({ name: "search_web", status: "completed", result: expect.objectContaining({ results: expect.any(Array) }) }) }));
+    expect(result.text).not.toContain("example.org");
+  });
+  it("LangChain 先检索再读实际页面片段，模型与可见审计都拿到正文，不冒充全文", async () => {
+    const url = "https://example.org/item";
+    const sourceId = "external:web:" + createHash("sha256").update("web:" + url).digest("hex").slice(0, 24);
+    const { config, requests } = await mockProvider("openai", [
+      { name: "search_web", args: { query: "Kant antinomy" } },
+      { name: "read_external_source", args: { sourceId } },
+      { text: ["所读页面相关段落指出：理性有自己的界限；仍需核对原文上下文。"] },
+    ]);
+    const f = fixture();
+    const search = vi.fn(async (source: "openalex" | "crossref" | "web", query: string) => ({ ok: true as const, source, query, results: [{ title: "Source", url, evidence: "snippet" as const }], evidence: "snippet" as const, durationMs: 1 }));
+    const read = createExternalReader({ TAVILY_API_KEY: "mock-key" }, vi.fn(async () => new Response(JSON.stringify({ results: [{ url, raw_content: "真实网页段落：理性有自己的界限。" }] }), { status: 200 })) as typeof fetch);
+    const result = await runReadingAgent({ ...f, config, external: { permissions: { openalex: false, crossref: false, web: true }, selectedText: "书中的长段选文", search, read } });
+    expect(JSON.stringify(requests[0].body.tools)).toContain("read_external_source");
+    expect(JSON.stringify(requests[2].body.messages)).toContain("真实网页段落");
+    expect(f.audit).toHaveBeenCalledWith(expect.objectContaining({ name: "read_external_source", status: "completed", output: expect.objectContaining({ evidence: "extracted", coverage: "relevant_chunks" }) }));
+    expect(f.events).toContainEqual(expect.objectContaining({ type: "tool", tool: expect.objectContaining({ name: "read_external_source", status: "completed", result: expect.objectContaining({ text: expect.stringContaining("真实网页段落") }) }) }));
+    expect(result.text).toContain("仍需核对");
+  });
+  it("没有外部授权时不向模型暴露第三方工具", async () => {
+    const { config, requests } = await mockProvider("openai", [{ text: ["只回答书内内容。"] }]);
+    await runReadingAgent({ ...fixture(), config });
+    const tools = JSON.stringify(requests[0].body.tools);
+    for (const name of ["search_openalex", "verify_crossref", "search_web", "read_external_source"]) expect(tools).not.toContain(name);
+  });
   it("参数缺字段返回工具错误，Agent 可以修正后继续正常回答", async () => {
     const { config, requests } = await mockProvider("openai", [{ name: "save_reading_analysis", args: { summary: "缺字段" } }, { name: "save_reading_analysis", args: analysis }, { text: ["已解释并保存。"] }]);
     const f = fixture(); const result = await runReadingAgent({ ...f, config });
@@ -127,4 +175,17 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
     expect(readingAgentFailure(new Error("private token or upstream response"))).toBeUndefined();
   });
 
+});
+
+it("正常长度只是目标，输出和保存超出目标仍完成且保存后不再续写", async () => {
+  const longText = "释".repeat(900);
+  const { config, requests } = await mockProvider("openai", [
+    { text: [longText], name: "save_reading_analysis", args: { ...analysis, readingText: longText, citations: [] } },
+  ]);
+  const f = fixture();
+  const result = await runReadingAgent({ ...f, config });
+  expect(result.text).toBe(longText);
+  expect(requests).toHaveLength(1);
+  expect(f.tools.save).toHaveBeenCalledOnce();
+  expect(f.events.some(event => event.type === "tool" && event.tool.name === "save_reading_analysis" && event.tool.status === "completed")).toBe(true);
 });

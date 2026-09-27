@@ -2,13 +2,13 @@ import { isTokenUsage, type TokenUsage } from "./token-usage";
 export type { TokenUsage } from "./token-usage";
 import type { StreamEvent } from "./sse";
 
-export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string };
-export type Analysis = { readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
+export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string; origin?: "selection" | "context" | "search" };
+export type Analysis = { provenanceVersion?: 1; readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
 export type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 import type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown; contentOffset?:number };
 export type HistoricalToolActivity = ToolActivity & { attemptId: string | null; auditId: string };
-export type ChatMessage = { sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
+export type ChatMessage = { createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
 export type ChatEvent =
   | { type: "meta"; threadId: string; messageId?: string; outputFormat?: "text" | "legacy-json" }
   | { type: "raw_delta"; text: string }
@@ -63,7 +63,8 @@ export function applyChatEvent(messages: ChatMessage[], assistantId: string, eve
       case "tool": {
         // WHY：并行工具乱序完成时原位更新，避免用户展开的检索详情随状态变化跳到另一位置。
         const tools = message.tools ?? [];
-        return {...message, tools: tools.some(tool=>tool.id===event.tool.id) ? tools.map(tool=>tool.id===event.tool.id?{...event.tool,contentOffset:tool.contentOffset}:tool) : [...tools,{...event.tool,contentOffset:Number.isSafeInteger(event.tool.contentOffset) && event.tool.contentOffset! >= 0 && event.tool.contentOffset! <= message.content.length ? event.tool.contentOffset : message.content.length}]};
+        // WHY：检索卡不按正文位置穿插；旧审计无偏移时保持未知，不能按回放后的正文长度猜位置。
+        return {...message, tools: tools.some(tool=>tool.id===event.tool.id) ? tools.map(tool=>tool.id===event.tool.id?{...event.tool,contentOffset:tool.contentOffset}:tool) : [...tools,{...event.tool,contentOffset:Number.isSafeInteger(event.tool.contentOffset) && event.tool.contentOffset! >= 0 && event.tool.contentOffset! <= message.content.length ? event.tool.contentOffset : ["search_book", "read_source", "search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(event.tool.name) ? undefined : message.content.length}]};
       }
       case "warning": return { ...message, warnings: [...(message.warnings ?? []), event.message] };
       case "raw_delta": return { ...message, content: message.content + event.text, status: "streaming" };

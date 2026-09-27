@@ -5,10 +5,12 @@ import { isRecord, type ChatEvent, type ToolActivity } from "../chat-stream";
 import { accumulateUsage, estimatedUsage, estimateTextTokens, type TokenUsage } from "../token-usage";
 import { createReadingModel } from "./model";
 import { readingToolSchemaText, searchBookSchema } from "./schemas";
+import { externalSearchSchema } from "./external-search";
+import type { createExternalReader } from "./external-reading";
 import { createReadingTools, type ReadingToolDependencies } from "./tools";
+import { createExternalTools, type ExternalPermissions, type createExternalSearch } from "./external-search";
 import { logAgentEvent } from "./logger";
 import { diagnoseToolException } from "./diagnostics";
-import { countReadingCharacters } from "../reading-detail";
 
 export class ReadingAgentError extends Error { constructor(readonly code: string, message: string) { super(message); this.name = "ReadingAgentError"; } }
 export function readingAgentFailure(error: unknown): { code: string; message: string } | undefined {
@@ -25,8 +27,8 @@ export type ReadingAgentOptions = {
   config: ProviderConfig; systemPrompt: string; messages: ProviderMessage[];
   maxOutputTokens: number; contextWindow: number; signal: AbortSignal;
   initialUsage?: TokenUsage;
-  maxAnswerCharacters?: number;
   tools: ReadingToolDependencies;
+  external?: { permissions: ExternalPermissions; selectedText: string; search: ReturnType<typeof createExternalSearch>; read?: ReturnType<typeof createExternalReader> };
   emit: (event: ChatEvent) => void;
   audit: (run: ToolRun) => Promise<void>;
 };
@@ -58,6 +60,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
   let stepOutput = "";
   let stepHasText = false;
   let finishedModel = false;
+  let savedAfterVisibleText = false;
   let toolCount = 0, lastToolStarted = 0;
   let lastPreview = 0;
   const announcedTools = new Set<string>();
@@ -65,15 +68,17 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
     const estimate = estimatedUsage(stepInput, stepOutput, options.contextWindow);
     emit({ type: "usage", usage: { ...estimate, inputTokens: (usage?.inputTokens ?? 0) + estimate.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + estimate.outputTokens, totalTokens: (usage?.totalTokens ?? 0) + estimate.totalTokens } });
   };
-  const tools = [...createReadingTools(options.tools)].filter(tool => options.tools.selectedText.trim() || tool.name !== "save_reading_analysis");
-  const schemaText = readingToolSchemaText(Boolean(options.tools.selectedText.trim()));
+  const tools = [...createReadingTools(options.tools), ...(options.external ? createExternalTools({ ...options.external, signal }) : [])].filter(tool => options.tools.selectedText.trim() || tool.name !== "save_reading_analysis");
+  const schemaText = readingToolSchemaText(Boolean(options.tools.selectedText.trim()), options.external?.permissions);
   const middleware = createMiddleware({
     name: "ReadingToolAudit",
-    beforeModel(state) {
+    beforeModel: { canJumpTo: ["end"], hook(state) {
+      // WHY：正文已经输出且句读保存成功后立即结束，避免模型再附加“已为您句读”或重复正文。
+      if (savedAfterVisibleText) return { jumpTo: "end" };
       // WHY：工具返回也占窗口；每个模型步骤都检查预算，不等上游超限后才报错。
       const estimatedInput = estimateTextTokens(options.systemPrompt + JSON.stringify(state.messages) + schemaText);
       if (estimatedInput > options.contextWindow - options.maxOutputTokens) throw new ReadingAgentError("context_limit", "本轮选文、历史和工具资料超过上下文预算，请提高输入 Token 上限或新建会话");
-    },
+    } },
     wrapToolCall: async (request, handler) => {
       signal.throwIfAborted();
       if (++toolCount > 20) throw new ReadingAgentError("tool_limit", "本轮工具调用过多，请缩小问题范围后重试");
@@ -83,7 +88,8 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       lastToolStarted = Math.max(Date.now(), lastToolStarted + 1);
       const startedAt = new Date(lastToolStarted).toISOString();
       const searchInput = name === "search_book" ? searchBookSchema.safeParse(request.toolCall.args) : undefined;
-      emit({ type: "tool", tool: { id, name, status: "running", ...(searchInput?.success ? { result: { queries: [searchInput.data.query, ...searchInput.data.additionalQueries ?? []] } } : {}) } });
+      const externalInput = ["search_openalex", "verify_crossref", "search_web"].includes(name) ? externalSearchSchema.safeParse(request.toolCall.args) : undefined;
+      emit({ type: "tool", tool: { id, name, status: "running", ...(searchInput?.success ? { result: { queries: [searchInput.data.query, ...searchInput.data.additionalQueries ?? []] } } : externalInput?.success ? { result: { query: externalInput.data.query } } : {}) } });
       logAgentEvent("info", "tool_started", { id, name, inputKeys: isRecord(request.toolCall.args) ? Object.keys(request.toolCall.args) : [] });
       let result;
       try { result = await handler(request); }
@@ -96,6 +102,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       signal.throwIfAborted();
       const output = toolResult(result);
       const status = isRecord(output) && output.ok === false ? "error" : "completed";
+      if (name === "save_reading_analysis" && status === "completed" && text.trim()) savedAfterVisibleText = true;
       logAgentEvent(status === "error" ? "warn" : "info", "tool_finished", { id, name, messageId: options.tools.messageId, status, code: isRecord(output) && typeof output.code === "string" ? output.code : undefined });
       // WHY：审计失败不能伪装为工具成功，交给上层请求保存失败状态。
       try { await options.audit({ id, name, startedAt, input: request.toolCall.args, output, status }); } catch (error: unknown) { logAgentEvent("error", "tool_audit_failed", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", code: "tool_audit_failed" }); throw error; }
@@ -136,11 +143,6 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       if (delta) {
         // WHY：Agent 多步说明不能把后一步 Markdown 标题粘到前一步句末，原始文字不做去重或改写。
         if (!stepHasText && text && !text.endsWith("\n\n")) { text += "\n\n"; emit({ type: "raw_delta", text: "\n\n" }); }
-        if (options.maxAnswerCharacters !== undefined && countReadingCharacters(text + delta) > options.maxAnswerCharacters) {
-          logAgentEvent("warn", "answer_length_limit", { messageId: options.tools.messageId, actualCharacters: countReadingCharacters(text + delta), maxCharacters: options.maxAnswerCharacters });
-          // WHY：阻止整篇答案继续失控，不把截断后的半篇伪装成完整成功；保留已收到文字供原位重试。
-          throw new ReadingAgentError("answer_length_limit", "本次释读超过所选详细程度的字数上限，已停止生成，请重试。不会把过长答案标为完成。");
-        }
         stepHasText = true; text += delta; stepOutput += delta; emit({ type: "raw_delta", text: delta }); if (Date.now() - lastPreview > 250) { publishEstimate(); lastPreview = Date.now(); } }
     } else if (event.event === "on_chat_model_end") {
       const output: unknown = event.data.output;

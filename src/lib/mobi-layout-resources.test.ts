@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { constants, type Dir } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { captureMobiResources } from "./mobi-layout-resources.mjs";
+import { captureMobiResources, snapshotMobiResourceAncestors, verifyMobiResourceAncestors } from "./mobi-layout-resources.mjs";
 vi.mock("node:fs/promises", async original => ({ ...await original<typeof import("node:fs/promises")>() }));
 const originalLstat = fs.lstat, originalOpen = fs.open;
 const LIMIT = 100 * 1024 * 1024;
@@ -217,4 +217,25 @@ describe("读取前预算与打开前后身份复核", () => {
     finally { if (!close.mock.calls.length) await handle.close(); }
     expect(close).toHaveBeenCalledOnce();
   });
+});
+
+
+it("父进程允许解析器写私有资源，但拒绝返回前祖先身份变化", async () => {
+  const snapshots = await snapshotMobiResourceAncestors(directory);
+  await write("1.png", new Uint8Array([1, 2, 3]));
+  await expect(verifyMobiResourceAncestors(snapshots, true)).resolves.toBeUndefined();
+  const parent = path.dirname(directory);
+  vi.spyOn(fs, "lstat").mockImplementation(async (name, options) => {
+    const stat = await originalLstat(name, options);
+    return String(name) === parent ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, { ino: BigInt(stat.ino) + BigInt(1) }) : stat;
+  });
+  await expect(verifyMobiResourceAncestors(snapshots, true)).rejects.toThrow(/目录在快照期间变化/u);
+});
+
+it("受限worker的私有根模式仍拒绝非法条目，并保留逐文件核验", async () => {
+  await write("1.png", new Uint8Array([1, 2, 3]));
+  const captured = await captureMobiResources(directory, true);
+  expect(captured.resources[0].bytes).toEqual(new Uint8Array([1, 2, 3]));
+  await fs.mkdir(resourcePath("nested"));
+  await expect(captureMobiResources(directory, true)).rejects.toThrow(/文件名、目录或链接无效/u);
 });

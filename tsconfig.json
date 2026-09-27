@@ -49,7 +49,19 @@
     ".next-verify-3288/types/**/*.ts",
     ".next-verify-3288/dev/types/**/*.ts",
     ".next-verify-cbz-final-20260918/types/**/*.ts",
-    ".next-verify-cbz-final-20260918/dev/types/**/*.ts"
+    ".next-verify-cbz-final-20260918/dev/types/**/*.ts",
+    ".next-verify-hints-34567/types/**/*.ts",
+    ".next-verify-hints-34567/dev/types/**/*.ts",
+    ".next-verify-font-34568/types/**/*.ts",
+    ".next-verify-font-34568/dev/types/**/*.ts",
+    ".next-verify-selection-34569/types/**/*.ts",
+    ".next-verify-selection-34569/dev/types/**/*.ts",
+    ".next-verify-index-job-34570/types/**/*.ts",
+    ".next-verify-index-job-34570/dev/types/**/*.ts",
+    ".next-verify-index-release-34571/types/**/*.ts",
+    ".next-verify-index-release-34571/dev/types/**/*.ts",
+    ".next-verify-chat-type-34572/types/**/*.ts",
+    ".next-verify-chat-type-34572/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

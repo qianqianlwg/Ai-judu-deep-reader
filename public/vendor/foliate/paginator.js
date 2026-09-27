@@ -618,6 +618,8 @@ export class Paginator extends HTMLElement {
             }
         })
         const checkPointerSelection = debounce((range, sel) => {
+            // WHY：句读使用显式“继续选取”跨页；指针拖选不能隐式翻页，且须挡住已排队的延迟回调。
+            if (this.hasAttribute('disable-pointer-selection-navigation')) return
             if (!sel.rangeCount) return
             const selRange = sel.getRangeAt(0)
             const backward = selectionIsBackward(sel)

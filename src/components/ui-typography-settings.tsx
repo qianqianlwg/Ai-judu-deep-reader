@@ -7,8 +7,14 @@ export function UiTypographySettings() {
   const [size, setSize] = useState(DEFAULT_UI_TEXT_SIZE);
   const [error, setError] = useState("");
   useEffect(() => {
+    let active = true;
+    // WHY：挂载后异步读取浏览器偏好，避免服务端差异与 effect 内同步更新造成的级联渲染。
+    void Promise.resolve().then(() => {
+    if (!active) return;
     try { const current = normalizeUiTextSize(localStorage.getItem(UI_TEXT_SIZE_KEY)); setSize(current); applyUiTextSize(document.documentElement, current); }
     catch (cause: unknown) { console.error("读取界面字号失败", cause); setError("无法读取界面字号，已使用默认值；请检查浏览器存储。"); }
+    });
+    return () => { active = false; };
   }, []);
   function change(value: number) {
     const normalized = applyUiTextSize(document.documentElement, value);

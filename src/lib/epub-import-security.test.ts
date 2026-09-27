@@ -7,6 +7,18 @@ async function compressedFixture(text: string): Promise<Buffer> {
   zip.file("chapter.xhtml", text, { createFolders: false });
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }
+function addLegacyEnhancedDeflateFlag(bytes: Buffer, fileName = "chapter.xhtml"): void {
+  for (let at = 0; at <= bytes.length - 46; at++) {
+    if (bytes.readUInt32LE(at) !== 0x02014b50) continue;
+    const nameLength = bytes.readUInt16LE(at + 28);
+    if (bytes.subarray(at + 46, at + 46 + nameLength).toString() !== fileName) continue;
+    bytes.writeUInt16LE(bytes.readUInt16LE(at + 8) | 16, at + 8);
+    const local = bytes.readUInt32LE(at + 42);
+    bytes.writeUInt16LE(bytes.readUInt16LE(local + 6) | 16, local + 6);
+    return;
+  }
+  throw new Error("missing chapter");
+}
 function forgeDeclaredSize(bytes: Buffer, size: number): void {
   for (let at=0;at<bytes.length-46;at++) if(bytes.readUInt32LE(at)===0x02014b50) {
     const length=bytes.readUInt16LE(at+28),name=bytes.subarray(at+46,at+46+length).toString();
@@ -17,9 +29,42 @@ function forgeDeclaredSize(bytes: Buffer, size: number): void {
 }
 describe("EPUB 服务端先验与有界解压",()=>{
  it("正常归档以及旧parser的字面百分号路径可继续导入",async()=>{await expect(validateEpubImport(makeEpub())).resolves.toBeUndefined();});
- it("先拒绝高压缩比，不进入旧parser",async()=>{const zip=await compressedFixture("x".repeat(3*1024*1024));expect(zip.length).toBeLessThan(6000);await expect(validateEpubImport(zip)).rejects.toThrow("压缩比");});
+ it("接受带旧版增强 Deflate 标记的合法 EPUB",async()=>{
+   const bytes=await compressedFixture("正文<p>Enhanced Deflate compatibility.</p>");
+   addLegacyEnhancedDeflateFlag(bytes);
+   await expect(validateEpubImport(bytes)).resolves.toBeUndefined();
+ });
+ it("DEFLATE 空目录可导入，但声明目录含有解压内容仍拒绝",async()=>{
+   const bytes=makeEpub(false,true);
+   const directoryAt=bytes.indexOf(Buffer.from("META-INF/"));
+   expect(directoryAt).toBeGreaterThan(0);
+   await expect(validateEpubImport(bytes)).resolves.toBeUndefined();
+   const forged=Buffer.from(bytes);
+   for(let at=0;at<forged.length-46;at++)if(forged.readUInt32LE(at)===0x02014b50
+       && forged.subarray(at+46,at+46+forged.readUInt16LE(at+28)).toString()==="META-INF/"){
+     forged.writeUInt32LE(1,at+24);forged.writeUInt32LE(1,forged.readUInt32LE(at+42)+22);break;
+   }
+   await expect(validateEpubImport(forged)).rejects.toThrow("目录或未压缩条目解压大小不一致");
+ }); it("高重复的 EPUB 条目受容量预算约束但不因压缩比误拒",async()=>{const zip=await compressedFixture("x".repeat(3*1024*1024));expect(zip.length).toBeLessThan(6000);await expect(validateEpubImport(zip)).resolves.toBeUndefined();});
  it("虚报小尺寸不能绕过实际 zlib 输出上限",async()=>{const zip=await compressedFixture("x".repeat(3*1024*1024));forgeDeclaredSize(zip,32);await expect(validateEpubImport(zip)).rejects.toThrow("实际输出超过限制");});
  it("超限条目在解压前拒绝",async()=>{const zip=await compressedFixture("small");forgeDeclaredSize(zip,25*1024*1024);await expect(validateEpubImport(zip)).rejects.toThrow("超过限制");});
+ it("真实大于 24 MiB 的高压缩条目仍被拒绝，并指出具体文件",async()=>{
+   const zip=await compressedFixture("x".repeat(25*1024*1024));
+   expect(zip.length).toBeLessThan(30000);
+   await expect(validateEpubImport(zip)).rejects.toThrow("chapter.xhtml 解压大小超过限制（单条目 24 MiB）");
+ });
+ it("声明总解压量超过 128 MiB 的多个小条目在解压前拒绝",async()=>{
+   const zip=new JSZip();zip.file("mimetype","application/epub+zip",{compression:"STORE"});
+   for(let i=0;i<7;i++)zip.file(`chapter-${i}.xhtml`,"x",{createFolders:false});
+   const bytes=await zip.generateAsync({type:"nodebuffer",compression:"DEFLATE"});
+   for(let at=0;at<bytes.length-46;at++)if(bytes.readUInt32LE(at)===0x02014b50){
+     const name=bytes.subarray(at+46,at+46+bytes.readUInt16LE(at+28)).toString();
+     if(!name.startsWith("chapter-"))continue;
+     bytes.writeUInt32LE(20*1024*1024,at+24);
+     bytes.writeUInt32LE(20*1024*1024,bytes.readUInt32LE(at+42)+22);
+   }
+   await expect(validateEpubImport(bytes)).rejects.toThrow("chapter-6.xhtml 使总解压大小超过限制（总量 128 MiB）");
+ });
  it("实际大小和CRC必须匹配且受限解压接受正常 DEFLATE",async()=>{const zip=await compressedFixture("正文<p>Normal text and different words.</p>");await expect(validateEpubImport(zip)).resolves.toBeUndefined();const broken=Buffer.from(zip);broken[40]^=1;await expect(validateEpubImport(broken)).rejects.toThrow();});
  it("路径遍历归档不能交给parser",async()=>{const zip=new JSZip();zip.file('mimetype','application/epub+zip');zip.file('../escape','x',{createFolders:false});await expect(validateEpubImport(await zip.generateAsync({type:'nodebuffer'}))).rejects.toThrow('路径');});
 });
@@ -78,4 +123,3 @@ describe("CBZ按需目标条目读取的CRC与路径边界", () => {
     await expect(readValidatedZipEntry(bytes, "page.png")).rejects.toThrow(/CRC|校验/);
   });
 });
-

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
+import { makeCompressedDirectoryZip } from '../app/api/import/fixtures';
 import { inspectZip, assertPackagePath, resolvePackageReference, EPUB_LIMITS, validateArchive } from './epub-security-zip';
 
 async function zip(extra = 'chapter.xhtml') {
@@ -7,10 +8,28 @@ async function zip(extra = 'chapter.xhtml') {
   archive.file(extra, '<p>Hello</p>', { createFolders: false });
   return new Blob([new Uint8Array(await archive.generateAsync({ type: 'uint8array', compression: 'STORE' }))]);
 }
+function addLegacyEnhancedDeflateFlag(bytes: Uint8Array, fileName = "chapter.xhtml"): void {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let at = 0; at <= bytes.length - 46; at++) {
+    if (view.getUint32(at, true) !== 0x02014b50) continue;
+    const nameLength = view.getUint16(at + 28, true);
+    if (new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nameLength)) !== fileName) continue;
+    view.setUint16(at + 8, view.getUint16(at + 8, true) | 16, true);
+    const local = view.getUint32(at + 42, true);
+    view.setUint16(local + 6, view.getUint16(local + 6, true) | 16, true);
+    return;
+  }
+  throw new Error("missing chapter");
+}
 describe('EPUB ZIP and path security', () => {
   it('validates a bounded EPUB archive and permits canonical package paths', async () => {
     expect((await inspectZip(await zip())).get('chapter.xhtml')?.size).toBe(12);
     expect(assertPackagePath('EPUB/Chapter 1.xhtml')).toBe('EPUB/Chapter 1.xhtml');
+  });
+  it('accepts the legacy enhanced Deflate flag on a valid entry', async () => {
+    const bytes = new Uint8Array(await (await zip()).arrayBuffer());
+    addLegacyEnhancedDeflateFlag(bytes);
+    await expect(inspectZip(new Blob([bytes]))).resolves.toBeInstanceOf(Map);
   });
   it.each(['../escape', '/api/book', 'a/../b', 'a//b', 'a\\b', 'a/%2e/b', 'a:b', 'a\0b', './a'])('rejects malicious ZIP path %s', path => {
     expect(() => assertPackagePath(path)).toThrow();
@@ -27,6 +46,30 @@ describe('EPUB ZIP and path security', () => {
     await expect(inspectZip({ size: EPUB_LIMITS.compressed + 1 } as Blob)).rejects.toThrow('64 MiB');
     const archive = new JSZip(); archive.file('chapter.xhtml', 'x');
     await expect(inspectZip(new Blob([new Uint8Array(await archive.generateAsync({ type: 'uint8array' }))]))).rejects.toThrow('mimetype');
+  });
+  it('accepts DEFLATE encoded empty directory metadata, but not a nonempty directory', async () => {
+    const valid = new Uint8Array(makeCompressedDirectoryZip());
+    await expect(inspectZip(new Blob([valid]))).resolves.toBeInstanceOf(Map);
+    const forged = new Uint8Array(valid), view = new DataView(forged.buffer);
+    for (let at = 0; at <= forged.length - 46; at++) {
+      if (view.getUint32(at, true) !== 0x02014b50) continue;
+      const name = new TextDecoder().decode(forged.subarray(at + 46, at + 46 + view.getUint16(at + 28, true)));
+      if (name !== 'META-INF/') continue;
+      view.setUint32(at + 24, 1, true);
+      view.setUint32(view.getUint32(at + 42, true) + 22, 1, true);
+      break;
+    }
+    await expect(inspectZip(new Blob([forged]))).rejects.toThrow('目录或未压缩条目解压大小不一致');
+  });  it('accepts bounded, highly repetitive EPUB but rejects an oversized entry', async () => {
+    const archive = new JSZip();
+    archive.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+    archive.file('chapter.xhtml', 'x'.repeat(3 * 1024 * 1024), { createFolders: false });
+    const valid = new Uint8Array(await archive.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
+    expect(valid.length).toBeLessThan(6000);
+    await expect(inspectZip(new Blob([valid]))).resolves.toBeInstanceOf(Map);
+    archive.file('chapter.xhtml', 'x'.repeat(25 * 1024 * 1024), { createFolders: false });
+    const oversized = new Uint8Array(await archive.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
+    await expect(inspectZip(new Blob([oversized]))).rejects.toThrow('chapter.xhtml 解压大小超过限制（单条目 24 MiB）');
   });
   it('rejects advertised bombs before decompression', async () => {
     const bytes = new Uint8Array(await (await zip()).arrayBuffer()), view = new DataView(bytes.buffer);

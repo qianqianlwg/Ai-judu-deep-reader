@@ -5,6 +5,7 @@ import{loadPdfRuntime,openPdf,indexPdfPages,type PdfRuntime}from'@/lib/pdf-loade
 import{mapPdfDocument,readLimitedPdfSelection,pdfRangesForSource,type PdfDocumentIndex,type PdfDomPage}from'@/lib/pdf-source-map';
 import{createPdfLinkService}from'@/lib/pdf-links';
 import{selectionParts,type ReadingSelection}from'@/lib/reader-selection';
+import {analysisIntervalsWithoutConcepts} from "@/lib/annotations";
 import type{PDFDocumentProxy}from'pdfjs-dist/types/src/display/api';
 import type{IPDFLinkService}from'pdfjs-dist/types/web/interfaces';
 import type{EpubReaderProps}from'./epub-reader';
@@ -85,10 +86,12 @@ export function PdfReader(props:EpubReaderProps){
  useEffect(()=>{if(!session)return;try{localStorage.setItem(key,JSON.stringify({version:1,hash:props.book.edition?.originalHash,page,zoom,rotation,anchor:props.anchor}));}catch(cause:unknown){console.warn('保存PDF位置失败',cause);latest.current.onNotice('PDF阅读位置保存失败，请检查浏览器存储。');}},[session,key,props.book.edition?.originalHash,page,zoom,rotation,props.anchor]);
  useEffect(()=>{
   const root=viewport.current;if(!root||!session)return;const document=root.ownerDocument;let last='';
-  const changed=()=>{if(latest.current.disabled)return;const selected=document.getSelection();if(!selected||selected.isCollapsed||!selected.rangeCount)return;const range=selected.getRangeAt(0);if(!range.intersectsNode(root))return;
-   const snapshot=readLimitedPdfSelection(selected,[...dom.current.values()],session.index.paragraphs,()=>latest.current.onNotice('最多选择 1000 字，选区已限制到上限。'));
+  const changed=()=>{
+   // WHY：文本选区可用于朗读；生成期间的导航和批注仍受 disabled 约束。
+   if(latest.current.selectionDisabled ?? latest.current.disabled)return;const selected=document.getSelection();if(!selected||selected.isCollapsed||!selected.rangeCount)return;const range=selected.getRangeAt(0);if(!range.intersectsNode(root))return;
+   const snapshot=readLimitedPdfSelection(selected,[...dom.current.values()],session.index.paragraphs,()=>latest.current.onNotice('最多选择 3000 字符，选区已限制到上限。'));
    if(!snapshot){last='';setSelection(null);latest.current.onClearSelection?.();latest.current.onNotice('该选区没有完整可核验的PDF文字来源；扫描图片需OCR后才能文字句读。');return;}
-   const identity=JSON.stringify(snapshot);if(identity===last)return;last=identity;setSelection(snapshot);const rect=selected.getRangeAt(0).getBoundingClientRect();latest.current.onSelect(snapshot,{left:rect.left+rect.width/2,top:Math.max(58,rect.top-8)});
+   const identity=JSON.stringify(snapshot);if(identity===last)return;last=identity;setSelection(snapshot);const rect=selected.getRangeAt(0).getBoundingClientRect();latest.current.onSelectionDocument?.(document);latest.current.onSelect(snapshot,{left:rect.left+rect.width/2,top:Math.max(58,rect.top-8)});
   };
   const start=()=>{last='';setSelection(null);latest.current.onStartSelection?.();};
   const keyed=()=>{const selected=document.getSelection();if(selected?.isCollapsed&&selected.anchorNode&&root.contains(selected.anchorNode)){last='';setSelection(null);latest.current.onClearSelection?.();return;}changed();};
@@ -97,12 +100,17 @@ export function PdfReader(props:EpubReaderProps){
  useEffect(()=>{
   const view=window as Window&{CSS?:{highlights?:{set(name:string,value:unknown):void;delete(name:string):boolean}};Highlight?:new(...ranges:Range[])=>unknown};const registry=view.CSS?.highlights,H=view.Highlight;if(!registry||!H)return;
   const pages=[...dom.current.values()],groups=new Map<string,Range[]>(['analysis','yellow','green','blue','pink','orange','concept','selection'].map(name=>[name,[]]));
-  for(const annotation of props.annotations){const name=annotation.kind&&annotation.kind!=='analysis'?annotation.markColor??'yellow':'analysis';groups.get(name)?.push(...pdfRangesForSource(pages,annotation));}
+  for(const annotation of props.annotations){const name=annotation.kind&&annotation.kind!=='analysis'?annotation.markColor??'yellow':'analysis';const paragraph=session?.index.paragraphs.find(item=>item.id===annotation.paragraphId);const intervals=name==='analysis'&&paragraph?analysisIntervalsWithoutConcepts(paragraph.text,annotation.startOffset,annotation.endOffset,props.concepts):[{start:annotation.startOffset,end:annotation.endOffset}];for(const interval of intervals)groups.get(name)?.push(...pdfRangesForSource(pages,{paragraphId:annotation.paragraphId,startOffset:interval.start,endOffset:interval.end}));}
   for(const paragraph of session?.index.paragraphs??[])for(const concept of props.concepts){if(!concept.name)continue;let start=paragraph.text.indexOf(concept.name);while(start>=0){groups.get('concept')!.push(...pdfRangesForSource(pages,{paragraphId:paragraph.id,startOffset:start,endOffset:start+concept.name.length}));start=paragraph.text.indexOf(concept.name,start+concept.name.length);}}
   if(selection)groups.set('selection',selectionParts(selection).flatMap(part=>pdfRangesForSource(pages,part)));
   // WHY：手动颜色、AI下划线、概念及当前选文分开绘制，不让已保存绿色标亮看起来变成AI句读。
-  for(const [name,ranges]of groups)registry.set('judu-pdf-'+name,new H(...ranges));return()=>{for(const name of groups.keys())registry.delete('judu-pdf-'+name);};
- },[revision,props.annotations,props.concepts,selection,session]);
+  // WHY：PDF 文字层不改写；句读线单独注入样式，开关不影响手动标亮或概念高亮。
+  const style=document.createElement('style');style.dataset.juduPdfAnalysisStyle='';
+  const opacity=Math.min(.35,Math.max(.05,props.analysisHintOpacity??.25));
+  style.textContent=props.showAnalysisHints===false?'':`::highlight(judu-pdf-analysis){text-decoration:underline solid rgba(84,126,119,${opacity});text-decoration-thickness:1px;text-underline-offset:.18em;}`;
+  document.head.append(style);
+  for(const [name,ranges]of groups)registry.set('judu-pdf-'+name,new H(...ranges));return()=>{style.remove();for(const name of groups.keys())registry.delete('judu-pdf-'+name);};
+ },[revision,props.annotations,props.concepts,props.showAnalysisHints,props.analysisHintOpacity,selection,session]);
  const total=layout.length?layout[layout.length-1].top+layout[layout.length-1].height:0;
  const visible=layout.filter(item=>item.top+item.height>=scroll-height&&item.top<=scroll+height*2);
  const textless=session?.index.pages[page-1]?.items.every(item=>!item.str.trim());

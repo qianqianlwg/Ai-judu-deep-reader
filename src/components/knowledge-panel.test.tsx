@@ -56,7 +56,8 @@ describe("KnowledgePanel", () => {
   it("展示概念定义、来源和完整消息导航，不输出 JSON", () => {
     const markup = renderToStaticMarkup(<KnowledgePanelView {...props()} />);
     expect(markup).toContain("主体之间的互相确认。");
-    expect(markup).toContain("查看 1 条句读来源");
+    expect(markup).toContain("句读来源");
+    expect(markup).not.toContain("<details");
     expect(markup).toContain("原文摘录");
     expect(markup).not.toContain('"summary"');
     expect(markup).toContain("全书范围");

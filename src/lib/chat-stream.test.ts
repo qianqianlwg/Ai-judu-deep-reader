@@ -34,3 +34,12 @@ it("工具与句读记录固定在首次事件的正文偏移，完成后不漂�
  expect(messages[0].tools?.[0].contentOffset).toBe(2);
  expect(messages[0].analysisOffset).toBe(2);
 });
+
+
+it("旧检索回放不根据当前正文推测工具位置，保持刷新与审计一致", () => {
+ const messages: ChatMessage[] = [{ id: "a", role: "assistant", content: "已经保存的正文", status: "completed" }];
+ const replayed = applyChatEvent(messages, "a", { type: "tool", tool: { id: "search", name: "search_book", status: "completed" } });
+ expect(replayed[0].tools?.[0].contentOffset).toBeUndefined();
+ const located = applyChatEvent(messages, "a", { type: "tool", tool: { id: "read", name: "read_source", status: "completed", contentOffset: 2 } });
+ expect(located[0].tools?.[0].contentOffset).toBe(2);
+});

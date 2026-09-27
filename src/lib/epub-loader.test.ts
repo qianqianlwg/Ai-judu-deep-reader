@@ -4,6 +4,8 @@ import { Blob as NodeBlob } from 'node:buffer';
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import { loadEpub, createFoliateView } from './epub-loader';
 import type { FoliateBridge } from './foliate-types';
+import JSZip from 'jszip';
+import { makeEpub } from '../app/api/import/fixtures';
 
 let bridge: FoliateBridge;
 const blobs = new Map<string, Blob>();
@@ -50,6 +52,25 @@ describe('browser EPUB loader with the actual pinned EPUB/ZIP modules', () => {
     book.destroy?.(); book.destroy?.();
     expect(URL.revokeObjectURL).toHaveBeenCalled();
     await expect(book.sections[0].createDocument()).rejects.toThrow('已销毁');
+  });
+  it('loads a genuine 2-byte DEFLATE empty-directory EPUB through the actual ZIP and book bridge', async () => {
+    const book = await loadEpub(new Blob([new Uint8Array(makeEpub(false, true, true))]));
+    expect(book.sections).toHaveLength(1);
+    expect((await book.sections[0].createDocument()).body.textContent).toContain('第二段');
+    book.destroy?.();
+  });
+  it('loads XHTML 1.1 named character entities through the full reader without raw HTML fallback', async () => {
+    const archive = await JSZip.loadAsync(makeEpub(false, false, true));
+    const source = archive.file('OPS/Text/chapter-one.xhtml')!;
+    archive.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+    archive.file(source.name, '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">'
+      + (await source.async('string')).replace('First&nbsp;paragraph', '&ldquo;First&rdquo;&nbsp;paragraph'));
+    const book = await loadEpub(new Blob([new Uint8Array(await archive.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))]));
+    const doc = await book.sections[0].createDocument();
+    expect(doc.body.textContent).toContain('“First”');
+    expect(doc.querySelectorAll('parsererror')).toHaveLength(0);
+    expect(doc.querySelector('head meta')?.getAttribute('content')).toContain("script-src 'none'");
+    book.destroy?.();
   });
   it('does not expose an unsafe raw-book fallback', async () => {
     await expect(bridge.createBook(await fixture(), undefined as never)).rejects.toThrow('sanitized');

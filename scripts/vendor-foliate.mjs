@@ -32,6 +32,10 @@ function patch(name, source) {
       'this.lastLocation = { ...progress, tocItem, pageItem, cfi, range, index }');
   }
   if (name === 'paginator.js') {
+    // WHY：产品拖选页尾不应意外翻页；保留上游默认策略，应用通过显式属性关闭。
+    const selectionCallback = '        const checkPointerSelection = debounce((range, sel) => {\n';
+    if (!text.includes(selectionCallback)) throw new Error('Missing pointer selection navigation');
+    text = text.replace(selectionCallback, selectionCallback + "            // WHY：句读使用显式“继续选取”跨页；指针拖选不能隐式翻页，且须挡住已排队的延迟回调。\n            if (this.hasAttribute('disable-pointer-selection-navigation')) return\n");
     // WHY：只修复原生iframe生命周期：空白加载不得当正文，事件异常必须reject，关闭须终结等待；不改运输、sandbox或shadow。
     const nativeLoad = `    async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(\`\${src} is not string\`)

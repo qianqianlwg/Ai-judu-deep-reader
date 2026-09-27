@@ -58,7 +58,7 @@ describe("AnalysisPanel 消息、选文与失败状态", () => {
     expect(message("a1").textContent).not.toContain('"summary"');
     expect(message("a1").querySelector('[data-streaming-format="friendly-preview"]')).not.toBeNull();
     expect(message("a2").textContent).toContain("自然追问回答");
-    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
     expect(container.querySelector('[role="status"]')?.textContent).toContain("正在生成");
   });
   it("用户每条消息携带各自折叠选文，不使用当前 selected 冒充历史原文", async () => {
@@ -102,7 +102,7 @@ describe("AnalysisPanel 消息、选文与失败状态", () => {
   it("非法锚点不显示假跳转，缺少回调时入口明确禁用", async () => {
     await render({ messages: [{ id: "bad", role: "user", content: "请句读", anchor: { ...anchor(), endOffset: 999 } }, { id: "valid", role: "user", content: "请句读", anchor: anchor() }] });
     expect(message("bad").querySelector('[data-testid="message-source"]')).toBeNull();
-    expect(message("valid").querySelector("button")?.disabled).toBe(true);
+    expect(message("valid").querySelector<HTMLButtonElement>('[aria-label="定位本次选文"]')?.disabled).toBe(true);
   });
   it("failed _request 元数据不是 Analysis，不 crash，也不转成新的 onSend", async () => {
     const metadata = { _request: { input: { selectedText: "旧的未验证选文" }, failure: { code: "upstream_failed" } } };
@@ -196,6 +196,8 @@ describe("AnalysisPanel 真 DOM 的滚动和消息复用", () => {
     expect(latest().parentElement).toBe(viewport().parentElement);
     const css = await readFile("src/components/analysis-panel.module.css", "utf8");
     expect(css).toContain(".latestButton[hidden] { display: none; }");
+    expect(css).toContain(":global(.chat-message.assistant .message-content :is(p,li,blockquote))");
+    expect(css).toContain(".composerInput { font-size: max(15px, calc(var(--ui-text-size, 13px) + 2px)); }");
     expect(css).toContain("overflow-anchor: none");
     expect(css).toContain("pointer-events: auto");
   });
@@ -443,7 +445,7 @@ describe("局部输入区视觉结构与交互回归", () => {
   it("流式消息仍展示停止按钮，读取会话时禁用输入与发送", async () => {
     const onStop = vi.fn();
     await render({ onSend: vi.fn(), onStop, messages: [{ id: "stream", role: "assistant", content: "回答中", status: "streaming" }] });
-    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
     expect(labelledButton("停止生成").classList.contains(styles.sendButton)).toBe(true);
     await click(labelledButton("停止生成"));
     expect(onStop).toHaveBeenCalledOnce();
@@ -462,6 +464,39 @@ it("失败状态作为圆角消息卡在滚动区内，不挤占输入区并保�
  expect(container.querySelector('textarea[aria-label="继续追问"]')).not.toBeNull();
 });
 
+it("编辑只替换用户气泡，来源卡片及原始锚点始终保留",async()=>{
+ const onEdit=vi.fn(),source=anchor();await render({onEditMessage:onEdit,messages:[{id:'u-edit',role:'user',content:'请句读这一段',anchor:source,createdAt:'2026-09-26T04:00:00Z'}]});
+ const article=message('u-edit'),card=article.querySelector('[data-testid="message-source"]');
+ await click(article.querySelector<HTMLButtonElement>('button[aria-label="编辑原始问题"]')!);
+ expect(article.querySelector('.readable-text')).toBeNull();expect(article.querySelector('textarea')?.value).toBe('请句读这一段');expect(article.querySelector('[data-testid="message-source"]')).toBe(card);
+ await click(article.querySelector<HTMLButtonElement>('button[type="button"]')!);expect(article.querySelector('.readable-text')?.textContent).toBe('请句读这一段');expect(onEdit).not.toHaveBeenCalled();
+});
+
+// WHY：保存的引文与实际检索必须分别呈现，旧数据缺少来源时不得猜作检索所得。
+it("句读记录分组选文、上下文与检索引用，并显示真实检索状态", async () => {
+ const citations = [
+  {sourceId:"s1",paragraphId:"p1",quote:"选文",origin:"selection" as const},
+  {sourceId:"s2",paragraphId:"p2",quote:"邻段",origin:"context" as const},
+  {sourceId:"s3",paragraphId:"p3",quote:"书内结果",origin:"search" as const},
+ ];
+ const saved = {...analysis,provenanceVersion:1 as const,citations};
+ await render({messages:[{id:"a1",role:"assistant",content:"解读",analysis:saved,outputFormat:"text",status:"completed",tools:[{id:"save",name:"save_reading_analysis",status:"completed"}]}]});
+ const record=message("a1").querySelector('[data-testid="analysis-record"]')!;
+ expect(record.querySelector("summary")?.textContent).toContain("未检索");
+ expect(record.querySelector('[data-citation-origin="selection"]')?.textContent).toContain("选文依据");
+ expect(record.querySelector('[data-citation-origin="context"]')?.textContent).toContain("上下文原文");
+ expect(record.querySelector('[data-citation-origin="search"]')?.textContent).toContain("本书检索引用");
+ expect(record.querySelector('[data-testid="analysis-retrieval-status"]')?.textContent).toContain("本轮未执行本书检索");
+ await render({messages:[{id:"a1",role:"assistant",content:"解读",analysis:saved,outputFormat:"text",status:"completed",tools:[{id:"search",name:"search_book",status:"completed",result:{ok:true,sources:[]}}]}]});
+ expect(message("a1").querySelector('[data-testid="analysis-record"] summary')?.textContent).toContain("已检索");
+ expect(message("a1").querySelector('[data-testid="analysis-retrieval-status"]')?.textContent).toContain("本轮调用了本书检索");
+});
+it("旧句读缺少来源标记时不冒充选文或检索",async()=>{
+ await render({messages:[{id:"old",role:"assistant",content:"解读",analysis:{...analysis,citations:[{sourceId:"s",paragraphId:"p",quote:"旧原文"}]},outputFormat:"text",status:"completed"}]});
+ expect(message("old").querySelector('[data-citation-origin="unknown"]')?.textContent).toContain("来源未标记的原文");
+ expect(message("old").querySelector('[data-testid="analysis-retrieval-status"]')?.textContent).toContain("不能仅凭引用判断是否检索");
+});
+
 it("句读记录和保存调用按正文产生时点穿插，而非全部落在末尾", async () => {
  await render({messages:[{id:"timed",role:"assistant",status:"completed",outputFormat:"text",content:"前段\n\n后段",analysis,analysisOffset:2,tools:[{id:"save",name:"save_reading_analysis",status:"completed",contentOffset:2,result:{ok:true,saved:true}}]}]});
  const group=message("timed");
@@ -472,4 +507,38 @@ it("句读记录和保存调用按正文产生时点穿插，而非全部落在�
  expect(children[2].matches("[data-testid=analysis-record]")).toBe(true);
  expect(children[3].textContent).toBe("后段");
  expect(group.querySelectorAll('[data-tool-id="save"]')).toHaveLength(1);
+});
+
+describe("句读重点的两种视觉标注", () => {
+  it("流式与完成消息都以颜色强调关键词、下划线标示关键句，不修改正文", async () => {
+    const content = "康德把**理性**置于问题中心。*理性不能越出经验的界限*。其他内容保持普通文字。";
+    const base: PanelMessage = { id: "reading", role: "assistant", kind: "analysis", outputFormat: "text", status: "streaming", content };
+    await render({ loading: true, messages: [base] });
+    const body = message("reading").querySelector<HTMLElement>('[data-reading-markup="true"]')!;
+    expect(body.querySelector("strong")?.textContent).toBe("理性");
+    expect(body.querySelector("em")?.textContent).toBe("理性不能越出经验的界限");
+    expect(body.textContent).toContain("其他内容保持普通文字。");
+    await render({ messages: [{ ...base, status: "completed" }] });
+    expect(message("reading").querySelector('[data-reading-markup="true"]')).toBe(body);
+    expect(message("reading").querySelector(".message-content")?.textContent).toBe("康德把理性置于问题中心。理性不能越出经验的界限。其他内容保持普通文字。");
+    const css = await readFile("src/components/analysis-panel.module.css", "utf8");
+    expect(css).toContain('.markdown[data-reading-markup="true"] strong');
+    expect(css).toContain('.markdown[data-reading-markup="true"] em');
+    expect(css).toContain("text-decoration-line: underline");
+    expect(css).toContain('var(--reading-selected) 70%, var(--reading-surface) 30%');
+    expect(css).toContain('var(--reading-accent) 45%, var(--reading-selected) 55%');
+    expect(css).toContain('color: var(--reading-text)');
+  });
+  it("普通追问不套用句读标注，旧句读记录仍能读出带标记的正文", async () => {
+    const text = "**关键词**与*关键句。*";
+    await render({ messages: [
+      { id: "chat", role: "assistant", kind: "chat", content: text, outputFormat: "text", status: "completed" },
+      { id: "legacy", role: "assistant", kind: "analysis", content: "旧结构化内容", outputFormat: "legacy-json", status: "completed", analysis: { ...analysis, readingText: text } },
+    ] });
+    expect(message("chat").querySelector('[data-reading-markup="true"]')).toBeNull();
+    const record = message("legacy").querySelector('.reading-text-result')!;
+    expect(record.querySelector("strong")?.textContent).toBe("关键词");
+    expect(record.querySelector("em")?.textContent).toBe("关键句。");
+    expect(record.textContent).not.toContain("*");
+  });
 });

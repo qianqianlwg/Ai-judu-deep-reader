@@ -1,24 +1,20 @@
 /* 独立命名空间：不复用旧 reading-annotation / concept-mark / annotation-popover。 */
-.judu-annotation-text {
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  text-decoration-line: underline;
-  text-decoration-style: dashed;
-  text-decoration-color: #80a9a1;
+/* WHY：用低对比度细实线提示已有句读，不增加字重、行高或大面积色块。 */
+.judu-annotation-text { color: inherit; }
+.judu-annotated-paragraph[data-show-analysis-hints="true"] .judu-annotation-text {
+  text-decoration: underline solid rgb(84 126 119 / var(--analysis-hint-opacity, .25));
   text-decoration-thickness: 1px;
-  text-underline-offset: .2em;
+  text-underline-offset: .18em;
 }
 .judu-concept-term {
-  background: transparent;
+  background: #fff0a388;
   color: inherit;
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
   letter-spacing: inherit;
-  font-weight: 650;
+  font-weight: inherit;
   cursor: help;
-  text-decoration: none;
   text-underline-offset: .2em;
 }
 .judu-history-anchor {
@@ -93,8 +89,4 @@
 .judu-concept-definition > div + div { margin-top: 10px; }
 .judu-annotation-history button { border: 0; background: transparent; padding: 8px 0 0; text-decoration: underline; text-underline-offset: 3px; }
 
-/* WHY：句读用虚线表示可交互，悬停确认位置时转实线；用户彩色标注与概念加粗互不冒充。 */
-.judu-annotation-text:hover { text-decoration-style: solid; }
-
 .judu-highlight-text { background: color-mix(in srgb, var(--mark-color, yellow) 42%, transparent); border-radius: 2px; }
-.judu-annotation-text:hover { text-decoration-style: solid; }

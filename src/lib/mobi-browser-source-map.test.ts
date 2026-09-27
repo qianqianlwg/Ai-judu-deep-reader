@@ -165,7 +165,7 @@ describe("精确字符、重复数量和可见性核验", () => {
   });
 });
 
-describe("复用 EPUB 选区、分页锚点与 1000 字上限", () => {
+describe("复用 EPUB 选区、分页锚点与 3000 字上限", () => {
   it("跨裸文本/嵌套段落的选区按正文顺序保留完整来源", () => {
     const { doc, maps } = projection('<div>甲乙<p>丙<em>丁</em></p>戊己</div>', ["甲乙", "丙丁", "戊己"]);
     const range = doc.createRange();
@@ -207,7 +207,7 @@ describe("复用 EPUB 选区、分页锚点与 1000 字上限", () => {
   });
 
   it.each([false, true])("使用既有 cap 函数收紧实际跨段选区，反向=%s，不拆 emoji", reverse => {
-    const texts = ["😀".repeat(600), "乙".repeat(600)];
+    const texts = ["😀".repeat(1800), "乙".repeat(1800)];
     document.body.innerHTML = `<div>${texts[0]}<p>${texts[1]}</p></div>`;
     const maps = mapMobiDocument(document, chapter(texts));
     const range = document.createRange(); range.selectNodeContents(document.body);
@@ -220,12 +220,12 @@ describe("复用 EPUB 选区、分页锚点与 1000 字上限", () => {
     const onLimit = vi.fn();
     const limited = readLimitedEpubSelection(selection, maps, onLimit);
     expect(limited).toEqual(expected);
-    expect(Array.from(limited!.text)).toHaveLength(1000);
+    expect(Array.from(limited!.text)).toHaveLength(3000);
     expect(selection.toString()).toBe(selectionParts(expected).map(part => part.text).join(""));
     expect(selectionFromEpubRange(selection.getRangeAt(0), maps)).toEqual(expected);
     expect(onLimit).toHaveBeenCalledOnce();
-    expect(selectionParts(expected)[0].startOffset).toBe(reverse ? 404 : 0);
-    expect(selectionParts(expected)[1].endOffset).toBe(reverse ? 600 : 398);
+    expect(selectionParts(expected)[0].startOffset).toBe(reverse ? 1204 : 0);
+    expect(selectionParts(expected)[1].endOffset).toBe(reverse ? 1800 : 1198);
   });
 
   it("不超过上限时不触发裁剪回调", () => {
