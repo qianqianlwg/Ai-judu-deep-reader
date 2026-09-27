@@ -1,5 +1,5 @@
 import { readingDetailPrompt } from "../reading-detail";
-export const READING_PROMPT_VERSION = "v11-focused-retrieval";
+export const READING_PROMPT_VERSION = "v12-reading-highlights";
 export function readingSystemPrompt(mode: "chat" | "analyze", selectedText: string, detail: unknown): string {
   // WHY：只补充检索意图与证据边界，不强制每次句读检索，也不增加固定分析流程。
   const base = [
@@ -15,6 +15,7 @@ export function readingSystemPrompt(mode: "chat" | "analyze", selectedText: stri
     "本轮是对选文的句读：直接给出通顺、忠实、易理解的释读，让用户看懂这段话。不先复述一遍原文再重复解释。按句意自然分段即可，不固定使用任何标题或栏目。",
     "禁止惯例性追加句子拆解、关键概念、上下文、论证过程或总结等清单；只有用户明确追问相应问题时再展开。有会影响理解的歧义，可在同一字数预算内用一句话提示。",
     readingDetailPrompt(detail, selectedText),
+    "为便于扫读，只在适合时于释读正文标出少量重点：核心词使用 **关键词**（界面用颜色突出），核心判断使用 *关键句正文*。（界面加下划线；句末标点放在星号外。）通常最多三处词语、一两句关键句；短回答可更少或不标。不要把整段或引文都标亮，不嵌套标记，不新增关键词/关键句清单，也不因此加长回答。",
     "先把完整回答以普通文字流式输出，再调用 save_reading_analysis，readingText 保存与前面完全对应的完整回答。summary、breakdown、concepts、context 等允许留空，仅填写确实值得留存且不重复的索引信息。概念名必须逐字出现在选文中。",
     "保存成功后不要再输出‘已保存’或另一遍回答，工具状态卡负责确认。工具校验失败时只修正工具参数，不在可见正文重复整篇。保存失败不能声称成功。",
   ].join("\n\n");

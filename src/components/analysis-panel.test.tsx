@@ -473,3 +473,34 @@ it("句读记录和保存调用按正文产生时点穿插，而非全部落在�
  expect(children[3].textContent).toBe("后段");
  expect(group.querySelectorAll('[data-tool-id="save"]')).toHaveLength(1);
 });
+
+describe("句读重点的两种视觉标注", () => {
+  it("流式与完成消息都以颜色强调关键词、下划线标示关键句，不修改正文", async () => {
+    const content = "康德把**理性**置于问题中心。*理性不能越出经验的界限*。其他内容保持普通文字。";
+    const base: PanelMessage = { id: "reading", role: "assistant", kind: "analysis", outputFormat: "text", status: "streaming", content };
+    await render({ loading: true, messages: [base] });
+    const body = message("reading").querySelector<HTMLElement>('[data-reading-markup="true"]')!;
+    expect(body.querySelector("strong")?.textContent).toBe("理性");
+    expect(body.querySelector("em")?.textContent).toBe("理性不能越出经验的界限");
+    expect(body.textContent).toContain("其他内容保持普通文字。");
+    await render({ messages: [{ ...base, status: "completed" }] });
+    expect(message("reading").querySelector('[data-reading-markup="true"]')).toBe(body);
+    expect(message("reading").querySelector(".message-content")?.textContent).toBe("康德把理性置于问题中心。理性不能越出经验的界限。其他内容保持普通文字。");
+    const css = await readFile("src/components/analysis-panel.module.css", "utf8");
+    expect(css).toContain('.markdown[data-reading-markup="true"] strong');
+    expect(css).toContain('.markdown[data-reading-markup="true"] em');
+    expect(css).toContain("text-decoration-line: underline");
+  });
+  it("普通追问不套用句读标注，旧句读记录仍能读出带标记的正文", async () => {
+    const text = "**关键词**与*关键句。*";
+    await render({ messages: [
+      { id: "chat", role: "assistant", kind: "chat", content: text, outputFormat: "text", status: "completed" },
+      { id: "legacy", role: "assistant", kind: "analysis", content: "旧结构化内容", outputFormat: "legacy-json", status: "completed", analysis: { ...analysis, readingText: text } },
+    ] });
+    expect(message("chat").querySelector('[data-reading-markup="true"]')).toBeNull();
+    const record = message("legacy").querySelector('.reading-text-result')!;
+    expect(record.querySelector("strong")?.textContent).toBe("关键词");
+    expect(record.querySelector("em")?.textContent).toBe("关键句。");
+    expect(record.textContent).not.toContain("*");
+  });
+});

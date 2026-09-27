@@ -56,7 +56,7 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
 }) {
   const citations = Array.isArray(analysis.citations) ? analysis.citations.filter(validCitation) : [];
   return <div className="message-content assistant-readable">
-    {analysis.readingText && <section><h4>句读文本 <SpeechButton text={analysis.readingText} label="AI句读正文" /></h4><p className="reading-text-result">{analysis.readingText}</p></section>}
+    {analysis.readingText && <section><h4>句读文本 <SpeechButton text={analysis.readingText} label="AI句读正文" /></h4><div className="reading-text-result"><MarkdownText content={analysis.readingText} reading /></div></section>}
     {analysis.summary && <p className="assistant-summary">{analysis.summary}</p>}
     {analysis.breakdown.length > 0 && <section><h4>句子拆解</h4>{analysis.breakdown.map((item, index) => <div className="answer-row" key={index}><b>{item.label}</b><span>{item.text}</span></div>)}</section>}
     {analysis.concepts.length > 0 && <section><h4>关键概念</h4>{analysis.concepts.map((item, index) => <div className="answer-row" key={index}><b>{item.name}</b><span>{item.text}</span></div>)}</section>}
@@ -67,8 +67,8 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
     <details className="raw-output"><summary>查看原始输出</summary><pre>{rawContent}</pre></details>
   </div>;
 }
-function MarkdownText({ content }: { content: string }) {
-  return <div className={"message-content " + styles.markdown} data-output-format="text">
+function MarkdownText({ content, reading = false }: { content: string; reading?: boolean }) {
+  return <div className={"message-content " + styles.markdown} data-output-format="text" data-reading-markup={reading ? "true" : undefined}>
     <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
       // WHY：模型生成的图片 URL 不可信；即便 skipHtml，Markdown 图片仍会自动请求并可能泄露阅读资料。
       img: ({ alt }) => <span role="note" data-blocked-image="true">[图片未自动加载{alt ? "：" + alt : ""}]</span>,
@@ -130,6 +130,7 @@ function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds,
 }
 // WHY：首次收到工具/句读记录时固定正文偏移；完成事件只更新卡片，不把它们推到答案末尾。
 function TimedAnswer({ message, onOpenCitation }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"] }) {
+  const reading = message.kind === "analysis";
   const timed = [
     ...(message.tools ?? []).filter(tool => Number.isSafeInteger(tool.contentOffset) && tool.contentOffset! >= 0 && tool.contentOffset! <= message.content.length && !["search_book", "read_source", "search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name)).map(tool => ({ offset: tool.contentOffset!, id: tool.id, analysis: false })),
     ...(isAnalysis(message.analysis) && Number.isSafeInteger(message.analysisOffset) && message.analysisOffset! >= 0 && message.analysisOffset! <= message.content.length ? [{ offset: message.analysisOffset!, id: "", analysis: true }] : []),
@@ -137,12 +138,12 @@ function TimedAnswer({ message, onOpenCitation }: { message: PanelMessage; onOpe
   let cursor = 0;
   const segments: ReactNode[] = [];
   for (const [index, item] of timed.entries()) {
-    if (item.offset > cursor) segments.push(<MarkdownText key={"text-" + index} content={message.content.slice(cursor, item.offset)} />);
+    if (item.offset > cursor) segments.push(<MarkdownText key={"text-" + index} content={message.content.slice(cursor, item.offset)} reading={reading} />);
     segments.push(<ToolRecords key={"tool-" + item.id + index} message={message} onOpenCitation={onOpenCitation} includeAnalysis={item.analysis} toolIds={item.analysis ? [] : [item.id]} includeExtras={false} />);
     cursor = item.offset;
   }
   const tail = message.content.slice(cursor);
-  if (tail || !timed.length) segments.push(<MarkdownText key="tail" content={tail || (message.status === "streaming" ? "正在生成回答…" : "")} />);
+  if (tail || !timed.length) segments.push(<MarkdownText key="tail" content={tail || (message.status === "streaming" ? "正在生成回答…" : "")} reading={reading} />);
   const timedIds = new Set(timed.filter(item => !item.analysis).map(item => item.id));
   return <><div className={message.status === "streaming" ? "streaming-cursor" : undefined} data-streaming-format="markdown">{segments}</div>
     <ToolRecords message={{ ...message, tools: message.tools?.filter(tool => !timedIds.has(tool.id)) }} onOpenCitation={onOpenCitation} includeAnalysis={!timed.some(item => item.analysis)} />
