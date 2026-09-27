@@ -7,6 +7,7 @@ const fixture = vi.hoisted(() => ({ db: undefined as TestDb | undefined }));
 vi.mock("@/lib/db", () => ({ getDb: () => { if (!fixture.db) throw new Error("测试数据库未初始化"); return fixture.db; } }));
 import { POST } from "./route";
 import * as retrievalModule from "@/lib/book-retrieval";
+import * as prefetchModule from "@/lib/agent/book-context-prefetch";
 import { captureReadingContext, type ReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, restoreReadingRequest } from "@/lib/reading-request";
 
 const runtime = (process as unknown as { getBuiltinModule(name: string): { DatabaseSync: new (file: string) => TestDb } }).getBuiltinModule("node:sqlite");
@@ -48,6 +49,26 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); fixture.db?.close(); fixture.db = undefined; });
 
 describe("流式 Provider 路由集成", () => {
+  it("选区已确认时只注入其他章节来源，写入审计并可重放；默认不预检索", async () => {
+    const spy = vi.spyOn(prefetchModule, "prefetchBookContext").mockResolvedValue({ status: "completed", sources: [{ sourceId: "book:edition-1:paragraph:p-old", paragraphId: "p-old", chapterId: "chapter-old", chapterTitle: "第一章", text: "第一章讨论相关术语的原文。", startOffset: 0, endOffset: 16, channels: ["semantic"] }] });
+    const result = await call({ mode: "analyze", bookContextPrefetch: true });
+    expect(result.text).toContain('"name":"prefetch_book_context"');
+    expect(result.text).toContain("第一章讨论相关术语");
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy.mock.calls[0][0].selectedParagraphIds).toContain("p1");
+    const requestBody = JSON.stringify(JSON.parse(String(fetcher.mock.calls[0][1]?.body)));
+    expect(requestBody).toContain("第一章讨论相关术语");
+    const runs = fixture.db!.prepare("SELECT tool_name, input_json FROM agent_tool_runs").all() as { tool_name: string; input_json: string }[];
+    expect(runs.some(run => run.tool_name === "prefetch_book_context")).toBe(true);
+    expect(runs.find(run => run.tool_name === "prefetch_book_context")?.input_json).not.toContain("这是十字原文");
+    const replay = await call({ mode: "analyze", bookContextPrefetch: true });
+    expect(replay.text).toContain('"name":"prefetch_book_context"');
+    expect(spy).toHaveBeenCalledOnce();
+  });
+  it("非法自动检索选项在请求上游之前被拒绝", async () => {
+    expect((await call({ bookContextPrefetch: "true" })).status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("OpenAI 请求鉴权、真实增量、落库和 meta ID 一致", async () => {
     const response = await POST(request());
     expect(response.headers.get("Content-Type")).toContain("text/event-stream");

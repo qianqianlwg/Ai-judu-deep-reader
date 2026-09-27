@@ -30,8 +30,30 @@ describe("聊天输入框选项", () => {
     await act(async () => { buttons.find(button => button.textContent?.startsWith("插件"))?.click(); buttons.find(button => button.textContent?.startsWith("引用"))?.click(); });
     expect(onPluginSelect).toHaveBeenCalledWith("knowledge-base"); expect(onCitationSelect).toHaveBeenCalledTimes(1);
   });
-  it("运行中禁用加号和菜单内操作", async () => {
-    await act(() => root.render(<ComposerOptions disabled modelOptions={["模型A"]} />));
-    const plus = host.querySelector<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'); expect(plus?.disabled).toBe(true); expect(host.querySelector('[role="menu"]')).toBeNull();
+  it("发送后菜单自动收起；运行中仍可按 + 打开查看并收起，设置只读", async () => {
+    const preferences = { openalex: true, crossref: true, web: true };
+    const change = vi.fn();
+    await act(() => root.render(<ComposerOptions key="ready" modelOptions={["模型A"]} externalPermissions={preferences} onExternalPermissionsChange={change} />));
+    await clickLabel("打开插件和引用菜单");
+    expect(host.querySelector('[role="menu"]')).not.toBeNull();
+    await act(() => root.render(<ComposerOptions key="busy" disabled modelOptions={["模型A"]} externalPermissions={preferences} onExternalPermissionsChange={change} />));
+    const plus = host.querySelector<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]')!;
+    expect(plus.disabled).toBe(false); expect(host.querySelector('[role="menu"]')).toBeNull();
+    await clickLabel("打开插件和引用菜单");
+    expect(host.textContent).toContain("设置只读");
+    expect(Array.from(host.querySelectorAll('[role="menu"] button')).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+    expect(Array.from(host.querySelectorAll('[role="menu"] input')).every(input => (input as HTMLInputElement).disabled)).toBe(true);
+    await clickLabel("打开插件和引用菜单");
+    expect(host.querySelector('[role="menu"]')).toBeNull(); expect(change).not.toHaveBeenCalled();
+  });
+  it("本书关联检索须明确打开，生成时保持只读并披露向量查询", async () => {
+    const change = vi.fn();
+    await act(() => root.render(<ComposerOptions bookContextPrefetch={false} onBookContextPrefetchChange={change} />));
+    await clickLabel("打开插件和引用菜单");
+    const checkbox = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(input => input.parentElement?.textContent?.includes("句读前关联本书原文"));
+    expect(checkbox?.checked).toBe(false); expect(host.textContent).toContain("裁剪选文发送至向量服务");
+    await act(async () => checkbox?.click()); expect(change).toHaveBeenCalledWith(true);
+    await act(() => root.render(<ComposerOptions bookContextPrefetch disabled onBookContextPrefetchChange={change} />));
+    expect(Array.from(host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))[0].disabled).toBe(true);
   });
 });

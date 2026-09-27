@@ -1,5 +1,8 @@
 "use client";
 
+import { defaultExternalPreferences, permittedExternalSources, readExternalPreferences, writeExternalPreferences } from "@/lib/agent/external-preferences";
+import { emptyExternalPermissions, readExternalPermissions, type ExternalPermissions } from "@/lib/agent/external-permissions";
+
 import { readRetrievalReport } from "@/lib/retrieval-report";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
@@ -72,6 +75,27 @@ export default function Home() {
   const [mobileTocOpen, setMobileTocOpen] = useState(false);
   const [mobileAnalysisOpen, setMobileAnalysisOpen] = useState(false);
   const [selected, setSelected] = useState("");
+  const [externalPreferences, setExternalPreferences] = useState<ExternalPermissions>(defaultExternalPreferences);
+  const [bookContextPrefetch, setBookContextPrefetch] = useState(false);
+  useEffect(() => {
+    let active = true;
+    // WHY：按书籍版本记住明确授权；异步同步浏览器偏好，避免切书时意外沿用上一本的请求权限。
+    void Promise.resolve().then(() => { if (active) setBookContextPrefetch(Boolean(book.editionId && localStorage.getItem("judu:book-context-prefetch:" + book.editionId) === "1")); });
+    return () => { active = false; };
+  }, [book.editionId]);
+  function changeBookContextPrefetch(enabled: boolean) {
+    if (!book.editionId) return;
+    try { localStorage.setItem("judu:book-context-prefetch:" + book.editionId, enabled ? "1" : "0"); setBookContextPrefetch(enabled); }
+    catch (cause: unknown) { console.error("保存本书关联检索设置失败", cause); setNotice("本书关联检索设置未能保存，请检查浏览器存储。"); }
+  }
+  const [externalAvailability, setExternalAvailability] = useState<ExternalPermissions>(emptyExternalPermissions);
+  const [externalReady, setExternalReady] = useState(false);
+  function changeExternalPreferences(value: ExternalPermissions) {
+    setExternalPreferences(value);
+    try { writeExternalPreferences(localStorage, value); }
+    catch (cause: unknown) { console.error("保存外部资料偏好失败", cause); setNotice("外部资料选择已应用，但无法保存到浏览器，下次刷新可能恢复默认。"); }
+  }
+
   const pendingSourceMessageRef = useRef<string|null>(null);
   const selectionExtensionRef = useRef<{base:ReadingSelection;pending:boolean} | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<ReadingSelection | null>(null);
@@ -367,8 +391,27 @@ export default function Home() {
     finally { activeRequestRef.current = false; requestAbortRef.current = null; setLoading(false); setListRevision(value => value + 1); }
   }
 
+  useEffect(() => {
+    const controller = new AbortController();
+    // WHY：异步确认持久偏好和服务端可用性，在两者就绪前不提交外部检索授权。
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return;
+      try { setExternalPreferences(readExternalPreferences(localStorage)); }
+      catch (cause: unknown) { console.error("读取外部资料偏好失败", cause); setExternalPreferences(emptyExternalPermissions()); setNotice("外部资料偏好已损坏，已暂停外部检索；请在 + 菜单中重新选择。"); }
+      return fetch("/api/external-sources", { signal: controller.signal, cache: "no-store" });
+    })
+      .then(async response => { if (!response || !response.ok) throw new Error("来源状态请求失败"); const body: unknown = await response.json(); if (!body || typeof body !== "object" || !("available" in body)) throw new Error("来源状态格式错误"); return readExternalPermissions(body.available); })
+      .then(value => { if (!controller.signal.aborted) setExternalAvailability(value); })
+      .catch(cause => { if (!controller.signal.aborted) { console.error("读取外部来源状态失败", cause); setNotice("外部来源状态暂不可用，本轮不会向外部发起检索。请刷新重试。"); } })
+      .finally(() => { if (!controller.signal.aborted) setExternalReady(true); });
+    return () => controller.abort();
+  }, []);
+
+
+
   async function ask(question = "请句读这一段", requestedMode: "chat" | "analyze" = "analyze"): Promise<void> {
     if (!question.trim() || loading || bookLoading || importing || conversationPendingRef.current || !currentPage) return;
+    if (!externalReady) { setNotice("正在确认外部资料状态，请稍后发送。"); return; }
     if (requestedMode === "analyze" && !selectionAnchor) { setNotice("请重新选中要句读的原文。"); return; }
     if (requestedMode === "analyze") { const selectionError = readingSelectionError(selected); if (selectionError) { setNotice(selectionError); return; } }
     const paragraph = sourceParagraphs.find(p=>p.id===selectionAnchor?.paragraphId) ?? currentPage.paragraphs[0];
@@ -376,7 +419,7 @@ export default function Home() {
     const detail = localStorage.getItem("judu:readingDetail");
     const savedOutput = Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096);
     const maxOutputTokens = Number.isSafeInteger(savedOutput) && savedOutput >= 1024 && savedOutput <= 16384 ? savedOutput : 4096;
-    const request = createReadingRequest({ model:model.selectedModel, mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, selectionAnchors:selectionAnchor ? selectionAnchors(selectionAnchor) : undefined, context:selectionAnchor ? selectionParts(selectionAnchor).map(part=>sourceParagraphs.find(p=>p.id===part.paragraphId)?.text??"").join("\n\n") : paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), detail: detail === "concise" || detail === "detailed" ? detail : "standard", contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
+    const request = createReadingRequest({ model:model.selectedModel, externalPermissions: permittedExternalSources(externalPreferences, externalAvailability), bookContextPrefetch: requestedMode === "analyze" && Boolean(book.editionId && localStorage.getItem("judu:book-context-prefetch:" + book.editionId) === "1"), mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, selectionAnchors:selectionAnchor ? selectionAnchors(selectionAnchor) : undefined, context:selectionAnchor ? selectionParts(selectionAnchor).map(part=>sourceParagraphs.find(p=>p.id===part.paragraphId)?.text??"").join("\n\n") : paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), detail: detail === "concise" || detail === "detailed" ? detail : "standard", contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
     await runRequest(request);
   }
 
@@ -497,7 +540,7 @@ export default function Home() {
       </div>
       <ChatPanelResizer containerRef={layoutRef} getMaxWidth={getMaxChatWidth} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
       <AnalysisPanel id="chat-panel" className={assistantMobileOpen ? "analysis-panel mobile-open" : "analysis-panel"} selected={selected} analysis={analysis} loading={loading} error={error} messages={messages}
-        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook || importing} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel}
+        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook || importing} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel} externalPermissions={externalPreferences} onExternalPermissionsChange={changeExternalPreferences} bookContextPrefetch={bookContextPrefetch} onBookContextPrefetchChange={book.editionId ? changeBookContextPrefetch : undefined}
         onNewConversation={book.editionId ? newConversation : undefined} onRenameConversation={renameConversation}
         onSelectConversation={id => { if (activeRequestRef.current || conversationPendingRef.current) return; if (!conversations.some(item => item.id === id && item.editionId === book.editionId)) throw new Error("这条会话不属于当前书籍版本"); setSelected(""); setSelectionAnchor(null); selectionExtensionRef.current=null; openConversation(id, null); }}
         onClose={()=>{if(workspaceView==="bookshelf"&&bookshelfAssistant.open)bookshelfAssistant.toggle();else setMobileAnalysisOpen(false);}} onBack={() => navigateWorkspace("reader")} onSend={question => void ask(question, "chat")} onEditMessage={(id, prompt) => void editMessage(id, prompt)} onRetry={() => void retryRequest()} onStop={() => requestAbortRef.current?.abort()} onOpenSource={openKnowledgeSource} onOpenCitation={openCitation} />

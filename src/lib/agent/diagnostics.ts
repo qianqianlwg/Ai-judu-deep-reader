@@ -7,6 +7,17 @@ const MESSAGES = {
   analysis_length_limit: "工具内容超过本次句读字数预算，请删除重复解释和非必要栏目。",
   tool_schema_invalid: "工具参数格式不符，请按所需字段修正后重试。",
   tool_execution_failed: "工具执行发生异常，诊断记录已保留，请重试。",
+  doi_not_found: "Crossref 未收录此 DOI，请核对编号；不能据此断言文献不存在。",
+  rate_limited: "外部来源暂时限流，请稍后重试。",
+  upstream_error: "外部来源暂不可用，未取得可核验证据。",
+  unavailable: "外部来源超时或响应异常，未取得可核验证据。",
+  unsafe_query: "外发查询被隐私校验阻止，请改用简短主题词。",
+  search_limit: "本轮来源查询已达上限。",
+  not_configured: "外部来源未配置，未发起检索。",
+  read_limit: "本轮外部来源阅读达到上限，请缩小范围后重试。",
+  no_open_content: "此条目没有可安全读取的公开正文地址，仅能核对书目。",
+  extract_empty: "未提取到可核读正文，不代表文献不存在或需要付费。",
+  extract_failed: "外部正文提取超时或失败，未取得可核读内容。",
 } as const;
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 export function publicToolFailure(value: unknown): { ok: false; code: string; message: string } | undefined {

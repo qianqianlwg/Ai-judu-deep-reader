@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { externalSources, type ExternalPermissions } from "./external-permissions";
+import { externalSearchSchema, readExternalSchema } from "./external-tool-schemas";
 
 export const searchBookSchema = z.object({
   query: z.string().trim().min(1).max(500).describe("主要检索问题或精确关键词；自然语言适合语义检索"),
@@ -24,4 +26,4 @@ export type AnalysisInput = z.infer<typeof saveAnalysisSchema>;
 export type SearchBookInput = z.infer<typeof searchBookSchema>;
 export type ReadSourceInput = z.infer<typeof readSourceSchema>;
 
-export function readingToolSchemaText(save: boolean): string { return JSON.stringify([searchBookSchema, readSourceSchema, ...(save ? [saveAnalysisSchema] : [])].map(schema=>z.toJSONSchema(schema))); }
+export function readingToolSchemaText(save: boolean, external?: ExternalPermissions): string { return JSON.stringify([searchBookSchema, readSourceSchema, ...(save ? [saveAnalysisSchema] : []), ...externalSources.filter(source => external?.[source]).map(() => externalSearchSchema), ...(external?.web || external?.openalex ? [readExternalSchema] : [])].map(schema=>z.toJSONSchema(schema))); }

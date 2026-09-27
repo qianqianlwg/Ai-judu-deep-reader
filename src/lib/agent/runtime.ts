@@ -5,7 +5,10 @@ import { isRecord, type ChatEvent, type ToolActivity } from "../chat-stream";
 import { accumulateUsage, estimatedUsage, estimateTextTokens, type TokenUsage } from "../token-usage";
 import { createReadingModel } from "./model";
 import { readingToolSchemaText, searchBookSchema } from "./schemas";
+import { externalSearchSchema } from "./external-search";
+import type { createExternalReader } from "./external-reading";
 import { createReadingTools, type ReadingToolDependencies } from "./tools";
+import { createExternalTools, type ExternalPermissions, type createExternalSearch } from "./external-search";
 import { logAgentEvent } from "./logger";
 import { diagnoseToolException } from "./diagnostics";
 import { countReadingCharacters } from "../reading-detail";
@@ -27,6 +30,7 @@ export type ReadingAgentOptions = {
   initialUsage?: TokenUsage;
   maxAnswerCharacters?: number;
   tools: ReadingToolDependencies;
+  external?: { permissions: ExternalPermissions; selectedText: string; search: ReturnType<typeof createExternalSearch>; read?: ReturnType<typeof createExternalReader> };
   emit: (event: ChatEvent) => void;
   audit: (run: ToolRun) => Promise<void>;
 };
@@ -65,8 +69,8 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
     const estimate = estimatedUsage(stepInput, stepOutput, options.contextWindow);
     emit({ type: "usage", usage: { ...estimate, inputTokens: (usage?.inputTokens ?? 0) + estimate.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + estimate.outputTokens, totalTokens: (usage?.totalTokens ?? 0) + estimate.totalTokens } });
   };
-  const tools = [...createReadingTools(options.tools)].filter(tool => options.tools.selectedText.trim() || tool.name !== "save_reading_analysis");
-  const schemaText = readingToolSchemaText(Boolean(options.tools.selectedText.trim()));
+  const tools = [...createReadingTools(options.tools), ...(options.external ? createExternalTools({ ...options.external, signal }) : [])].filter(tool => options.tools.selectedText.trim() || tool.name !== "save_reading_analysis");
+  const schemaText = readingToolSchemaText(Boolean(options.tools.selectedText.trim()), options.external?.permissions);
   const middleware = createMiddleware({
     name: "ReadingToolAudit",
     beforeModel(state) {
@@ -83,7 +87,8 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       lastToolStarted = Math.max(Date.now(), lastToolStarted + 1);
       const startedAt = new Date(lastToolStarted).toISOString();
       const searchInput = name === "search_book" ? searchBookSchema.safeParse(request.toolCall.args) : undefined;
-      emit({ type: "tool", tool: { id, name, status: "running", ...(searchInput?.success ? { result: { queries: [searchInput.data.query, ...searchInput.data.additionalQueries ?? []] } } : {}) } });
+      const externalInput = ["search_openalex", "verify_crossref", "search_web"].includes(name) ? externalSearchSchema.safeParse(request.toolCall.args) : undefined;
+      emit({ type: "tool", tool: { id, name, status: "running", ...(searchInput?.success ? { result: { queries: [searchInput.data.query, ...searchInput.data.additionalQueries ?? []] } } : externalInput?.success ? { result: { query: externalInput.data.query } } : {}) } });
       logAgentEvent("info", "tool_started", { id, name, inputKeys: isRecord(request.toolCall.args) ? Object.keys(request.toolCall.args) : [] });
       let result;
       try { result = await handler(request); }

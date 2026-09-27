@@ -16,3 +16,6 @@
 .notice { margin: 0; color: var(--reading-accent); font-size: 10px; line-height: 1.5; }
 
 .root{display:flex;align-items:center;gap:6px}.root>.field{margin:0;font-size:11px;min-width:0}.root>.field select{max-width:160px;font-size:11px;padding:3px 6px;}
+
+.prefetch { display: grid; grid-template-columns: auto 1fr; column-gap: 7px; align-items: center; font-size: 12px; cursor: pointer; }
+.prefetch small { grid-column: 2; color: var(--reading-muted); font-size: 10px; line-height: 1.4; }

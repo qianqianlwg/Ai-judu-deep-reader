@@ -14,6 +14,8 @@ import { RetrievalActivity } from "./retrieval-activity";
 import { MessageActions } from "./message-actions";
 import { SpeechButton } from "./speech-controls";
 import { ComposerOptions, type ReasoningEffort } from "./composer-options";
+import type { ExternalPermissions } from "@/lib/agent/external-permissions";
+import { ExternalResearchActivity } from "./external-research-activity";
 
 export type { Analysis, ChatMessage } from "@/lib/chat-stream";
 export type PanelMessage = ChatMessage;
@@ -26,6 +28,8 @@ type Props = {
   modelOptions?: readonly string[]; selectedModel?: string; reasoningEffort?: ReasoningEffort;
   onModelChange?: (model: string) => void; onReasoningChange?: (effort: ReasoningEffort) => void;
   onPluginSelect?: (pluginId: "knowledge-base") => void; onCitationSelect?: () => void;
+  bookContextPrefetch?: boolean; onBookContextPrefetchChange?: (value: boolean) => void;
+  externalPermissions?: ExternalPermissions; onExternalPermissionsChange?: (value: ExternalPermissions) => void;
   conversations?: ConversationSummary[]; activeThreadId?: string | null; editionId?: string;
   conversationsLoading?: boolean; conversationError?: string;
   onNewConversation?: ConversationControlsProps["onNewConversation"];
@@ -87,11 +91,11 @@ function ToolActivityResult({ tool, messageId, onOpenCitation, historical = fals
     {/* WHY：上下文整理是内部进度，不把记忆快照或工具参数作为聊天正文、JSON 卡片公开。 */}
     {typeof tool.result === "string" ? tool.result : tool.status === "running" ? "正在整理阅读记忆…" : tool.status === "error" ? "阅读记忆整理未完成，可以重试。" : "阅读记忆整理完成。"}
   </p>;
-  if (tool.name === "search_book" || tool.name === "read_source") {
+  if (tool.name === "search_book" || tool.name === "read_source" || tool.name === "prefetch_book_context") {
     const sources = Array.isArray(result?.sources) ? result.sources.filter((source): source is { sourceId: string; paragraphId: string; chapterTitle?: string; text: string } => isRecord(source) && typeof source.sourceId === "string" && typeof source.paragraphId === "string" && typeof source.text === "string" && source.text.length > 0) : [];
     if (!sources.length) return <p>{errorText ?? (tool.status === "running" ? "正在检索本书…" : "本次没有返回可展示的原文出处。")}</p>;
     return <div className={styles.toolSources}>
-      <p>{tool.name === "search_book" ? "检索到" : "读取到"} {sources.length} 段原文{result?.displayLimited === true ? "（历史摘录已限制长度）" : ""}</p>
+      <p>{tool.name === "read_source" ? "读取到" : "检索到"} {sources.length} 段原文{result?.displayLimited === true ? "（历史摘录已限制长度）" : ""}</p>
       {sources.map((source, index) => <div className={styles.toolSource} data-source-id={source.sourceId} key={source.sourceId + "-" + index}>
         <div className={styles.toolSourceTitle}>{typeof source.chapterTitle === "string" ? source.chapterTitle : "原文出处"}</div>
         <details><summary className={styles.toolSourcePreview}>{source.text.slice(0, 160)}{source.text.length > 160 ? "…" : ""}</summary><blockquote>{source.text}</blockquote></details>
@@ -104,10 +108,10 @@ function ToolActivityResult({ tool, messageId, onOpenCitation, historical = fals
   </p>;
   return tool.result === undefined ? <p>{tool.status === "running" ? "等待工具返回结果…" : "工具没有返回展示结果。"}</p> : <pre className={styles.toolOutput}>{toolResultText(tool.result)}</pre>;
 }
-const TOOL_LABELS: Record<string, string> = { search_book: "本书检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
+const TOOL_LABELS: Record<string, string> = { search_book: "本书检索", prefetch_book_context: "本书关联检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
 function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds, includeExtras = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean; toolIds?: readonly string[]; includeExtras?: boolean }) {
   const analysis = includeAnalysis && isAnalysis(message.analysis) ? message.analysis : undefined;
-  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && (toolIds === undefined || toolIds.includes(tool.id)) && tool.name !== "search_book" && tool.name !== "read_source" && ["running", "completed", "error"].includes(String(tool.status))) : [];
+  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && (toolIds === undefined || toolIds.includes(tool.id)) && tool.name !== "search_book" && tool.name !== "read_source" && !["search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name) && ["running", "completed", "error"].includes(String(tool.status))) : [];
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((warning): warning is string => typeof warning === "string") : [];
   return <>
     {analysis && <details className={styles.toolRecord} data-testid="analysis-record"><summary>句读记录 <span>工具结果</span></summary>
@@ -190,7 +194,7 @@ function UsageFooter({ modelName, usage }: { modelName?: string; usage?: TokenUs
   </div>;
 }
 
-export function AnalysisPanel({ id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect }: Props) {
+export function AnalysisPanel({ id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch, onBookContextPrefetchChange }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const generating = loading || messages.some((message) => message.status === "streaming");
   const interactionLocked = generating || conversationsLoading;
@@ -214,7 +218,7 @@ export function AnalysisPanel({ id, className = "analysis-panel", selected, anal
             const anchor = messageAnchor(message);
             return <article data-message-id={message.id} className={"chat-message " + message.role + " " + styles.messageGroup} key={message.id ?? message.role + "-" + index}>
               <div className="message-role">{message.role === "user" ? "你" : "句读"}</div>
-              {message.role === "user" ? <><ReadableText content={message.content} /><MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage} /></> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><AssistantMessage message={message} onOpenCitation={onOpenCitation} /></>}
+              {message.role === "user" ? <><ReadableText content={message.content} /><MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage} /></> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><ExternalResearchActivity message={message} /><AssistantMessage message={message} onOpenCitation={onOpenCitation} /></>}
               {anchor && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
             </article>;
           })}
@@ -236,7 +240,7 @@ export function AnalysisPanel({ id, className = "analysis-panel", selected, anal
       <textarea className={styles.composerInput} key={activeThreadId ?? editionId ?? "unbound"} ref={textareaRef} disabled={interactionLocked} onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
       }} placeholder="继续追问…" aria-label="继续追问" />
-      <div className={styles.composerFooter}><div className={styles.composerFooterStart}><ComposerOptions disabled={interactionLocked} modelName={modelName} modelOptions={modelOptions} selectedModel={selectedModel} reasoningEffort={reasoningEffort} onModelChange={onModelChange} onReasoningChange={onReasoningChange} onPluginSelect={onPluginSelect} onCitationSelect={onCitationSelect} /><button type="button" className={styles.backButton} onClick={onBack}>回到原文</button></div><button type="button" className={styles.sendButton + (generating ? " " + styles.stopButton : "")} disabled={generating ? !onStop : interactionLocked || !onSend} onClick={() => { if (generating) onStop?.(); else submit(); }} aria-label={generating ? "停止生成" : "发送追问"} title={generating ? "停止生成，保留已收到的内容" : "发送追问"}><span aria-hidden="true">{generating ? "■" : "↑"}</span></button></div>
+      <div className={styles.composerFooter}><div className={styles.composerFooterStart}><ComposerOptions key={interactionLocked ? "busy" : "ready"} disabled={interactionLocked} modelName={modelName} modelOptions={modelOptions} selectedModel={selectedModel} reasoningEffort={reasoningEffort} onModelChange={onModelChange} onReasoningChange={onReasoningChange} onPluginSelect={onPluginSelect} onCitationSelect={onCitationSelect} externalPermissions={externalPermissions} onExternalPermissionsChange={onExternalPermissionsChange} bookContextPrefetch={bookContextPrefetch} onBookContextPrefetchChange={onBookContextPrefetchChange} /><button type="button" className={styles.backButton} onClick={onBack}>回到原文</button></div><button type="button" className={styles.sendButton + (generating ? " " + styles.stopButton : "")} disabled={generating ? !onStop : interactionLocked || !onSend} onClick={() => { if (generating) onStop?.(); else submit(); }} aria-label={generating ? "停止生成" : "发送追问"} title={generating ? "停止生成，保留已收到的内容" : "发送追问"}><span aria-hidden="true">{generating ? "■" : "↑"}</span></button></div>
     </div>
   </aside>;
 }
