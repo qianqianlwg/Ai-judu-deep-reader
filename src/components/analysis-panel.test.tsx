@@ -58,7 +58,7 @@ describe("AnalysisPanel 消息、选文与失败状态", () => {
     expect(message("a1").textContent).not.toContain('"summary"');
     expect(message("a1").querySelector('[data-streaming-format="friendly-preview"]')).not.toBeNull();
     expect(message("a2").textContent).toContain("自然追问回答");
-    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
     expect(container.querySelector('[role="status"]')?.textContent).toContain("正在生成");
   });
   it("用户每条消息携带各自折叠选文，不使用当前 selected 冒充历史原文", async () => {
@@ -443,7 +443,7 @@ describe("局部输入区视觉结构与交互回归", () => {
   it("流式消息仍展示停止按钮，读取会话时禁用输入与发送", async () => {
     const onStop = vi.fn();
     await render({ onSend: vi.fn(), onStop, messages: [{ id: "stream", role: "assistant", content: "回答中", status: "streaming" }] });
-    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
     expect(labelledButton("停止生成").classList.contains(styles.sendButton)).toBe(true);
     await click(labelledButton("停止生成"));
     expect(onStop).toHaveBeenCalledOnce();

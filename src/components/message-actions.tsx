@@ -78,7 +78,8 @@ export function MessageActions({ message, editingDisabled = false, onEditMessage
   if (!message.content && !message.analysis) return null;
   return <div className={styles.actions}>
     <button type="button" aria-label="复制回答" onClick={() => { setFeedback(""); void copyText(readableAssistantText(message)).then(() => setFeedback("已复制")).catch(error => setFeedback(error instanceof Error ? error.message : "复制失败，请重试")); }}>复制</button>
-    <SpeechButton text={speechPlainText(readableAssistantText(message))} label="AI回答" disabled={message.status === "streaming"} />
+    {/* WHY：朗读消费点击时已收到的文字快照，不等待或改写当前生成流。 */}
+    <SpeechButton text={speechPlainText(readableAssistantText(message))} label="AI回答" />
     {feedback && <span className={styles.feedback} role="status">{feedback}</span>}
   </div>;
 }

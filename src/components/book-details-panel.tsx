@@ -10,13 +10,13 @@ import "./book-details-panel.css";
 export type BookDetailsSection = "overview" | "files" | "manage";
 export type BookDetailsPanelProps = {
   book: WorkspaceBook; initialSection?: BookDetailsSection; resumeEdition?: string; location?: string;
-  currentBookId: string; currentEditionId?: string; coverRevision?: number; busy?: boolean;
+  currentBookId: string; currentEditionId?: string; coverRevision?: number; busy?: boolean; navigationDisabled?: boolean;
   onClose: () => void; onOpen: (id: string, editionId?: string) => void;
   onUpdated: () => void; onArchived: () => void; onRetryCover: () => void;
 };
 const sections = [["overview", "概览"], ["files", "文件与版本"], ["manage", "管理"]] as const;
 export function BookDetailsPanel({book, initialSection = "overview", resumeEdition, location, currentBookId, currentEditionId,
-  coverRevision = 0, busy, onClose, onOpen, onUpdated, onArchived, onRetryCover}: BookDetailsPanelProps) {
+  coverRevision = 0, busy, navigationDisabled = false, onClose, onOpen, onUpdated, onArchived, onRetryCover}: BookDetailsPanelProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const backdropPressed = useRef(false);
   const [section, setSection] = useState<BookDetailsSection>(initialSection);
@@ -78,7 +78,7 @@ export function BookDetailsPanel({book, initialSection = "overview", resumeEditi
           <strong>{edition.fileName || "文件名未记录"}</strong>
           <time dateTime={edition.createdAt}>导入于 {editionImportTime(edition.createdAt)}</time>
           {edition.fileSize !== undefined && <span className="book-details-file-size">{new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 1}).format(edition.fileSize / 1024 / 1024)} MB</span>}
-          <button type="button" data-edition-id={edition.id} disabled={busy} aria-label={editionActionLabel(book, edition)}
+          <button type="button" data-edition-id={edition.id} disabled={busy || navigationDisabled} aria-label={editionActionLabel(book, edition)}
             aria-current={book.id === currentBookId && edition.id === currentEditionId ? "true" : undefined} onClick={() => onOpen(book.id, edition.id)}>阅读此版本 <span aria-hidden="true">↗</span></button>
         </article>)}</div>
         <details className="book-details-technical"><summary>技术信息</summary><dl><dt>书籍 ID</dt><dd>{book.id}</dd>
@@ -96,6 +96,6 @@ export function BookDetailsPanel({book, initialSection = "overview", resumeEditi
         </div>
       </section>
     </div>
-    <footer className="book-details-footer"><button type="button" disabled={busy} onClick={() => resumeEdition ? onOpen(book.id, resumeEdition) : onOpen(book.id)}>{canResume ? "继续阅读" : "开始阅读"}<span aria-hidden="true">↗</span></button></footer>
+    <footer className="book-details-footer"><button type="button" disabled={busy || navigationDisabled} onClick={() => resumeEdition ? onOpen(book.id, resumeEdition) : onOpen(book.id)}>{canResume ? "继续阅读" : "开始阅读"}<span aria-hidden="true">↗</span></button></footer>
   </dialog>;
 }

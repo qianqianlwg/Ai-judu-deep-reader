@@ -21,6 +21,7 @@ export type WorkspaceNavProps = {
   onOpenChapter: (id: string) => void;
   onImport: () => void;
   busy?: boolean;
+  importDisabled?: boolean;
   importing?: boolean;
   mobileOpen?: boolean;
   onDismiss?: () => void;
@@ -36,7 +37,7 @@ function Icon({ name }: { name: WorkspaceView | "import" | "settings" }) {
   };
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
-export function WorkspaceNav({ collapsed=false, onToggleCollapse, view, onNavigate, chapters, currentChapterId, onOpenChapter, onImport, busy, importing, mobileOpen, onDismiss, children }: WorkspaceNavProps) {
+export function WorkspaceNav({ collapsed=false, onToggleCollapse, view, onNavigate, chapters, currentChapterId, onOpenChapter, onImport, busy, importDisabled = busy, importing, mobileOpen, onDismiss, children }: WorkspaceNavProps) {
   const [tocOpen, setTocOpen] = useState(true);
   const navigate = (next: WorkspaceView) => { onNavigate(next); onDismiss?.(); };
   return <aside className={"workspace-nav toc-panel" + (mobileOpen ? " mobile-open" : "")} aria-label="工作台导航">
@@ -46,7 +47,7 @@ export function WorkspaceNav({ collapsed=false, onToggleCollapse, view, onNaviga
       {([ ["reader", "阅读"], ["bookshelf", "书架"], ["knowledge", "知识库"] ] as const).map(([id, label]) => <button type="button" key={id}
         aria-current={view === id ? "page" : undefined} className={"workspace-nav-item" + (view === id ? " active" : "")}
         onClick={() => navigate(id)}><Icon name={id} /><span>{label}</span></button>)}
-      <button type="button" className="workspace-nav-item workspace-import-nav" disabled={busy || importing} onClick={() => { onNavigate("bookshelf"); onImport(); }}><Icon name="import" /><span>{importing ? "正在导入…" : "导入书籍"}</span></button>
+      <button type="button" className="workspace-nav-item workspace-import-nav" disabled={importDisabled || importing} onClick={() => { onNavigate("bookshelf"); onImport(); }}><Icon name="import" /><span>{importing ? "正在导入…" : "导入书籍"}</span></button>
     </nav>
     <div className="workspace-nav-scroll">
       {/* WHY：选书与版本管理统一留在书架，侧栏不再重复书籍树；阅读目录保持原行为。 */}

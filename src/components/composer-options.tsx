@@ -6,6 +6,7 @@ import styles from "./composer-options.module.css";
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type ComposerOptionsProps = {
   disabled?: boolean;
+  generating?: boolean;
   modelName?: string;
   modelOptions?: readonly string[];
   selectedModel?: string;
@@ -20,7 +21,7 @@ const REASONING_OPTIONS: readonly { value: ReasoningEffort; label: string }[] = 
   { value: "medium", label: "中" }, { value: "high", label: "高" }, { value: "xhigh", label: "极高" },
   { value: "max", label: "最大" }, { value: "ultra", label: "Ultra" },
 ];
-export function ComposerOptions({ disabled = false, modelName, modelOptions = [], selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect }: ComposerOptionsProps) {
+export function ComposerOptions({ disabled = false, generating = false, modelName, modelOptions = [], selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect }: ComposerOptionsProps) {
   const [open, setOpen] = useState(false);
   const [localModel, setLocalModel] = useState(selectedModel ?? modelName ?? "");
   const [localReasoning, setLocalReasoning] = useState<ReasoningEffort>(reasoningEffort ?? "medium");
@@ -39,7 +40,7 @@ export function ComposerOptions({ disabled = false, modelName, modelOptions = []
     <button type="button" className={styles.plus} aria-label="打开插件和引用菜单" aria-expanded={open} disabled={disabled} onClick={() => { setOpen(value => !value); setNotice(""); }}>+</button>
     {open && <div className={styles.menu} role="menu" aria-label="聊天选项">
       <div className={styles.section}>
-        <span className={styles.sectionTitle}>添加到本次对话</span>
+        <span className={styles.sectionTitle}>{disabled ? "正在加载 · 设置暂不可用" : generating ? "生成中 · 设置调整仅对下一轮生效" : "添加到本次对话"}</span>
         <button type="button" className={styles.option} role="menuitem" disabled={disabled} onClick={choosePlugin}>插件 <small>知识库 · 未接通</small></button>
         <button type="button" className={styles.option} role="menuitem" disabled={disabled} onClick={chooseCitation}>引用 <small>文献引用 · 未接通</small></button>
       </div>

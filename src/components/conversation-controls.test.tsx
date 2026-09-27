@@ -95,3 +95,20 @@ describe("ConversationControls 受控多会话交互", () => {
     expect(container.textContent).not.toContain("删除");
   });
 });
+
+it("生成期间可搜索历史和重命名，但不能实际切换或新建会话", async () => {
+  const rename = vi.fn(), select = vi.fn(), create = vi.fn();
+  await render({ switchingDisabled: true, onRenameConversation: rename, onSelectConversation: select, onNewConversation: create });
+  expect(byLabel("切换会话").disabled).toBe(false);
+  expect(byLabel("新建会话").disabled).toBe(true);
+  await click(byLabel("切换会话"));
+  const search = container.querySelector<HTMLInputElement>('[aria-label="搜索会话"]')!;
+  expect(search.disabled).toBe(false);
+  expect([...container.querySelectorAll<HTMLButtonElement>("li button")].every(button => button.disabled)).toBe(true);
+  await click(byText("重命名当前会话")!);
+  const name = container.querySelector<HTMLInputElement>('[aria-label="会话名称"]')!;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(name, "新标题"); name.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(byText("保存")!);
+  expect(rename).toHaveBeenCalledWith("t1", "新标题");
+  expect(select).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled();
+});

@@ -74,3 +74,12 @@ it("关闭选文菜单后仍可在底部控制，切换到 AI 回答始终只有
   expect(host.querySelectorAll('[aria-label="语音朗读控制"]')).toHaveLength(1);
   expect(host.querySelector('[aria-label="语音朗读控制"]')?.textContent).toContain("AI回答");
 });
+
+it("流式回答可以朗读已收到文字，后续增量不改变已发出的语音请求", async () => {
+  await act(async () => root.render(<SpeechProvider><MessageActions message={{ role: "assistant", content: "已收到的第一段。", status: "streaming" }} /></SpeechProvider>));
+  const read = host.querySelector<HTMLButtonElement>('[aria-label="朗读AI回答"]')!; expect(read.disabled).toBe(false);
+  await act(async () => read.click());
+  expect(fetcher.mock.calls.find(call => call[0] === "/api/speech")?.[1]?.body).toBe(JSON.stringify({ text: "已收到的第一段。" }));
+  await act(async () => root.render(<SpeechProvider><MessageActions message={{ role: "assistant", content: "已收到的第一段。第二段也到了。", status: "streaming" }} /></SpeechProvider>));
+  expect(fetcher.mock.calls.filter(call => call[0] === "/api/speech")).toHaveLength(1);
+});

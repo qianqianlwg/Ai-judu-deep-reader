@@ -362,7 +362,7 @@ describe("多会话页面隔离", () => {
     expect(pendingStreams[0].payload.chatHistory).toEqual([]); expect(pendingStreams[0].payload.selectedText).toBe("");
     expect(host.querySelector('[data-message-id="assistant-A"]')).toBeNull();
     expect(element<HTMLButtonElement>('[aria-label="新建会话"]').disabled).toBe(true);
-    expect(element<HTMLButtonElement>('[aria-label="切换会话"]').disabled).toBe(true);
+    expect(element<HTMLButtonElement>('[aria-label="切换会话"]').disabled).toBe(false);
     const count = fetcher.mock.calls.filter(([, init]) => init?.method === "POST").length;
     await click(element('[aria-label="新建会话"]'));
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST").length).toBe(count);
@@ -506,4 +506,31 @@ it('主阅读器导入超300MB文件即时提示，不请求上传接口',async(
 
 it("书架默认隐藏助手不卸载聊天，手动展开和返回阅读不清会话",async()=>{
  await loadA();const chat=element(".chat-messages");await click(button("书架"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("true");expect(element(".chat-messages")).toBe(chat);await click(button("展开助手"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("false");await click(button("收起助手"));await click(button("阅读"));expect(element(".reader-layout").getAttribute("data-bookshelf-assistant-hidden")).toBe("false");expect(element(".chat-messages")).toBe(chat);
+});
+
+
+it("生成中可再次选文和标注，当前请求保持选文快照", async () => {
+  await loadA(); await selectOriginal(); await click(button("句读一下"));
+  const first = pendingStreams[0]; const selectedText = first.payload.selectedText;
+  await selectOriginal();
+  expect(element<HTMLButtonElement>('[aria-label="黄色标亮"]').disabled).toBe(false);
+  expect(button("添加笔记").disabled).toBe(false);
+  expect(button("收藏").disabled).toBe(false);
+  expect(button("继续选取").disabled).toBe(false);
+  expect(button("句读一下").disabled).toBe(true);
+  await click(element('[aria-label="黄色标亮"]'));
+  expect(fetcher.mock.calls.some(([input, init]) => endpoint(input).pathname === "/api/reading-marks" && init?.method === "POST")).toBe(true);
+  expect(pendingStreams).toHaveLength(1); expect(first.closed).toBe(false);
+  expect(first.payload.selectedText).toBe(selectedText); await complete(first);
+});
+
+it("生成中导入只加入书库，不切换当前书籍或结束生成", async () => {
+  await loadA(); await selectOriginal(); await click(button("句读一下"));
+  const first = pendingStreams[0]; const input = element<HTMLInputElement>("#book-file");
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["正文"], "导入.txt")] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle();
+  expect(callCount("/api/import")).toBe(1); expect(callCount("/api/books/C")).toBe(0);
+  expect(element('[data-paragraph-id="paragraph-A"]')).toBeTruthy();
+  expect(host.textContent).toContain("未切换阅读书籍");
+  expect(first.closed).toBe(false); expect(pendingStreams).toHaveLength(1); await complete(first);
 });

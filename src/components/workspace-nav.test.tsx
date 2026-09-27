@@ -37,3 +37,11 @@ describe("WorkspaceNav", () => {
     expect(host.querySelector(".toc-item") !== null).toBe(view === "reader");
   });
 });
+
+it("生成中的导航提示不锁住独立导入入口", async () => {
+  const imported = vi.fn();
+  await render({ busy: true, importDisabled: false, onImport: imported });
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "导入书籍")!;
+  expect(button.disabled).toBe(false);
+  act(() => button.click()); expect(imported).toHaveBeenCalledOnce();
+});

@@ -35,3 +35,14 @@ describe("聊天输入框选项", () => {
     const plus = host.querySelector<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'); expect(plus?.disabled).toBe(true); expect(host.querySelector('[role="menu"]')).toBeNull();
   });
 });
+
+
+it("生成中可以调整下一轮模型，提示设置不影响当前轮", async () => {
+  const onModelChange = vi.fn();
+  await act(async () => root.render(<ComposerOptions generating modelOptions={["模型A", "模型B"]} selectedModel="模型A" onModelChange={onModelChange} />));
+  await clickLabel("打开插件和引用菜单"); expect(host.textContent).toContain("下一轮生效");
+  const select = host.querySelector<HTMLSelectElement>('[aria-label="选择模型"]')!;
+  expect(select.disabled).toBe(false);
+  await act(async () => { select.value = "模型B"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(onModelChange).toHaveBeenCalledWith("模型B");
+});

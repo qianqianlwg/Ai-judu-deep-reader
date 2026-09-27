@@ -315,7 +315,7 @@ export default function Home() {
     const file = input.files?.[0];
     if (!file) return;
     const sizeError=importFileSizeError(file.size);if(sizeError){setNotice(sizeError);input.value="";return;}
-    if (activeRequestRef.current || conversationPendingRef.current || importing) { setNotice("请等待当前任务完成后再导入书籍。"); input.value = ""; return; }
+    if (importing) { setNotice("上一本书仍在导入，请稍后再选择文件。"); input.value = ""; return; }
     setImporting(true); setNotice("正在解析书籍…");
     try {
       const form = new FormData(); form.append("file", file);
@@ -328,8 +328,11 @@ export default function Home() {
       if (!data || !Array.isArray(data.chapters)) throw new Error("导入结果无效，请重试");
       const imported = readBookResponse(data, data.id, data.editionId);
       setBooks((previous) => [imported, ...previous.filter((item) => item.id !== imported.id)]);
-      await loadBook(imported.id, imported.editionId, false, imported);
-      setNotice("书籍已导入");
+      // WHY：导入只写书库；生成期间不自动切书或清理正在使用的请求、会话和选文。
+      if (!activeRequestRef.current && !conversationPendingRef.current) {
+        await loadBook(imported.id, imported.editionId, false, imported);
+        setNotice("书籍已导入");
+      } else setNotice("书籍已导入书架；当前回答继续生成，未切换阅读书籍。");
     } catch (importError: unknown) {
       console.error("导入书籍失败", importError);
       setNotice(importError instanceof Error ? importError.message : "导入失败");
@@ -377,6 +380,8 @@ export default function Home() {
     const savedOutput = Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096);
     const maxOutputTokens = Number.isSafeInteger(savedOutput) && savedOutput >= 1024 && savedOutput <= 16384 ? savedOutput : 4096;
     const request = createReadingRequest({ model:model.selectedModel, mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, selectionAnchors:selectionAnchor ? selectionAnchors(selectionAnchor) : undefined, context:selectionAnchor ? selectionParts(selectionAnchor).map(part=>sourceParagraphs.find(p=>p.id===part.paragraphId)?.text??"").join("\n\n") : paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), detail: detail === "concise" || detail === "detailed" ? detail : "standard", contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
+    // WHY：请求已保存选文快照；释放浏览器旧选区，后续拖选不改当前请求。
+    window.getSelection()?.removeAllRanges(); clearSelection();
     await runRequest(request);
   }
 
@@ -431,7 +436,7 @@ export default function Home() {
     finally { if (!loadingCreatedHistory) { conversationPendingRef.current = false; setConversationLoading(false); } }
   }
   async function renameConversation(id: string, title: string): Promise<void> {
-    if (activeRequestRef.current || conversationPendingRef.current || bookLoading || !book.editionId) return;
+    if (conversationPendingRef.current || bookLoading || !book.editionId) return;
     const renamed = await conversationClient.rename(id, book.editionId, title);
     setConversations(previous => previous.map(item => item.id === renamed.id ? renamed : item));
   }
@@ -471,7 +476,7 @@ export default function Home() {
     {navigation.error && <p role="status">{navigation.error}</p>}
     <section data-bookshelf-assistant-hidden={workspaceView === "bookshelf" && !bookshelfAssistant.open} data-nav-collapsed={navigation.collapsed} className="reader-layout" ref={layoutRef} style={{"--chat-panel-width":`${chatWidth}px`} as CSSProperties}>
       <WorkspaceNav collapsed={navigation.collapsed} onToggleCollapse={navigation.toggle} view={workspaceView} onNavigate={navigateWorkspace} books={shelfBooks} currentBookId={book.id} currentEditionId={book.editionId} chapters={book.chapters} currentChapterId={imageChapters.chapter?.id??currentPage?.chapterId}
-        busy={loading || conversationLoading || importing} importing={importing} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onOpenChapter={openChapter} onImport={requestImport} mobileOpen={mobileTocOpen} onDismiss={() => setMobileTocOpen(false)}>
+        busy={loading || conversationLoading || importing} importDisabled={bookLoading || restoringBook || conversationLoading} importing={importing} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onOpenChapter={openChapter} onImport={requestImport} mobileOpen={mobileTocOpen} onDismiss={() => setMobileTocOpen(false)}>
         <BookSearchPanel editionId={book.editionId} query={searchQuery} onQuery={setSearchQuery} retrieval={searchRetrieval} onRetrieval={setSearchRetrieval} status={searchStatus} results={searchResults} onSearch={()=>void searchBook()} onReady={()=>setIndexRevision(value=>value+1)} onResult={jumpToResult}/>
       </WorkspaceNav>
       <div className="workspace-main" data-workspace-view={workspaceView}>
@@ -485,19 +490,19 @@ export default function Home() {
           </div>
           {(paginating || paginationError) && <div className="reader-paginating" role="status">{paginationError || "正在按阅读区域重新排版…"}</div>}
         </div>
-        {readerMode.original && <EpubReader key={book.editionId} imageChapterRequest={imageChapters.request} onImagePage={imageChapters.onPage} book={book} anchor={readingAnchor} appearance={readingAppearance} annotations={readerAnnotations} concepts={showConcepts ? visibleConcepts : []} disabled={loading || bookLoading || restoringBook || importing || conversationLoading} navigationDisabled={bookLoading || restoringBook || importing || conversationLoading} onSelect={(selection, box) => { retainSelection(selection); setSelectionMenu(box); }} onStartSelection={startSelection} onClearSelection={clearSelection} onOpenAnnotation={openAnnotation} onPosition={setReadingAnchor} onNotice={setNotice} onFallback={() => switchReaderMode("text")} />}
-          {selectionMenu && selectionAnchor && <SelectionActions selectedText={selected} paragraphCount={selectionParts(selectionAnchor).length} onExtend={()=>{selectionExtensionRef.current={base:selectionAnchor,pending:true};setSelectionMenu(null);setNotice("请翻到相邻页继续选择连续正文，合计最多 1000 字。");}} left={selectionMenu.left} top={selectionMenu.top} disabled={loading || bookLoading || restoringBook || importing || conversationLoading || (!readerMode.original && paginating)} analyzeDisabled={Boolean(readingSelectionError(selected))} reason={readingSelectionError(selected) ?? undefined} onClose={() => setSelectionMenu(null)} onAnalyze={() => { setSelectionMenu(null); void ask(); }} onHighlight={color => void saveManualMark("highlight", "", color)} onFavorite={() => void saveManualMark("favorite")} onNote={(note) => void saveManualMark("note", note)} />}
+        {readerMode.original && <EpubReader key={book.editionId} imageChapterRequest={imageChapters.request} onImagePage={imageChapters.onPage} book={book} anchor={readingAnchor} appearance={readingAppearance} annotations={readerAnnotations} concepts={showConcepts ? visibleConcepts : []} disabled={bookLoading || restoringBook || conversationLoading} navigationDisabled={bookLoading || restoringBook || conversationLoading} onSelect={(selection, box) => { retainSelection(selection); setSelectionMenu(box); }} onStartSelection={startSelection} onClearSelection={clearSelection} onOpenAnnotation={openAnnotation} onPosition={setReadingAnchor} onNotice={setNotice} onFallback={() => switchReaderMode("text")} />}
+          {selectionMenu && selectionAnchor && <SelectionActions selectedText={selected} paragraphCount={selectionParts(selectionAnchor).length} onExtend={()=>{selectionExtensionRef.current={base:selectionAnchor,pending:true};setSelectionMenu(null);setNotice("请翻到相邻页继续选择连续正文，合计最多 1000 字。");}} left={selectionMenu.left} top={selectionMenu.top} disabled={bookLoading || restoringBook || conversationLoading || (!readerMode.original && paginating)} analyzeDisabled={loading || importing || Boolean(readingSelectionError(selected))} reason={loading ? "正在生成，可继续选文、标注和朗读；下一轮句读需等待完成。" : readingSelectionError(selected) ?? undefined} onClose={() => setSelectionMenu(null)} onAnalyze={() => { setSelectionMenu(null); void ask(); }} onHighlight={color => void saveManualMark("highlight", "", color)} onFavorite={() => void saveManualMark("favorite")} onNote={(note) => void saveManualMark("note", note)} />}
         </div>
         <div className="selection-bar"><div className="reading-settings" aria-label="阅读设置"><span>Aa</span><button aria-label="缩小字号" onClick={() => setReaderScale(-0.05)}>−</button><button aria-label="放大字号" onClick={() => setReaderScale(0.05)}>+</button></div><div className="selection-actions">{selected ? <span>已选 {countReadingCharacters(selected)} / 1000 字</span> : <span>{imageChapters.imageOnly?"图片页无文字来源，OCR尚未启用":"选择一句或一段原文开始句读"}</span>}</div></div>
         <div className="page-nav" style={readerMode.original ? {display:"none"} : undefined}><button disabled={paginating || safePageIndex === 0} onClick={() => setPageIndex(safePageIndex - 1)}>上一页</button><span>{pages.length ? safePageIndex + 1 : 0} / {pages.length}</span><button disabled={paginating || safePageIndex >= pages.length - 1} onClick={() => setPageIndex(safePageIndex + 1)}>下一页</button></div>
       </article>
       <SpeechPlaybackBar/>
-        {workspaceView === "bookshelf" && <Bookshelf assistantOpen={bookshelfAssistant.open} onToggleAssistant={bookshelfAssistant.toggle} preferenceError={bookshelfAssistant.error} books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={loading || conversationLoading || importing} error={libraryError} onBookArchived={id=>{setBooks(items=>items.filter(item=>item.id!==id));setNotice("书籍已下架，文件和阅读记录已保留，可在已下架书籍中恢复。");}} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
+        {workspaceView === "bookshelf" && <Bookshelf assistantOpen={bookshelfAssistant.open} onToggleAssistant={bookshelfAssistant.toggle} preferenceError={bookshelfAssistant.error} books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={conversationLoading || restoringBook} navigationDisabled={loading} error={libraryError} onBookArchived={id=>{setBooks(items=>items.filter(item=>item.id!==id));setNotice("书籍已下架，文件和阅读记录已保留，可在已下架书籍中恢复。");}} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
         {workspaceView === "knowledge" && <KnowledgeWorkspace editionId={book.editionId ?? null} bookTitle={book.title + (book.edition ? " · " + book.edition.fileName : "")} refreshToken={knowledgeRevision} onRefreshRequested={() => setKnowledgeRevision(value => value + 1)} onReturnReading={() => navigateWorkspace("reader")} onOpenSource={openKnowledgeSource} onOpenMark={openKnowledgeSource} onOpenConversation={openConversation} />}
       </div>
       <ChatPanelResizer containerRef={layoutRef} getMaxWidth={getMaxChatWidth} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
       <AnalysisPanel id="chat-panel" className={assistantMobileOpen ? "analysis-panel mobile-open" : "analysis-panel"} selected={selected} analysis={analysis} loading={loading} error={error} messages={messages}
-        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook || importing} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel}
+        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel}
         onNewConversation={book.editionId ? newConversation : undefined} onRenameConversation={renameConversation}
         onSelectConversation={id => { if (activeRequestRef.current || conversationPendingRef.current) return; if (!conversations.some(item => item.id === id && item.editionId === book.editionId)) throw new Error("这条会话不属于当前书籍版本"); setSelected(""); setSelectionAnchor(null); selectionExtensionRef.current=null; openConversation(id, null); }}
         onClose={()=>{if(workspaceView==="bookshelf"&&bookshelfAssistant.open)bookshelfAssistant.toggle();else setMobileAnalysisOpen(false);}} onBack={() => navigateWorkspace("reader")} onSend={question => void ask(question, "chat")} onEditMessage={(id, prompt) => void editMessage(id, prompt)} onRetry={() => void retryRequest()} onStop={() => requestAbortRef.current?.abort()} onOpenSource={openKnowledgeSource} onOpenCitation={openCitation} />
