@@ -222,6 +222,21 @@ it("多段选文从首发到失败恢复、编辑和重试保存全部来源且�
  const edited=prepareReadingEdit({...restored,status:'error'},started.messages,state.payload.clientUserMessageId,'换个问题');expect(edited.input.selectionAnchors).toEqual(state.payload.selectionAnchors);
 });
 
+it("语义强调元数据在原消息完成、恢复与重试中保持一致", () => {
+  const emphasis = { version: 1 as const, marks: [{ kind: "term" as const, quote: "影响范围", occurrence: 1 }] };
+  const started = beginReadingRequest(request(), []);
+  const written = reduceReadingRequest(started.state, { type: "raw_delta", text: "请注意影响范围。" });
+  const marked = reduceReadingRequest(written, { type: "emphasis", result: emphasis, messageId: "assistant-1" });
+  const done = reduceReadingRequest(marked, { type: "done" });
+  expect(applyReadingRequest(started.messages, done)[1].emphasis).toEqual(emphasis);
+  const restored = restoreReadingRequest("thread-1", {
+    id: "assistant-1", role: "assistant", content: "请注意影响范围。", status: "completed",
+    structuredOutput: JSON.stringify({ emphasis, _request: { version: 1, clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", input: { mode: "analyze", question: "请句读这一段", selectedText: "原文" } } }),
+  });
+  expect(restored?.emphasis).toEqual(emphasis);
+  expect(beginReadingRequest({ ...done, status: "error" }, applyReadingRequest(started.messages, done)).state.emphasis).toBeUndefined();
+});
+
 it("设置按请求快照固定，后续修改不改旧请求且恢复保留方式", () => {
   const preferences = { difficulty: "accessible" as const, detail: "gist" as const };
   const first = createReadingRequest({ mode: "chat", question: "解释", selectedText: "原文", ...preferences, contextSettings: { maxInputTokens: 4096, maxOutputTokens: 1024, compressionStrategy: "balanced" } });

@@ -33,8 +33,9 @@ export function bindSettledSelection(root: HTMLElement | Document, options: Opti
     if (cancelled) return;
     pressed = false; commit();
   };
-  // WHY：选区提交后的 iframe 失焦通常是用户点击外层操作栏，不是拖选取消；只取消尚在进行的手势。
-  const cancel = () => { if (!pressed) return; pressed = false; cancelled = true; options.onCancel?.(); };
+  // WHY：pointercancel 始终取消应用选文；iframe 失焦仅取消未结束的拖选，不能误清外层操作栏正在使用的快照。
+  const cancel = () => { if (cancelled) return; pressed = false; committed = false; cancelled = true; options.onCancel?.(); };
+  const blur = () => { if (pressed) cancel(); };
   // WHY：点击正文外的空白时一次取消原生选区与应用快照；按钮与输入框保留选文用于句读操作。
   const outside = (event: Event) => {
     if (pressed || !committed || (event as MouseEvent).button !== 0) return;
@@ -52,11 +53,11 @@ export function bindSettledSelection(root: HTMLElement | Document, options: Opti
     source.addEventListener('pointerup', release); source.addEventListener('mouseup', release);
     source.addEventListener('pointercancel', cancel);
   }
-  win?.addEventListener('blur', cancel);
+  win?.addEventListener('blur', blur);
   return () => {
     root.removeEventListener('pointerdown', start); root.removeEventListener('mousedown', start);
     root.removeEventListener('keyup', key); doc.removeEventListener('selectionchange', commit);
     for (const source of releases) { source.removeEventListener('pointerdown', outside); source.removeEventListener('mousedown', outside); source.removeEventListener('pointerup', release); source.removeEventListener('mouseup', release); source.removeEventListener('pointercancel', cancel); }
-    win?.removeEventListener('blur', cancel);
+    win?.removeEventListener('blur', blur);
   };
 }

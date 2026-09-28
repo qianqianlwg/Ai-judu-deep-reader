@@ -1,3 +1,4 @@
+import { readAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 import { decodeChatEvent, isAnalysis, isRecord, type Analysis, type ChatEvent, type ChatMessage, type ToolActivity, type TokenUsage } from "./chat-stream";
 import { DEFAULT_CONTEXT_SETTINGS, MAX_CONTEXT_INPUT_TOKENS, type ContextMessage, type ContextSettings } from "./context-compaction";
 import { SseDecoder } from "./sse";
@@ -113,6 +114,7 @@ export type ReadingRequestState = {
   attempt: number;
   content: string;
   analysis?: Analysis & { anchor?: ReadingAnchor };
+  emphasis?: AnswerEmphasis;
   error?: string;
   usage?: TokenUsage;
   tools?: ToolActivity[];
@@ -145,7 +147,7 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   const status = message.status === "completed" && message.content.trim() ? "completed" : failure?.code === "cancelled" ? "cancelled" : "error";
   return {
     payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, model: optionalString(input.model), externalPermissions: readExternalPermissions(input.externalPermissions), bookContextPrefetch: input.bookContextPrefetch === true, detail: normalizeReadingDetail(input.detail), difficulty: normalizeReadingDifficulty(input.difficulty), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
-    status, attempt: 1, content: message.content, analysis: isAnalysis(saved) ? saved : undefined,
+    status, attempt: 1, content: message.content, analysis: isAnalysis(saved) ? saved : undefined, emphasis: readAnswerEmphasis(message.content, saved.emphasis),
     error: status === "completed" ? undefined : typeof failure?.message === "string" ? failure.message : "上次生成未完成，可以重试",
   };
 }
@@ -191,7 +193,7 @@ export function prepareReadingEdit(state: ReadingRequestState, messages: ChatMes
 
 export function beginReadingRequest(state: ReadingRequestState, messages: ChatMessage[]): { state: ReadingRequestState; messages: ChatMessage[] } {
   if (state.status === "streaming" || state.status === "completed") throw new Error("当前请求不能重试");
-  const next: ReadingRequestState = { ...state, status: "streaming", attempt: state.attempt + 1, content: "", analysis: undefined, usage: undefined, tools: [], warnings: [], outputFormat: "text", error: undefined };
+  const next: ReadingRequestState = { ...state, status: "streaming", attempt: state.attempt + 1, content: "", analysis: undefined, emphasis: undefined, usage: undefined, tools: [], warnings: [], outputFormat: "text", error: undefined };
   return { state: next, messages: applyReadingRequest(messages, next) };
 }
 
@@ -208,7 +210,7 @@ export function applyReadingRequest(messages: ChatMessage[], state: ReadingReque
     return message.id === userId && !sameAnchor ? { ...message, anchor } : message;
   });
   if (!user) next.push({ id: userId, createdAt: new Date().toISOString(), role: "user", kind: "chat", anchor, content: question, status: "completed" });
-  const replacement: ChatMessage = { id: assistantId, anchor, role: "assistant", kind: mode === "analyze" ? "analysis" : "chat", content: state.content, analysis: state.analysis, outputFormat: state.outputFormat ?? "text", usage: state.usage, tools: state.tools, warnings: state.warnings, status: state.status === "completed" ? "completed" : state.status === "streaming" ? "streaming" : "error" };
+  const replacement: ChatMessage = { id: assistantId, anchor, role: "assistant", kind: mode === "analyze" ? "analysis" : "chat", content: state.content, analysis: state.analysis, emphasis: state.emphasis, outputFormat: state.outputFormat ?? "text", usage: state.usage, tools: state.tools, warnings: state.warnings, status: state.status === "completed" ? "completed" : state.status === "streaming" ? "streaming" : "error" };
   const index = next.findIndex((message) => message.id === assistantId);
   // WHY：只替换原助手消息；后续对话的位置和原用户消息不动，也不把旧的半截回答拼进重试结果。
   if (index >= 0) next[index] = replacement;
@@ -228,6 +230,7 @@ export function reduceReadingRequest(state: ReadingRequestState, event: ChatEven
       return event.outputFormat ? { ...state, outputFormat: event.outputFormat } : state;
     case "raw_delta": return { ...state, content: state.content + event.text };
     case "structured": return { ...state, analysis: event.result };
+    case "emphasis": return { ...state, emphasis: readAnswerEmphasis(state.content, event.result) };
     case "usage": return { ...state, usage: event.usage };
     case "tool": return { ...state, tools: [...(state.tools ?? []).filter(tool => tool.id !== event.tool.id), event.tool] };
     case "warning": return { ...state, warnings: [...(state.warnings ?? []), event.message] };

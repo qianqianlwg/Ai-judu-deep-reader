@@ -1,14 +1,15 @@
 import { isTokenUsage, type TokenUsage } from "./token-usage";
 export type { TokenUsage } from "./token-usage";
 import type { StreamEvent } from "./sse";
+import { answerEmphasisSchema, readAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 
 export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string; origin?: "selection" | "context" | "search" };
-export type Analysis = { provenanceVersion?: 1; readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
+export type Analysis = { emphasis?: AnswerEmphasis; provenanceVersion?: 1; readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
 export type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 import type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown; contentOffset?:number };
 export type HistoricalToolActivity = ToolActivity & { attemptId: string | null; auditId: string };
-export type ChatMessage = { createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
+export type ChatMessage = { emphasis?: AnswerEmphasis; createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
 export type ChatEvent =
   | { type: "meta"; threadId: string; messageId?: string; outputFormat?: "text" | "legacy-json" }
   | { type: "raw_delta"; text: string }
@@ -16,6 +17,7 @@ export type ChatEvent =
   | {type:"tool";tool:ToolActivity}
   | {type:"warning";message:string}
   | { type: "structured"; result: Analysis; messageId?: string; contentOffset?:number }
+  | { type: "emphasis"; result: AnswerEmphasis; messageId?: string }
   | { type: "done"; content?: string }
   | { type: "error"; message: string };
 export const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object";
@@ -49,6 +51,7 @@ export function decodeChatEvent(event: StreamEvent): ChatEvent | null {
   if (event.event === "tool" && isRecord(data.tool) && typeof data.tool.id === "string" && typeof data.tool.name === "string" && ["running","completed","error"].includes(String(data.tool.status))) return {type:"tool",tool:data.tool as ToolActivity};
   if (event.event === "raw_delta" && typeof data.text === "string") return { type: "raw_delta", text: data.text };
   if (event.event === "structured" && isAnalysis(data.result)) return { type: "structured", result: data.result, messageId: typeof data.messageId === "string" ? data.messageId : undefined, contentOffset: Number.isSafeInteger(data.contentOffset) ? data.contentOffset as number : undefined };
+  if (event.event === "emphasis") { const emphasis = answerEmphasisSchema.safeParse(data.result); if (emphasis.success) return { type: "emphasis", result: emphasis.data, messageId: typeof data.messageId === "string" ? data.messageId : undefined }; }
   if (event.event === "done") return { type: "done", content: typeof data.content === "string" ? data.content : undefined };
   if (event.event === "error") return { type: "error", message: typeof data.message === "string" ? data.message : "生成失败，请重试" };
   throw new Error("聊天流包含无法识别的事件：" + event.event);
@@ -69,6 +72,7 @@ export function applyChatEvent(messages: ChatMessage[], assistantId: string, eve
       case "warning": return { ...message, warnings: [...(message.warnings ?? []), event.message] };
       case "raw_delta": return { ...message, content: message.content + event.text, status: "streaming" };
       case "structured": return { ...message, kind: "analysis", analysis: event.result, analysisOffset: Number.isSafeInteger(event.contentOffset) && event.contentOffset! >= 0 && event.contentOffset! <= message.content.length ? event.contentOffset : message.content.length };
+      case "emphasis": return { ...message, emphasis: readAnswerEmphasis(message.content, event.result) };
       case "done": return { ...message, content: event.content ?? message.content, status: "completed" };
       case "error": return { ...message, status: "error" };
     }

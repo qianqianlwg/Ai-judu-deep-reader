@@ -48,6 +48,19 @@ it("损坏的显式多段来源标为无效，不能降级成缺来源旧消息"
  expect(hydrateChatHistory([{id:'old',role:'assistant',content:'旧正文'}])[0].sourceInvalid).toBeUndefined();
 });
 
+it("会话回放只恢复当前正文中校验通过的强调，旧会话无标记仍可读", () => {
+  const content = "先看影响范围，再确定协调责任。";
+  const emphasis = { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1 }] };
+  const [restored, invalid, legacy] = hydrateChatHistory([
+    { id: "good", role: "assistant", content, structuredOutput: JSON.stringify({ outputFormat: "text", emphasis }) },
+    { id: "invalid", role: "assistant", content: "不同正文", structuredOutput: JSON.stringify({ outputFormat: "text", emphasis }) },
+    { id: "legacy", role: "assistant", content: "旧回答" },
+  ]);
+  expect(restored.emphasis).toEqual(emphasis);
+  expect(invalid.emphasis).toBeUndefined();
+  expect(legacy.emphasis).toBeUndefined();
+});
+
 it('历史消息保留原始时间，缺失时间不伪造现在',()=>{
  const items=hydrateChatHistory([{id:'u-time',role:'user',content:'问题',createdAt:'2026-09-26T04:00:00Z'},{id:'u-old',role:'user',content:'旧问题'}]);
  expect(items[0].createdAt).toBe('2026-09-26T04:00:00Z');expect(items[1].createdAt).toBeUndefined();

@@ -23,6 +23,14 @@ describe("chat stream", () => {
   });
 });
 
+it("重点元数据和正文是不同 SSE 事件，非法协议不会污染消息", () => {
+  const answer = "先看影响范围，再确定协调责任。";
+  const emphasis = { version: 1 as const, marks: [{ kind: "term" as const, quote: "影响范围", occurrence: 1 }] };
+  const event = decodeChatEvent({ event: "emphasis", data: JSON.stringify({ result: emphasis, messageId: "a" }) });
+  expect(event).toEqual({ type: "emphasis", result: emphasis, messageId: "a" });
+  expect(applyChatEvent([{ id: "a", role: "assistant", content: answer }], "a", event!)[0].emphasis).toEqual(emphasis);
+  expect(() => decodeChatEvent({ event: "emphasis", data: JSON.stringify({ result: { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1, color: "red" }] } }) })).toThrow();
+});
 it("并行工具乱序完成时保持首次出现顺序，重复事件不追加卡片",()=>{let messages: ChatMessage[]= [{id:'a',role:'assistant' as const,content:''}];for(const id of ['first','second'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'running'}});for(const id of ['first','second','first'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'completed'}});expect(messages[0].tools?.map(t=>t.id)).toEqual(['first','second']);});
 
 it("工具与句读记录固定在首次事件的正文偏移，完成后不漂移", () => {

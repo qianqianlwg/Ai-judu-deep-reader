@@ -108,6 +108,7 @@ describe("与可见正文和测量器共用的排版契约", () => {
   it("换色不重排，其余每个排版属性变化都产生不同的测量 key", () => {
     const baseline = getReadingAppearanceLayoutKey(defaults);
     expect(getReadingAppearanceLayoutKey({ ...defaults, theme: "dark" })).toBe(baseline);
+    expect(getReadingAppearanceLayoutKey({ ...defaults, emphasisPalette: "blue" })).toBe(baseline);
     for (const patch of [{ font: "kai" }, { fontSize: 24 }, { lineHeight: 1.4 }, { letterSpacing: 0.08 }, { columnWidth: 780 }, { textAlign: "justify" }, { language: "en" }]) {
       expect(getReadingAppearanceLayoutKey(normalizeReadingAppearance({ ...defaults, ...patch }))).not.toBe(baseline);
     }
@@ -172,6 +173,37 @@ it("默认灰白且旧浅色偏好仍保持浅绿配色",()=>{
  expect(defaults.theme).toBe('gray');
  expect(READING_THEMES.find(theme=>theme.id==='light')).toMatchObject({label:'浅绿',paper:'#FFFDF9'});
  expect(normalizeReadingAppearance({theme:'light'}).theme).toBe('light');
+});
+
+it("句读重点配色随独立偏好变化，明暗主题都有对应色", () => {
+  const light = getReadingAppearanceVariables({ ...defaults, emphasisPalette: "sage" });
+  const dark = getReadingAppearanceVariables({ ...defaults, theme: "dark", emphasisPalette: "blue" });
+  expect(light["--reading-term-background"]).toBe("#EDF4EC");
+  expect(light["--reading-key-sentence-accent"]).toBe("#A0B9A2");
+  expect(dark["--reading-term-background"]).toBe("#293743");
+  expect(dark["--reading-key-sentence-accent"]).toBe("#9EB5C6");
+  expect(getReadingThemeVariables("gray")["--reading-term-background"]).toBe("#F8F3E5");
+});
+
+it("旧版阅读外观只缺新增字段时静默迁移，非法方案退回默认", () => {
+  const old: Record<string, unknown> = { ...defaults };
+  delete old.emphasisPalette;
+  const restored = parseReadingAppearance(JSON.stringify(old));
+  expect(restored.preferences.emphasisPalette).toBe("paper");
+  expect(restored.needsMigration).toBe(true);
+  expect(restored.issues).toEqual([]);
+  expect(normalizeReadingAppearance({ ...defaults, emphasisPalette: "url(https://example.com)" }).emphasisPalette).toBe("paper");
+});
+
+describe("句读配色首屏无闪烁", () => {
+  it.each(["paper", "sage", "blue", "mono"] as const)("%s 在 bootstrap 与已装配根变量一致", (emphasisPalette) => {
+    writeReadingAppearance(localStorage, { ...defaults, theme: "dark", emphasisPalette });
+    window.eval(getReadingAppearanceBootstrapScript());
+    expect(document.documentElement.style.getPropertyValue("--reading-term-background"))
+      .toBe(getReadingAppearanceVariables({ ...defaults, theme: "dark", emphasisPalette })["--reading-term-background"]);
+    expect(document.documentElement.style.getPropertyValue("--reading-key-sentence-accent"))
+      .toBe(getReadingAppearanceVariables({ ...defaults, theme: "dark", emphasisPalette })["--reading-key-sentence-accent"]);
+  });
 });
 
 

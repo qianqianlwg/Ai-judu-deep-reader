@@ -3,6 +3,7 @@
 import { useRef, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { inferAnswerEmphasis, readAnswerEmphasis, remarkAnswerEmphasis, sliceAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
 import { isTokenUsage, type TokenUsage } from "@/lib/token-usage";
 import type { ConversationSummary } from "@/lib/conversations";
 import { ConversationControls, type ConversationControlsProps } from "./conversation-controls";
@@ -68,7 +69,7 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
     { origin: "unknown", label: "来源未标记的原文" },
   ] as const;
   return <div className="message-content assistant-readable">
-    {analysis.readingText && <section><h4>句读文本 <SpeechButton text={analysis.readingText} label="AI句读正文" /></h4><div className="reading-text-result"><MarkdownText content={analysis.readingText} reading /></div></section>}
+    {analysis.readingText && <section><h4>句读文本 <SpeechButton text={analysis.readingText} label="AI句读正文" /></h4><div className="reading-text-result"><MarkdownText content={analysis.readingText} emphasis={readAnswerEmphasis(analysis.readingText, analysis.emphasis) ?? inferAnswerEmphasis(analysis.readingText)} /></div></section>}
     {analysis.summary && <p className="assistant-summary">{analysis.summary}</p>}
     {analysis.breakdown.length > 0 && <section><h4>句子拆解</h4>{analysis.breakdown.map((item, index) => <div className="answer-row" key={index}><b>{item.label}</b><span>{item.text}</span></div>)}</section>}
     {analysis.concepts.length > 0 && <section><h4>关键概念</h4>{analysis.concepts.map((item, index) => <div className="answer-row" key={index}><b>{item.name}</b><span>{item.text}</span></div>)}</section>}
@@ -82,9 +83,9 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
     <details className="raw-output"><summary>查看原始输出</summary><pre>{rawContent}</pre></details>
   </div>;
 }
-function MarkdownText({ content, reading = false }: { content: string; reading?: boolean }) {
-  return <div className={"message-content " + styles.markdown} data-output-format="text" data-reading-markup={reading ? "true" : undefined}>
-    <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+function MarkdownText({ content, emphasis }: { content: string; emphasis?: AnswerEmphasis }) {
+  return <div className={"message-content " + styles.markdown} data-output-format="text">
+    <Markdown remarkPlugins={[remarkGfm, ...(emphasis ? [[remarkAnswerEmphasis, emphasis] as [typeof remarkAnswerEmphasis, AnswerEmphasis]] : [])]} skipHtml components={{
       // WHY：模型生成的图片 URL 不可信；即便 skipHtml，Markdown 图片仍会自动请求并可能泄露阅读资料。
       img: ({ alt }) => <span role="note" data-blocked-image="true">[图片未自动加载{alt ? "：" + alt : ""}]</span>,
       a: ({ children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a> }}>{content}</Markdown>
@@ -114,16 +115,17 @@ function ToolActivityResult({ tool, messageId, onOpenCitation, historical = fals
       </div>)}
     </div>;
   }
+  if (tool.name === "mark_answer_emphasis") return <p>{tool.status === "running" ? "正在标注重点…" : result?.ok === true ? "本轮重点已标注。" : errorText ?? "未添加可验证的重点标注；正文不受影响。"}</p>;
   if (tool.name === "save_reading_analysis") return <p className={tool.status === "error" || result?.ok === false ? styles.failedMessage : undefined}>
     {result?.ok === true && result.saved === true ? (historical ? "该历史尝试曾保存句读；不代表当前回复的句读记录。" : "句读已保存，可展开上方句读记录查看。") : errorText ?? (tool.status === "running" ? "正在保存句读…" : "句读尚未保存成功。")}
   </p>;
   return tool.result === undefined ? <p>{tool.status === "running" ? "等待工具返回结果…" : "工具没有返回展示结果。"}</p> : <pre className={styles.toolOutput}>{toolResultText(tool.result)}</pre>;
 }
-const TOOL_LABELS: Record<string, string> = { search_book: "本书检索", prefetch_book_context: "本书关联检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
+const TOOL_LABELS: Record<string, string> = { mark_answer_emphasis: "重点标注", search_book: "本书检索", prefetch_book_context: "本书关联检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
 function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds, includeExtras = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean; toolIds?: readonly string[]; includeExtras?: boolean }) {
   const analysis = includeAnalysis && isAnalysis(message.analysis) ? message.analysis : undefined;
   const searched = message.tools?.some(tool => tool.name === "search_book" || tool.name === "prefetch_book_context") ?? false;
-  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && (toolIds === undefined || toolIds.includes(tool.id)) && tool.name !== "search_book" && tool.name !== "read_source" && !["search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name) && ["running", "completed", "error"].includes(String(tool.status))) : [];
+  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && (toolIds === undefined || toolIds.includes(tool.id)) && tool.name !== "search_book" && tool.name !== "read_source" && !["search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name) && ["running", "completed", "error"].includes(String(tool.status)) && !(tool.name === "mark_answer_emphasis" && tool.status === "completed" && isRecord(tool.result) && tool.result.ok === true && message.emphasis?.marks.length)) : [];
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((warning): warning is string => typeof warning === "string") : [];
   return <>
     {analysis && <details className={styles.toolRecord} data-testid="analysis-record"><summary>句读记录 <span>{analysis.provenanceVersion === 1 ? searched ? "已检索" : "未检索" : "工具结果"}</span></summary>
@@ -147,7 +149,7 @@ function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds,
 }
 // WHY：首次收到工具/句读记录时固定正文偏移；完成事件只更新卡片，不把它们推到答案末尾。
 function TimedAnswer({ message, onOpenCitation }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"] }) {
-  const reading = message.kind === "analysis";
+  const emphasis = message.status === "completed" ? readAnswerEmphasis(message.content, message.emphasis) ?? inferAnswerEmphasis(message.content) : undefined;
   const timed = [
     ...(message.tools ?? []).filter(tool => Number.isSafeInteger(tool.contentOffset) && tool.contentOffset! >= 0 && tool.contentOffset! <= message.content.length && !["search_book", "read_source", "search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name)).map(tool => ({ offset: tool.contentOffset!, id: tool.id, analysis: false })),
     ...(isAnalysis(message.analysis) && Number.isSafeInteger(message.analysisOffset) && message.analysisOffset! >= 0 && message.analysisOffset! <= message.content.length ? [{ offset: message.analysisOffset!, id: "", analysis: true }] : []),
@@ -155,12 +157,12 @@ function TimedAnswer({ message, onOpenCitation }: { message: PanelMessage; onOpe
   let cursor = 0;
   const segments: ReactNode[] = [];
   for (const [index, item] of timed.entries()) {
-    if (item.offset > cursor) segments.push(<MarkdownText key={"text-" + index} content={message.content.slice(cursor, item.offset)} reading={reading} />);
+    if (item.offset > cursor) segments.push(<MarkdownText key={"text-" + index} content={message.content.slice(cursor, item.offset)} emphasis={sliceAnswerEmphasis(message.content, emphasis, cursor, item.offset)} />);
     segments.push(<ToolRecords key={"tool-" + item.id + index} message={message} onOpenCitation={onOpenCitation} includeAnalysis={item.analysis} toolIds={item.analysis ? [] : [item.id]} includeExtras={false} />);
     cursor = item.offset;
   }
   const tail = message.content.slice(cursor);
-  if (tail || !timed.length) segments.push(<MarkdownText key="tail" content={tail || (message.status === "streaming" ? "正在生成回答…" : "")} reading={reading} />);
+  if (tail || !timed.length) segments.push(<MarkdownText key="tail" content={tail || (message.status === "streaming" ? "正在生成回答…" : "")} emphasis={sliceAnswerEmphasis(message.content, emphasis, cursor)} />);
   const timedIds = new Set(timed.filter(item => !item.analysis).map(item => item.id));
   return <><div className={message.status === "streaming" ? "streaming-cursor" : undefined} data-streaming-format="markdown">{segments}</div>
     <ToolRecords message={{ ...message, tools: message.tools?.filter(tool => !timedIds.has(tool.id)) }} onOpenCitation={onOpenCitation} includeAnalysis={!timed.some(item => item.analysis)} />

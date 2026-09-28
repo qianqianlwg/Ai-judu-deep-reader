@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { ANSWER_EMPHASIS_PALETTES, DEFAULT_ANSWER_EMPHASIS_PALETTE, getAnswerEmphasisPaletteVariables, isAnswerEmphasisPaletteId, type AnswerEmphasisPaletteId } from "./answer-emphasis-palette";
 
 export const READING_APPEARANCE_STORAGE_KEYS = Object.freeze({
   preferences: "judu:readingAppearance:v1",
@@ -13,6 +14,7 @@ export type ReadingLanguage = "zh-CN" | "en";
 export interface ReadingAppearancePreferences {
   version: 1;
   theme: ReadingThemeId;
+  emphasisPalette: AnswerEmphasisPaletteId;
   font: ReadingFontId;
   fontSize: number;
   lineHeight: number;
@@ -26,7 +28,7 @@ export interface ReadingAppearancePreferences {
 }
 
 export const DEFAULT_READING_APPEARANCE: Readonly<ReadingAppearancePreferences> = Object.freeze({
-  version: 1, theme: "gray", font: "song", fontSize: 16, lineHeight: 2,
+  version: 1, theme: "gray", emphasisPalette: DEFAULT_ANSWER_EMPHASIS_PALETTE, font: "song", fontSize: 16, lineHeight: 2,
   letterSpacing: 0, columnWidth: 650, textAlign: "left", language: "zh-CN",
   originalBodyFontOverride: false, showAnalysisHints: true, analysisHintOpacity: 0.25,
 });
@@ -98,6 +100,7 @@ export function normalizeReadingAppearance(value: unknown): ReadingAppearancePre
   return {
     version: 1,
     theme: READING_THEMES.find((theme) => theme.id === item.theme)?.id ?? DEFAULT_READING_APPEARANCE.theme,
+    emphasisPalette: isAnswerEmphasisPaletteId(item.emphasisPalette) ? item.emphasisPalette : DEFAULT_ANSWER_EMPHASIS_PALETTE,
     font: READING_FONTS.find((font) => font.id === item.font)?.id ?? DEFAULT_READING_APPEARANCE.font,
     fontSize: numeric(item.fontSize, "fontSize"), lineHeight: numeric(item.lineHeight, "lineHeight"),
     letterSpacing: numeric(item.letterSpacing, "letterSpacing"),
@@ -112,7 +115,7 @@ export function normalizeReadingAppearance(value: unknown): ReadingAppearancePre
 export function isReadingAppearance(value: unknown): value is ReadingAppearancePreferences {
   const item = record(value);
   const normalized = normalizeReadingAppearance(value);
-  const keys = ["version", "theme", "font", "fontSize", "lineHeight", "letterSpacing", "columnWidth", "textAlign", "language", "originalBodyFontOverride", "showAnalysisHints", "analysisHintOpacity"];
+  const keys = ["version", "theme", "emphasisPalette", "font", "fontSize", "lineHeight", "letterSpacing", "columnWidth", "textAlign", "language", "originalBodyFontOverride", "showAnalysisHints", "analysisHintOpacity"];
   return Object.keys(item).every((key) => keys.includes(key)) && keys.every((key) => item[key] === normalized[key as keyof ReadingAppearancePreferences]);
 }
 export interface LegacyReadingAppearance { theme?: string | null; fontScale?: string | null }
@@ -143,7 +146,9 @@ export function parseReadingAppearance(raw: string | null, legacy: LegacyReading
       } else {
         const preferences = normalizeReadingAppearance({ ...migrateReadingAppearance(legacy), ...item });
         const corrected = !isReadingAppearance(parsed);
-        if (corrected) issues.push("阅读外观包含缺失或非法值，已补全并校正到可用范围。");
+        // WHY：旧版完整偏好仅缺新增的重点色字段，自动迁移而不误报损坏；其余缺失或非法字段仍告知用户。
+        const paletteOnlyMigration = item.emphasisPalette === undefined && isReadingAppearance({ ...item, emphasisPalette: DEFAULT_ANSWER_EMPHASIS_PALETTE });
+        if (corrected && !paletteOnlyMigration) issues.push("阅读外观包含缺失或非法值，已补全并校正到可用范围。");
         return { preferences, source: "stored", needsMigration: corrected, issues };
       }
     } catch {
@@ -180,11 +185,12 @@ export function writeReadingAppearance(storage: Pick<ReadingAppearanceStorage, "
 }
 
 export type ReadingAppearanceVariables = Record<`--reading-${string}` | `--ui-${string}`, string>;
-export function getReadingThemeVariables(themeId: ReadingThemeId): ReadingAppearanceVariables {
+export function getReadingThemeVariables(themeId: ReadingThemeId, emphasisPalette: AnswerEmphasisPaletteId = DEFAULT_ANSWER_EMPHASIS_PALETTE): ReadingAppearanceVariables {
   const theme = READING_THEMES.find((item) => item.id === themeId) ?? READING_THEMES[0];
   return {
     "--reading-paper": theme.paper, "--reading-text": theme.text, "--reading-muted": theme.muted,
     "--reading-border": theme.border, "--reading-accent": theme.accent, "--reading-selected": theme.selected,
+    ...getAnswerEmphasisPaletteVariables(emphasisPalette, theme.scheme),
     "--reading-sidebar-background": theme.sidebar, "--reading-assistant-background": theme.assistant,
     "--reading-surface": theme.surface, "--reading-color-scheme": theme.scheme,
     // WHY：旧版工作台样式仍使用 --ui-* 变量；在同一主题变量包中提供兼容别名，避免正文换色而三栏外壳停留在硬编码浅色。
@@ -215,7 +221,7 @@ export function applyReadingAppearanceToRoot(target: HTMLElement, value: Reading
 export function getReadingAppearanceVariables(value: ReadingAppearancePreferences): ReadingAppearanceVariables {
   const preferences = normalizeReadingAppearance(value);
   const style = getReadingTextStyle(preferences);
-  return { ...getReadingThemeVariables(preferences.theme),
+  return { ...getReadingThemeVariables(preferences.theme, preferences.emphasisPalette),
     "--reading-font-family": String(style.fontFamily), "--reading-font-size": String(style.fontSize),
     "--reading-line-height": String(style.lineHeight), "--reading-letter-spacing": String(style.letterSpacing),
     "--reading-column-width": String(style.maxWidth), "--reading-text-align": String(style.textAlign),
@@ -227,6 +233,7 @@ export function getReadingTextProps(value: ReadingAppearancePreferences): { lang
 export function getReadingAppearanceLayoutKey(value: ReadingAppearancePreferences): string {
   const layout: Partial<ReadingAppearancePreferences> = { ...normalizeReadingAppearance(value) };
   delete layout.theme;
+  delete layout.emphasisPalette;
   // WHY：换色不影响分页；所有影响字形/换行的值必须触发重新测量，不能只依赖字号。
   return JSON.stringify(layout);
 }
@@ -238,14 +245,16 @@ export function getReadingAppearanceLayoutKey(value: ReadingAppearancePreference
  */
 export function getReadingAppearanceBootstrapScript(): string {
   const config = JSON.stringify({ keys: READING_APPEARANCE_STORAGE_KEYS,
-    themes: Object.fromEntries(READING_THEMES.map((theme) => [theme.id, getReadingThemeVariables(theme.id)])) });
+    themes: Object.fromEntries(READING_THEMES.map((theme) => [theme.id,
+      Object.fromEntries(ANSWER_EMPHASIS_PALETTES.map((palette) => [palette.id, getReadingThemeVariables(theme.id, palette.id)]))])) });
   return "(()=>{const c=" + config.replace(/</g, "\\u003c") + ";" +
-    "let theme='gray';try{const s=window.localStorage;let v=null;const raw=s.getItem(c.keys.preferences);" +
+    "let theme='gray',palette='paper';try{const s=window.localStorage;let v=null;const raw=s.getItem(c.keys.preferences);" +
     "if(raw!==null){try{v=JSON.parse(raw)}catch(e){console.warn('[reading-appearance] 已保存设置损坏，将回退')}}" +
     "const valid=v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length>0&&(v.version===undefined||v.version===1);" +
     "const candidate=valid?(v.theme===undefined?s.getItem(c.keys.legacyTheme):v.theme):s.getItem(c.keys.legacyTheme);" +
     "if(typeof candidate==='string'&&Object.prototype.hasOwnProperty.call(c.themes,candidate))theme=candidate;" +
+    "if(valid&&typeof v.emphasisPalette==='string'&&Object.prototype.hasOwnProperty.call(c.themes[theme],v.emphasisPalette))palette=v.emphasisPalette;" +
     "}catch(e){console.error('[reading-appearance] 无法读取主题偏好',e)}" +
-    "const root=document.documentElement;for(const [key,value] of Object.entries(c.themes[theme]))root.style.setProperty(key,value);" +
-    "root.style.colorScheme=c.themes[theme]['--reading-color-scheme'];root.dataset.readingTheme=theme;})();";
+    "const colors=c.themes[theme][palette],root=document.documentElement;for(const [key,value] of Object.entries(colors))root.style.setProperty(key,value);" +
+    "root.style.colorScheme=colors['--reading-color-scheme'];root.dataset.readingTheme=theme;})();";
 }

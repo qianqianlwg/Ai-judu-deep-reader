@@ -52,6 +52,22 @@
 .miniPaper b { margin: 0 0 3px; font: 16px/1.1 Georgia, serif; }
 .thumbnail i { display: block; height: 2px; min-height: 2px; background: var(--reading-muted); opacity: .3; border-radius: 2px; }
 .thumbnail i:last-child { width: 62%; }
+
+/* WHY：小卡直接预演右侧回答的词/句层级，避免色块示意与实际渲染脱节。 */
+.paletteField { margin-top: 26px !important; }
+.root .paletteHint { margin: -3px 0 12px; color: var(--reading-muted); font-size: 11px; line-height: 1.6; }
+.palettes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.root .paletteOption { position: relative; display: block; min-width: 0; cursor: pointer; }
+.paletteOption > input { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+.paletteCard { display: grid; gap: 5px; height: 100%; padding: 12px; border: 1px solid var(--reading-border); border-radius: 12px; background: var(--reading-surface); color: var(--reading-text); }
+.paletteOption > input:checked + .paletteCard { border-color: var(--reading-accent); box-shadow: 0 0 0 1px var(--reading-accent); }
+.paletteOption > input:focus-visible + .paletteCard { outline: 2px solid var(--reading-accent); outline-offset: 3px; }
+.paletteHeading { display: flex; justify-content: space-between; font-weight: 600; font-size: 13px; }
+.paletteHeading > span { color: var(--reading-accent); }
+.paletteCard small { color: var(--reading-muted); font-size: 11px; }
+.paletteSample { margin-top: 5px; font-size: 12px; line-height: 1.9; }
+.paletteTerm { padding: 0 .14em; border-radius: 4px; background: var(--reading-term-background); font-weight: 600; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.paletteSentence { text-decoration: underline; text-decoration-color: var(--reading-key-sentence-accent); text-decoration-thickness: 1px; text-underline-offset: 4px; }
 .layout { display: grid; grid-template-columns: minmax(190px, .85fr) minmax(0, 1.35fr); align-items: start; gap: 28px; margin-top: 28px; }
 .root .controls { display: grid; gap: 18px; }
 .root .controls > legend { margin-bottom: 18px; }
@@ -96,8 +112,8 @@
 }
 @media (prefers-reduced-motion: reduce) { .themeCard { transition: none; } }
 @media (forced-colors: active) {
-  .themeOption > input:checked + .themeCard, .alignment input:checked + span { border: 2px solid Highlight; }
-  .themeOption > input:focus-visible + .themeCard, .alignment input:focus-visible + span { outline-color: Highlight; }
+  .themeOption > input:checked + .themeCard, .paletteOption > input:checked + .paletteCard, .alignment input:checked + span { border: 2px solid Highlight; }
+  .themeOption > input:focus-visible + .themeCard, .paletteOption > input:focus-visible + .paletteCard, .alignment input:focus-visible + span { outline-color: Highlight; }
   .thumbnail { forced-color-adjust: none; }
 }
 

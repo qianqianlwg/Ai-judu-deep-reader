@@ -23,6 +23,23 @@ export type ReadingAnnotationsResult = {
   resetAnnotations: () => void;
 };
 
+function isSavedReadingMark(value: unknown): value is ReadingMark {
+  if (!value || typeof value !== "object") return false;
+  const mark = value as Record<string, unknown>;
+  return typeof mark.id === "string" && Boolean(mark.id) && typeof mark.editionId === "string"
+    && typeof mark.kind === "string" && ["highlight", "favorite", "note"].includes(mark.kind)
+    && typeof mark.color === "string" && ["yellow", "green", "blue", "pink", "orange"].includes(mark.color)
+    && typeof mark.note === "string" && typeof mark.createdAt === "string" && typeof mark.updatedAt === "string"
+    && Array.isArray(mark.anchors) && mark.anchors.length > 0 && mark.anchors.every((anchor: unknown) => {
+      if (!anchor || typeof anchor !== "object") return false;
+      const part = anchor as Record<string, unknown>;
+      return typeof part.paragraphId === "string" && typeof part.selectedText === "string" && typeof part.textHash === "string"
+        && typeof part.startOffset === "number" && Number.isSafeInteger(part.startOffset) && part.startOffset >= 0
+        && typeof part.endOffset === "number" && Number.isSafeInteger(part.endOffset) && part.endOffset > part.startOffset
+        && part.selectedText.length === part.endOffset - part.startOffset;
+    });
+}
+
 export function useReadingAnnotations(options: ReadingAnnotationsOptions): ReadingAnnotationsResult {
   const { bookId, editionId, sourceParagraphs, bookConcepts, selectionAnchor, setNotice, setWorkspaceView, setSelected, setSelectionAnchor, setReadingAnchor, setActiveSource, setSelectionMenu, openConversation, openSourceConversation } = options;
   const [annotations, setAnnotations] = useState<TextAnnotation[]>([]); const [readingMarks, setReadingMarks] = useState<ReadingMark[]>([]);
@@ -79,11 +96,17 @@ export function useReadingAnnotations(options: ReadingAnnotationsOptions): Readi
   const resetAnnotations = useCallback((): void => { setAnnotations([]); setReadingMarks([]); }, []);
 
   const saveManualMark = useCallback(async (kind: ReadingMark["kind"], note = "", color: SelectionMarkColor = "yellow"): Promise<void> => {
-    if (!selectionAnchor || !editionId) return;
+    if (!selectionAnchor) { setNotice("选文已失效，请重新选择正文后再保存标注。"); return; }
+    if (!editionId) { setNotice("书籍版本尚未就绪，请等待加载完成后再保存标注。"); return; }
     try {
       const response = await fetch("/api/reading-marks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ editionId, kind, color, note, anchors: selectionAnchors(selectionAnchor).map(anchor=>({...anchor,textHash:hashText(anchor.selectedText)})) }) });
       if (!response.ok) { let message = "保存标注失败"; try { const body: unknown = await response.json(); if (body && typeof body === "object" && "error" in body && typeof body.error === "string") message = body.error; } catch (cause: unknown) { console.warn("保存标注失败响应无法解析", { name: cause instanceof Error ? cause.name : "UnknownError" }); } throw new Error(message); }
-      const saved = await response.json() as { mark?: ReadingMark }; if (saved.mark) setReadingMarks(previous => [saved.mark!, ...previous.filter(item => item.id !== saved.mark!.id)]);
+      const saved: unknown = await response.json();
+      // WHY：HTTP 成功不等于标注已保存；无有效回执时保留操作入口，不能误报成功并关闭选文浮层。
+      if (!saved || typeof saved !== "object" || !("mark" in saved) || !isSavedReadingMark(saved.mark)
+        || saved.mark.editionId !== editionId || saved.mark.kind !== kind) throw new Error("保存标注响应异常，无法确认是否已保存，请刷新标注列表核对。");
+      const mark = saved.mark;
+      setReadingMarks(previous => [mark, ...previous.filter(item => item.id !== mark.id)]);
       setNotice(kind === "highlight" ? "已标亮选文" : kind === "favorite" ? "已收藏选文" : "笔记已保存"); setSelectionMenu(null);
     } catch (cause: unknown) { console.error("保存阅读标注失败", cause); setNotice(cause instanceof Error ? cause.message : "保存标注失败，请重试"); }
   }, [editionId, selectionAnchor, setNotice, setSelectionMenu]);

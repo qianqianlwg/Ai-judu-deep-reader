@@ -485,35 +485,3 @@ it("真实有效CFI正文偏移通过预检，仍使用原位置而不回退",as
  expect(view.renderer.goTo).not.toHaveBeenCalled();expect(localStorage.getItem(originalPositionKey("e"))).toBe(stored);
  expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(host.querySelector('[role="alert"]')).toBeNull();
 });
-
-it("拖选过程中即使停顿也不弹菜单，iframe外释放后提交",async()=>{await render();Object.defineProperty(doc.createRange().constructor.prototype,'getBoundingClientRect',{configurable:true,value:()=>({left:10,top:60,width:30})});await act(async()=>{doc.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0}));const range=doc.createRange();range.selectNodeContents(doc.querySelector('p')!);doc.getSelection()!.removeAllRanges();doc.getSelection()!.addRange(range);doc.dispatchEvent(new Event('selectionchange'));await new Promise(resolve=>setTimeout(resolve,150));});expect(props.onSelect).not.toHaveBeenCalled();await act(async()=>document.dispatchEvent(new MouseEvent('pointerup',{button:0})));expect(props.onSelect).toHaveBeenCalledTimes(1);});
-
-it("霞鹜文楷只在原版选中时注入同源字库，并保留系统字体默认样式", () => {
- const wenkai = appearanceCss({...DEFAULT_READING_APPEARANCE,font:"wenkai"});
- expect(wenkai).toContain('@font-face{font-family:"LXGW WenKai Reader"');
- expect(wenkai).toContain('/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf');
- expect(wenkai).toContain('font-display:swap');
- const absolute = appearanceCss({...DEFAULT_READING_APPEARANCE,font:"wenkai"},"http://localhost:3100");
- expect(absolute).toContain('src:url("http://localhost:3100/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf")');
- expect(absolute).not.toContain('src:url("/fonts/');
- expect(appearanceCss(DEFAULT_READING_APPEARANCE)).not.toContain('@font-face');
-});
-
-it("生成锁定选区时仍能操作原版下一页",async()=>{
- await render();
- await render({disabled:true,navigationDisabled:false});
- const next=[...host.querySelectorAll('button')].find(button=>button.textContent==="原版下一页") as HTMLButtonElement;
- expect(next.disabled).toBe(false);
- await act(async()=>{next.click();});
- expect(view.next).toHaveBeenCalledOnce();
-});
-
-it("生成锁住原版操作但仍可重新选文，便于朗读且不触发新句读", async () => {
- await render({disabled:true,selectionDisabled:false});
- const range=doc.createRange();range.selectNodeContents(doc.querySelectorAll("p")[1]);
- Object.defineProperty(range,"getBoundingClientRect",{value:()=>({left:10,top:60,width:30,height:20})});
- vi.spyOn(doc.defaultView!,"getSelection").mockReturnValue({rangeCount:1,isCollapsed:false,getRangeAt:()=>range} as unknown as Selection);
- await act(async()=>doc.dispatchEvent(new MouseEvent("mouseup")));
- expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({paragraphId:"p2",text:"第二段"}),expect.any(Object));
- expect([...host.querySelectorAll("nav button")].every(button=>(button as HTMLButtonElement).disabled)).toBe(true);
-});

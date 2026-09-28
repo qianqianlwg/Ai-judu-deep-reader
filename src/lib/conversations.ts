@@ -1,5 +1,5 @@
-import { readRetrievalReport } from "./retrieval-report";
 import { publicToolFailure } from "./agent/diagnostics";
+import { readRetrievalReport } from "./retrieval-report";
 import type { HistoricalToolActivity, ToolActivity } from "./chat-stream";
 
 export type ConversationSummary = {
@@ -118,9 +118,9 @@ export function createConversationClient(fetcher: typeof fetch) {
   };
 }
 
-const PUBLIC_TOOLS = new Set(["search_book", "prefetch_book_context", "read_source", "save_reading_analysis", "search_openalex", "verify_crossref", "search_web", "read_external_source"]);
+const PUBLIC_TOOLS = new Set(["search_book", "prefetch_book_context", "read_source", "save_reading_analysis", "mark_answer_emphasis", "search_openalex", "verify_crossref", "search_web", "read_external_source"]);
 const EXTERNAL_TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts", "source", "query", "results", "title", "url", "year", "doi", "snippet", "evidence", "durationMs", "matchType", "coverage", "crossref", "recordType", "venue", "readUrl", "xmlId", "provider", "status", "code", "message"]);
-const INTERNAL_TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts", "message"]);
+const INTERNAL_TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts", "message", "marked", "emphasis", "marks", "kind", "occurrence", "version"]);
 const EXTERNAL_TOOLS = new Set(["search_openalex", "verify_crossref", "search_web", "read_external_source"]);
 type ToolDisplayJson = string | number | boolean | null | ToolDisplayJson[] | { [key: string]: ToolDisplayJson };
 export function conversationToolFromRow(value: unknown, editionId: string): { messageId: string; tool: ToolActivity } | undefined {

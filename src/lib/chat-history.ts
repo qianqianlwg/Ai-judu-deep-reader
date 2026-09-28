@@ -1,4 +1,5 @@
 import { isTokenUsage, type TokenUsage } from "./token-usage";
+import { inferAnswerEmphasis, readAnswerEmphasis } from "./answer-emphasis";
 import { isAnalysis, isRecord, type ChatMessage, type HistoricalToolActivity, type MessageAnchor, type ToolActivity } from "./chat-stream";
 import { makeReadingAnchor, readAnchorParts, readReadingAnchor } from "./reading-anchors";
 export type StoredChatMessage = { createdAt?: string; id: string; role: "user" | "assistant"; content: string; usage?: TokenUsage; tools?: unknown; historicalTools?: unknown; warnings?: unknown; usageJson?: string | null; structuredOutput?: string | null; status?: "streaming" | "completed" | "error" };
@@ -34,7 +35,7 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
    if(anchor&&typeof meta.clientUserMessageId==="string")sourceByUser.set(meta.clientUserMessageId,anchor);
   }
   // WHY：旧线程的最后选文不等于每一条消息的选文；缺少消息级位置时保持未知，禁止误跳。
-  return {id:message.id,role:message.role,content:message.content,createdAt:message.createdAt,analysis,analysisOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && Number.isSafeInteger(value._request.timeline.analysis) && (value._request.timeline.analysis as number) >= 0 && (value._request.timeline.analysis as number) <= message.content.length ? value._request.timeline.analysis as number : undefined,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
+  return {id:message.id,role:message.role,content:message.content,createdAt:message.createdAt,analysis,analysisOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && Number.isSafeInteger(value._request.timeline.analysis) && (value._request.timeline.analysis as number) >= 0 && (value._request.timeline.analysis as number) <= message.content.length ? value._request.timeline.analysis as number : undefined,emphasis: message.role === "assistant" && message.status !== "streaming" && message.status !== "error" ? (isRecord(value) ? readAnswerEmphasis(message.content, value.emphasis) : undefined) ?? inferAnswerEmphasis(message.content) : undefined,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
  });
  return result.map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??"")}:message);
 }

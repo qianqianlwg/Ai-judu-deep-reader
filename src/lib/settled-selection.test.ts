@@ -42,3 +42,51 @@ it('原版 Document 内空白区域一次点击即撤销已确认的选区和状
  expect(doc.getSelection()!.rangeCount).toBe(0);expect(cancel).toHaveBeenCalledOnce();expect(start).not.toHaveBeenCalled();expect(commit).toHaveBeenCalledOnce();
  cleanup();frame.remove();
 });
+
+
+describe("跨文档焦点与已确认选文", () => {
+ it.each(["button", "textarea"])("iframe 已松开后转到外层 %s，不取消已确认选区", (tag) => {
+  const frame = document.createElement("iframe"), control = document.createElement(tag);
+  document.body.append(frame, control);
+  const doc = frame.contentDocument!, win = doc.defaultView!;
+  doc.body.innerHTML = '<p tabindex="0">待标亮的原版文字</p>';
+  const commit = vi.fn(), cancel = vi.fn();
+  const clean = bindSettledSelection(doc, { onCommit: commit, onStart: vi.fn(), onCancel: cancel });
+  const text = doc.querySelector("p")!;
+  text.focus();
+  text.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+  doc.dispatchEvent(new MouseEvent("pointerup", { button: 0 }));
+  expect(commit).toHaveBeenCalledOnce();
+  control.focus();
+  // WHY：jsdom 不发 iframe Window 的跨文档 blur；显式补齐浏览器在焦点转移时发出的事件。
+  win.dispatchEvent(new Event("blur"));
+  expect(document.activeElement).toBe(control);
+  expect(cancel).not.toHaveBeenCalled();
+  clean(); frame.remove(); control.remove();
+ });
+ it("拖选尚未释放时失焦仍取消，迟到的释放不提交，下次划选可以恢复", () => {
+  const frame = document.createElement("iframe"); document.body.append(frame);
+  const doc = frame.contentDocument!, win = doc.defaultView!;
+  const commit = vi.fn(), cancel = vi.fn();
+  const clean = bindSettledSelection(doc, { onCommit: commit, onStart: vi.fn(), onCancel: cancel });
+  doc.dispatchEvent(new MouseEvent("pointerdown", { button: 0 }));
+  win.dispatchEvent(new Event("blur"));
+  document.dispatchEvent(new MouseEvent("pointerup", { button: 0 }));
+  doc.dispatchEvent(new Event("selectionchange"));
+  expect(cancel).toHaveBeenCalledOnce(); expect(commit).not.toHaveBeenCalled();
+  doc.dispatchEvent(new MouseEvent("pointerdown", { button: 0 }));
+  document.dispatchEvent(new MouseEvent("pointerup", { button: 0 }));
+  expect(commit).toHaveBeenCalledOnce();
+  clean(); win.dispatchEvent(new Event("blur")); expect(cancel).toHaveBeenCalledOnce(); frame.remove();
+ });
+ it("键盘选区确认后失焦不取消，但 pointercancel 仍清理", () => {
+  const root = document.createElement("div"); document.body.append(root);
+  const cancel = vi.fn(), commit = vi.fn();
+  const clean = bindSettledSelection(root, { onCommit: commit, onStart: vi.fn(), onCancel: cancel });
+  root.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", shiftKey: true }));
+  window.dispatchEvent(new Event("blur"));
+  expect(commit).toHaveBeenCalledOnce(); expect(cancel).not.toHaveBeenCalled();
+  document.dispatchEvent(new Event("pointercancel")); expect(cancel).toHaveBeenCalledOnce();
+  clean(); root.remove();
+ });
+});

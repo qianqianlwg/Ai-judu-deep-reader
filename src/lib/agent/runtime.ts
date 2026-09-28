@@ -68,7 +68,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
     const estimate = estimatedUsage(stepInput, stepOutput, options.contextWindow);
     emit({ type: "usage", usage: { ...estimate, inputTokens: (usage?.inputTokens ?? 0) + estimate.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + estimate.outputTokens, totalTokens: (usage?.totalTokens ?? 0) + estimate.totalTokens } });
   };
-  const tools = [...createReadingTools(options.tools), ...(options.external ? createExternalTools({ ...options.external, signal }) : [])].filter(tool => options.tools.selectedText.trim() || tool.name !== "save_reading_analysis");
+  const tools = [...createReadingTools({ ...options.tools, getVisibleAnswer: () => text }), ...(options.external ? createExternalTools({ ...options.external, signal }) : [])].filter(tool => options.tools.selectedText.trim() ? tool.name !== "mark_answer_emphasis" : tool.name !== "save_reading_analysis");
   const schemaText = readingToolSchemaText(Boolean(options.tools.selectedText.trim()), options.external?.permissions);
   const middleware = createMiddleware({
     name: "ReadingToolAudit",

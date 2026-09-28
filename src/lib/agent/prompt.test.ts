@@ -4,12 +4,15 @@ it("默认释读不附带固定分析栏目，预算约束完整可见答案和�
   const prompt=readingSystemPrompt("analyze", "字".repeat(338), "standard");
   expect(prompt).toContain("目标约338字"); expect(prompt).toContain("禁止惯例性追加");
   expect(prompt).toContain("允许留空");expect(prompt).not.toContain("先输出一个标题");
-  expect(prompt).toContain("保存成功后不要再输出");expect(READING_PROMPT_VERSION).toBe("v14-reading-highlights-soft-length");
+  expect(prompt).toContain("保存成功后不要再输出");expect(READING_PROMPT_VERSION).toBe("v15-verified-emphasis");
 });
 it("追問不注入句读详细程度或保存模板", () => {
   const prompt=readingSystemPrompt("chat", "字".repeat(338), "detailed");
   expect(prompt).not.toContain("详细程度");expect(prompt).not.toContain("readingText");expect(prompt).toContain("直接回答");
 });
+
+
+it("强调提示只传语义不把标记符号写进可见正文", () => { const prompt=readingSystemPrompt("analyze", "选文", "standard"); expect(prompt).toContain("emphasis"); expect(prompt).toContain("不要输出 #关键词#"); expect(prompt).toContain("逐字存在"); const follow=readingSystemPrompt("chat", "", "standard"); expect(follow).toContain("mark_answer_emphasis"); });
 
 it("Agent 按需主动检索，保留不检索与隐私边界",()=>{const prompt=readingSystemPrompt("chat","","standard");for(const text of ["主动调用 search_book","additionalQueries","不检索","敏感个人信息","降级"])expect(prompt).toContain(text);});
 
@@ -31,10 +34,12 @@ it("方式贯通句读和追问，追问只沿用长度倾向", () => {
   expect(chat).not.toContain("回答目标约");
 });
 
-it("句读正文提示少量关键词和关键句标注，追问不强制使用", () => {
-  const analyze = readingSystemPrompt("analyze", "选文", "standard");
-  expect(analyze).toContain("**关键词**");
-  expect(analyze).toContain("*关键句正文*。");
-  expect(analyze).toContain("不新增关键词/关键句清单");
-  expect(readingSystemPrompt("chat", "选文", "standard")).not.toContain("**关键词**");
+it("句读与追问都采用本地元数据方案，不要求 Markdown 符号作为高亮协议", () => {
+  for (const mode of ["analyze", "chat"] as const) {
+    const prompt = readingSystemPrompt(mode, "选文", "standard");
+    expect(prompt).toContain("逐字");
+    expect(prompt).not.toContain("**关键词**");
+    expect(prompt).not.toContain("*关键句正文*");
+    expect(prompt).toContain(mode === "analyze" ? "emphasis" : "mark_answer_emphasis");
+  }
 });

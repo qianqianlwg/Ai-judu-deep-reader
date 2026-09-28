@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, type CSSProperties } from "react";
+import { ANSWER_EMPHASIS_PALETTES } from "@/lib/answer-emphasis-palette";
 import {
   DEFAULT_READING_APPEARANCE, READING_APPEARANCE_LIMITS, READING_COLUMN_WIDTHS, READING_FONTS,
   READING_THEMES, getReadingAppearanceVariables, getReadingTextProps, getReadingThemeVariables,
@@ -95,6 +96,23 @@ export function ReadingAppearanceSettings({ value, onChange, ready = true, disab
               <ThemeThumbnail theme={theme} />
               <span className={styles.themeName}>{theme.label}<span className={styles.check} aria-hidden="true">✓</span></span>
               <small id={id + "-theme-" + theme.id}>{theme.description}</small>
+            </span>
+          </label>)}
+        </div>
+      </fieldset>
+      <fieldset className={styles.paletteField} disabled={blocked}>
+        <legend>句读重点配色</legend>
+        <p className={styles.paletteHint}>只影响右侧回答，不改变原书标亮与书页主题。选择后即时应用。</p>
+        <div className={styles.palettes}>
+          {ANSWER_EMPHASIS_PALETTES.map((palette) => <label className={styles.paletteOption} key={palette.id}
+            style={getReadingThemeVariables(preferences.theme, palette.id) as CSSProperties}>
+            <input type="radio" name={id + "-emphasis-palette"} value={palette.id}
+              checked={preferences.emphasisPalette === palette.id} aria-label={palette.label}
+              onChange={() => update({ emphasisPalette: palette.id })} />
+            <span className={styles.paletteCard}>
+              <span className={styles.paletteHeading}>{palette.label}<span aria-hidden="true">{preferences.emphasisPalette === palette.id ? "✓" : ""}</span></span>
+              <small>{palette.description}</small>
+              <span className={styles.paletteSample} aria-hidden="true">先理解<span className={styles.paletteTerm}>关键词</span>，再读懂<span className={styles.paletteSentence}>这一句的意思。</span></span>
             </span>
           </label>)}
         </div>
