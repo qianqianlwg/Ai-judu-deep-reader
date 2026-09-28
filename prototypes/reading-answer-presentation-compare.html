@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>句读 · 回答重点呈现方案对比</title>
+<style>html{color-scheme:light dark}body{margin:0;padding:28px 20px;background:light-dark(#f5f5f4,#1c1e20)}#judu-answer-lab{max-width:1040px;margin:0 auto}.cursor-interaction,summary,select{cursor:pointer}@media(max-width:480px){body{padding:18px 12px}}</style>
+</head><body>
+<style>
+  #judu-answer-lab {
+    --jl-paper: light-dark(#ffffff, #242629);
+    --jl-ground: light-dark(#f5f5f4, #1c1e20);
+    --jl-soft: light-dark(#f8f8f7, #2c2f32);
+    --jl-ink: light-dark(#292d31, #e5e8eb);
+    --jl-muted: light-dark(#697078, #aab1b8);
+    --jl-line: light-dark(#e1e4e5, #41464c);
+    --jl-keyword: light-dark(#245a80, #91c4e9);
+    --jl-keyline: light-dark(#346246, #a3d4af);
+    --jl-marker: light-dark(#fff0b8, #554722);
+    --jl-focus: light-dark(#e8f2eb, #2d4134);
+    --jl-font: 15px;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.65; color: var(--jl-ink);
+    color-scheme: light dark; max-width: 1000px; margin: 0 auto;
+  }
+  #judu-answer-lab *, #judu-answer-lab *::before, #judu-answer-lab *::after { box-sizing: border-box; }
+  #judu-answer-lab [hidden] { display: none !important; }
+  #judu-answer-lab h2, #judu-answer-lab h3, #judu-answer-lab p { margin: 0; }
+  #judu-answer-lab button, #judu-answer-lab select, #judu-answer-lab input { font: inherit; }
+  #judu-answer-lab button, #judu-answer-lab select { color: var(--jl-ink); background: var(--jl-paper); }
+  #judu-answer-lab .jl-heading { font-size: 20px; font-weight: 500; }
+  #judu-answer-lab .jl-caption { color: var(--jl-muted); font-size: 12px; }
+  #judu-answer-lab .jl-labhead { margin-bottom: 14px; }
+  #judu-answer-lab .jl-choices { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 12px; }
+  #judu-answer-lab .jl-choice { padding: 7px 11px; min-height: 36px; border: 1px solid var(--jl-line); border-radius: 8px; }
+  #judu-answer-lab .jl-choice[aria-pressed="true"] { background: var(--jl-ink); color: var(--jl-paper); border-color: var(--jl-ink); }
+  #judu-answer-lab .jl-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 14px; }
+  #judu-answer-lab select { padding: 5px 7px; border: 1px solid var(--jl-line); border-radius: 6px; max-width: 100%; }
+  #judu-answer-lab .jl-viewcheck { display: inline-flex; align-items: center; gap: 5px; }
+  #judu-answer-lab .jl-legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 16px; font-size: 12px; color: var(--jl-muted); }
+  #judu-answer-lab .jl-key { color: var(--jl-keyword); font-weight: 500; }
+  #judu-answer-lab .jl-conclusion { color: var(--jl-keyline); font-weight: 500; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  #judu-answer-lab .jl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 410px); justify-content: center; max-width: 836px; margin: 0 auto; }
+  #judu-answer-lab .jl-grid[data-compare="true"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #judu-answer-lab .jl-panel { min-width: 0; border: 1px solid var(--jl-line); border-radius: 14px; background: var(--jl-paper); }
+  #judu-answer-lab .jl-panelhead { padding: 13px 17px; border-bottom: 1px solid var(--jl-line); border-radius: 14px 14px 0 0; background: var(--jl-soft); }
+  #judu-answer-lab .jl-paneltitle { font-size: 14px; font-weight: 500; }
+  #judu-answer-lab .jl-question { font-size: 13px; margin: 17px 18px 0; padding: 9px 11px; background: var(--jl-ground); border-radius: 9px; }
+  #judu-answer-lab .jl-answer { padding: 18px; font-size: var(--jl-font); line-height: 1.9; overflow-wrap: anywhere; }
+  #judu-answer-lab .jl-answer p + p { margin-top: 15px; }
+  #judu-answer-lab .jl-term { font-weight: 500; }
+  #judu-answer-lab .jl-lead { font-weight: 500; }
+  #judu-answer-lab [data-scheme="color"] .jl-term,
+  #judu-answer-lab [data-scheme="hybrid"] .jl-term { color: var(--jl-keyword); }
+  #judu-answer-lab [data-scheme="color"] .jl-lead { color: var(--jl-keyline); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+  #judu-answer-lab [data-scheme="marker"] .jl-term { background: var(--jl-marker); border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  #judu-answer-lab [data-scheme="marker"] .jl-lead { background: var(--jl-focus); border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  #judu-answer-lab [data-scheme="hybrid"] .jl-intro { border-radius: 8px; background: var(--jl-focus); padding: 10px 12px; }
+  #judu-answer-lab .jl-details { border-top: 1px solid var(--jl-line); margin: 0 18px; padding: 10px 0; font-size: 13px; }
+  #judu-answer-lab .jl-details summary { color: var(--jl-muted); }
+  #judu-answer-lab .jl-details summary::marker { color: var(--jl-muted); }
+  #judu-answer-lab .jl-source { margin-top: 10px; border-radius: 8px; background: var(--jl-soft); padding: 12px; }
+  #judu-answer-lab .jl-source blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--jl-line); }
+  #judu-answer-lab .jl-source strong { font-weight: 500; }
+  #judu-answer-lab .jl-panelnote { border-top: 1px solid var(--jl-line); padding: 10px 18px; font-size: 12px; color: var(--jl-muted); }
+  #judu-answer-lab .jl-description { margin: 13px 0; color: var(--jl-muted); font-size: 13px; }
+  #judu-answer-lab .jl-options { margin-top: 16px; border-top: 1px solid var(--jl-line); padding-top: 10px; }
+  #judu-answer-lab .jl-optionrow { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 12px 0; }
+  #judu-answer-lab .jl-optionrow label { display: inline-flex; align-items: center; gap: 5px; }
+  #judu-answer-lab .jl-optionrow input[type="range"] { width: 95px; }
+  #judu-answer-lab[data-keywords="false"] .jl-term { color: inherit; background: transparent; }
+  #judu-answer-lab[data-keylines="false"] .jl-lead { color: inherit; background: transparent; text-decoration: none; }
+  #judu-answer-lab[data-keylines="false"] .jl-intro { background: transparent; }
+  #judu-answer-lab[data-intensity="strong"] .jl-term { text-decoration: underline; text-underline-offset: 4px; }
+  #judu-answer-lab[data-intensity="strong"] [data-scheme="plain"] .jl-term { text-decoration: none; }
+  @media(max-width: 660px) { #judu-answer-lab .jl-grid[data-compare="true"] { grid-template-columns: minmax(0, 410px); } }
+  @media(pointer: coarse) { #judu-answer-lab button, #judu-answer-lab select, #judu-answer-lab summary { min-height: 44px; } }
+  @media(prefers-reduced-motion: no-preference) { #judu-answer-lab .jl-choice { transition: background-color .12s; } }
+</style>
+<section id="judu-answer-lab" aria-label="句读回答呈现对照">
+  <header class="jl-labhead">
+    <h2 class="jl-heading">同一段回答，四种重点呈现</h2>
+    <p class="jl-caption">自制演示 · 不写入书籍标注 · 不代表已上线功能</p>
+  </header>
+  <div class="jl-choices" aria-label="选择展示方案">
+    <button type="button" class="jl-choice cursor-interaction" data-choice="plain" aria-pressed="false">A 普通排版</button>
+    <button type="button" class="jl-choice cursor-interaction" data-choice="color" aria-pressed="true">B 彩色字词</button>
+    <button type="button" class="jl-choice cursor-interaction" data-choice="marker" aria-pressed="false">C 荧光笔底色</button>
+    <button type="button" class="jl-choice cursor-interaction" data-choice="hybrid" aria-pressed="false">D 轻量混合</button>
+  </div>
+  <div class="jl-toolbar">
+    <label>示例 <select data-control="sample" aria-label="示例内容"><option value="argument">论述类 · 决策范围</option><option value="literary">文学类 · 人物心理</option></select></label>
+    <label class="jl-viewcheck"><input type="checkbox" data-control="compare" />并排看四种方案</label>
+  </div>
+  <div class="jl-legend" aria-label="强调含义"><span><span class="jl-key">关键词</span> · 理解抓手</span><span><span class="jl-conclusion">关键句</span> · 段落主旨</span><span>所有方案的正文内容相同</span></div>
+  <div class="jl-grid" data-compare="false" aria-label="回答效果"></div>
+  <p class="jl-description" role="status" aria-live="polite"></p>
+  <details class="jl-options" data-fallback-options>
+    <summary class="cursor-interaction">调整强调与字号</summary>
+    <div class="jl-optionrow">
+      <label><input type="checkbox" data-control="keywords" checked />关键词颜色</label>
+      <label><input type="checkbox" data-control="keylines" checked />关键句强调</label>
+      <label>强调 <select data-control="intensity"><option value="gentle">克制</option><option value="strong">更明显</option></select></label>
+      <label>字号 <input type="range" min="14" max="18" step="1" value="15" data-control="fontSize" /><output data-font-output>15 px</output></label>
+    </div>
+  </details>
+</section>
+<script>
+(() => {
+  const root = document.getElementById('judu-answer-lab');
+  if (!root) throw new Error('回答预览根节点缺失');
+  const schemes = [
+    { id: 'plain', title: 'A · 普通排版', detail: '灰白文字，只用字重和段落留白。', note: '基线：不添加颜色，也不增加组件。' },
+    { id: 'color', title: 'B · 彩色字词', detail: '关键词用蓝色；关键句用深绿色和细下划线，不加大块底色。', note: '颜色只给少数重点，不给整段涂色。' },
+    { id: 'marker', title: 'C · 荧光笔底色', detail: '关键词用浅黄底色；关键句用浅绿底色，像读书时做轻标记。', note: '标记随文字换行，不包住整段文字。' },
+    { id: 'hybrid', title: 'D · 轻量混合', detail: '保留彩色关键词，仅主旨使用一块浅底；概念与依据在需要时展开。', note: '只突出一个主旨，避免变成卡片墙。' },
+  ];
+  // WHY：四种方案共享同一份内容与语义锚点，避免用答案长短差异制造“更清楚”的错觉。
+  const samples = {
+    argument: {
+      question: '为什么影响跨越边界，就需要更大范围的协调？',
+      lead: '关键不在于决策层级越高越好，而在于协调范围能否覆盖影响范围。',
+      paragraphs: [
+        [['一项决定如果只影响本地，就可以让更了解情况的人处理；如果影响跨出边界，单个地方便可能忽略其他地方承担的', ''], ['外部成本', 'term'], ['。', '']],
+        [['因此，应先看清', ''], ['影响范围', 'term'], ['，再确定', ''], ['协调责任', 'term'], ['，而不是先认定越集中越有效。', '']],
+        [['这里仍有一个边界：扩大协调范围也会增加信息传递和执行成本，不能把“需要协调”理解为“一律上收”。', '']],
+      ],
+      term: '外部成本', definition: '某项决定给其他主体带来的、但未由决策者充分承担的成本。',
+      quote: '当影响跨出本地边界时，需要让协调范围覆盖其实际影响；这不意味着所有决定都应交给最高层级。',
+    },
+    literary: {
+      question: '他为什么到了门口，却迟迟没有敲门？',
+      lead: '他迟疑的不是要不要回来，而是回来以后，自己是否还会被接纳。',
+      paragraphs: [
+        [['“到了门口”说明行动已经接近完成；“迟迟没有敲门”却把动作停住，让', ''], ['心理距离', 'term'], ['比眼前这扇门更突出。', '']],
+        [['这一停顿同时容纳着', ''], ['归属的渴望', 'term'], ['和', ''], ['被拒绝的担忧', 'term'], ['。人物不是没有决定，而是不愿立刻面对决定的后果。', '']],
+        [['这是一种基于句子动作与停顿的解读；仅凭这一句，还不能断言人物曾遭到家人驱逐。', '']],
+      ],
+      term: '心理距离', definition: '这里指人物虽然已经走近住所，情感上却仍感到疏离、不确定。',
+      quote: '他终于走到门口，抬起的手悬了一会儿，又慢慢放了下来。',
+    },
+  };
+  const state = { scheme: 'color', sample: 'argument', compare: false, keywords: true, keylines: true, intensity: 'gentle', fontSize: 15 };
+  const grid = root.querySelector('.jl-grid');
+  const description = root.querySelector('.jl-description');
+  const panels = new Map();
+  function element(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+  function build(scheme) {
+    const sample = samples[state.sample];
+    const panel = element('article', 'jl-panel');
+    panel.dataset.scheme = scheme.id;
+    const header = element('header', 'jl-panelhead');
+    header.append(element('h3', 'jl-paneltitle', scheme.title), element('p', 'jl-caption', '句读 · 当前选文'));
+    panel.append(header, element('div', 'jl-question', sample.question));
+    const answer = element('div', 'jl-answer');
+    const lead = element('p', 'jl-intro'); lead.append(element('span', 'jl-lead', sample.lead)); answer.append(lead);
+    for (const parts of sample.paragraphs) {
+      const p = document.createElement('p');
+      for (const [text, role] of parts) p.append(role ? element('span', 'jl-term', text) : document.createTextNode(text));
+      answer.append(p);
+    }
+    panel.append(answer);
+    if (scheme.id === 'hybrid') {
+      const details = element('details', 'jl-details');
+      details.append(element('summary', 'cursor-interaction', '概念与依据 · 按需展开'));
+      const source = element('div', 'jl-source');
+      source.append(element('strong', '', sample.term), element('p', '', sample.definition), element('blockquote', '', sample.quote), element('p', 'jl-caption', '自制示例选文，不是实际书籍引用；此处不提供虚构跳转。'));
+      details.append(source); panel.append(details);
+    }
+    panel.append(element('footer', 'jl-panelnote', scheme.note));
+    panels.set(scheme.id, panel); grid.append(panel);
+  }
+  function accept(saved) {
+    if (!saved || typeof saved !== 'object') return;
+    if (schemes.some(s => s.id === saved.scheme)) state.scheme = saved.scheme;
+    if (Object.hasOwn(samples, saved.sample)) state.sample = saved.sample;
+    for (const key of ['compare', 'keywords', 'keylines']) if (typeof saved[key] === 'boolean') state[key] = saved[key];
+    if (['gentle', 'strong'].includes(saved.intensity)) state.intensity = saved.intensity;
+    if (Number.isInteger(saved.fontSize) && saved.fontSize >= 14 && saved.fontSize <= 18) state.fontSize = saved.fontSize;
+  }
+  let renderedSample = '';
+  function render() {
+    if (renderedSample !== state.sample) { grid.replaceChildren(); panels.clear(); schemes.forEach(build); renderedSample = state.sample; }
+    root.dataset.keywords = String(state.keywords); root.dataset.keylines = String(state.keylines); root.dataset.intensity = state.intensity;
+    root.style.setProperty('--jl-font', `${state.fontSize}px`); grid.dataset.compare = String(state.compare);
+    panels.forEach((panel, id) => { panel.hidden = !state.compare && id !== state.scheme; });
+    root.querySelectorAll('[data-choice]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.choice === state.scheme)));
+    root.querySelectorAll('[data-control]').forEach(control => {
+      const key = control.dataset.control;
+      if (control.type === 'checkbox') control.checked = state[key]; else control.value = String(state[key]);
+    });
+    root.querySelector('[data-font-output]').textContent = `${state.fontSize} px`;
+    description.textContent = state.compare ? '并排对照：四种方案正文完全相同；D 的额外概念与依据默认收起。' : schemes.find(s => s.id === state.scheme).detail;
+  }
+  function remember() {
+    const host = window.openai;
+    if (typeof host?.setWidgetState === 'function') host.setWidgetState({ modelContent: { selectedScheme: state.scheme, sample: state.sample }, privateContent: { ...state } }).catch(() => {});
+  }
+  root.querySelectorAll('[data-choice]').forEach(button => button.addEventListener('click', () => { state.scheme = button.dataset.choice; state.compare = false; render(); remember(); }));
+  root.querySelectorAll('[data-control]').forEach(control => control.addEventListener('input', () => {
+    const key = control.dataset.control;
+    state[key] = control.type === 'checkbox' ? control.checked : key === 'fontSize' ? Number(control.value) : control.value;
+    render(); remember();
+  }));
+  accept(window.openai?.widgetState?.privateContent);
+  window.addEventListener('openai:set_globals', event => { accept(event.detail?.globals?.widgetState?.privateContent); render(); });
+  render();
+  if (globalThis.Tweak) {
+    const tweak = new globalThis.Tweak({ container: root, onChange: () => { render(); remember(); } });
+    root.querySelector('[data-fallback-options]').hidden = tweak.supported !== false;
+    tweak.addToggle(state, 'keywords', { label: '关键词颜色' });
+    tweak.addToggle(state, 'keylines', { label: '关键句强调' });
+    tweak.addSelect(state, 'intensity', { label: '强调程度', options: [{label:'克制',value:'gentle'},{label:'更明显',value:'strong'}] });
+    tweak.addSlider(state, 'fontSize', { label: '正文字号', min: 14, max: 18, unit: 'px' });
+  }
+})();
+</script>
+
+</body></html>

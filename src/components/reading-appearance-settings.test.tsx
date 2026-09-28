@@ -29,6 +29,21 @@ describe("ReadingAppearanceSettings", () => {
     expect(host.querySelector('fieldset legend')?.textContent).toContain("主题");
     expect(host.querySelector('[aria-labelledby]')).toBeTruthy();
   });
+  it("四种低饱和重点配色可独立选择，预览展示真实词和句，切换主题不丢失选择", async () => {
+    expect(host.querySelectorAll('input[name$="-emphasis-palette"]')).toHaveLength(4);
+    expect(host.querySelectorAll('[class*="paletteSample"]')).toHaveLength(4);
+    const blue = host.querySelector<HTMLInputElement>('input[value="blue"][name$="-emphasis-palette"]')!;
+    await act(async () => blue.click());
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ emphasisPalette: "blue", theme: "gray" }));
+    current = onChange.mock.lastCall![0]; await rerender();
+    const card = blue.nextElementSibling as HTMLElement;
+    expect(card.textContent).toContain("关键词");
+    expect((blue.parentElement as HTMLElement).style.getPropertyValue("--reading-term-background")).toBe("#ECF2F7");
+    await act(async () => host.querySelector<HTMLInputElement>('input[type="radio"][value="dark"]')!.click());
+    current = onChange.mock.lastCall![0]; await rerender();
+    expect(current).toMatchObject({ theme: "dark", emphasisPalette: "blue" });
+    expect((host.querySelector<HTMLInputElement>('input[value="blue"][name$="-emphasis-palette"]')!.parentElement as HTMLElement).style.getPropertyValue("--reading-term-background")).toBe("#293743");
+  });
   it("主题、字体、字号、行距、字距、列宽、对齐和语言都是受控更新", async () => {
     await act(async () => (host.querySelector('input[type="radio"][value="mist"]') as HTMLInputElement).click());
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "mist" })); current = onChange.mock.lastCall![0]; await rerender();
@@ -71,6 +86,6 @@ describe("ReadingAppearanceSettings", () => {
 describe("局部样式约束", () => {
   it("样式独立、无外部资源且文件不超 500 行", async () => {
     const source = await fs.readFile("src/components/reading-appearance-settings.module.css", "utf8");
-    expect(source.split(/\r?\n/)).toHaveLength(103); expect(source).not.toMatch(/url\(/); expect(source).toContain("prefers-reduced-motion");
+    expect(source.split(/\r?\n/).length).toBeLessThanOrEqual(500); expect(source).not.toMatch(/url\(/); expect(source).toContain("prefers-reduced-motion");
   });
 });

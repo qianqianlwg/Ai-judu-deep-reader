@@ -1,6 +1,3 @@
-import { createBookRetrieval } from "@/lib/book-retrieval";
-import { createQueryEmbeddingSession } from "@/lib/query-embedding";
-import { readEmbeddingConfig, readAgentRetrievalEnabled } from "@/lib/embedding-store";
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
@@ -11,13 +8,17 @@ import { attachSavedToolContext } from "@/lib/agent/history-context";
 import { prepareReadingMemory } from "@/lib/agent/reading-memory";
 import { insertCurrentAttemptToolRun, toolReplayEvents } from "@/lib/agent/tool-history";
 import { readingToolSchemaText } from "@/lib/agent/schemas";
+import { createBookRetrieval } from "@/lib/book-retrieval";
+import { createQueryEmbeddingSession } from "@/lib/query-embedding";
+import { readEmbeddingConfig, readAgentRetrievalEnabled } from "@/lib/embedding-store";
 import { createBookSources } from "@/lib/agent/book-sources";
 import { readingAgentFailure, runReadingAgent } from "@/lib/agent/runtime";
 import type { SavedReadingAnalysis } from "@/lib/agent/tools";
 import { isTokenUsage, type TokenUsage } from "@/lib/token-usage";
 import {readModelChoices,selectRequestModel} from "@/lib/model-choices";
 import type { ProviderConfig, ProviderMessage } from "@/lib/ai-provider";
-import { isAnalysis, isRecord, type Analysis } from "@/lib/chat-stream";
+import { isAnalysis, isRecord } from "@/lib/chat-stream";
+import { inferAnswerEmphasis, readAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
 import { captureReadingContext, readReadingContextSnapshot, readRetryContextSettings, type RetryContextSettings, type ReadingAnchor, type ReadingContextSnapshot } from "@/lib/reading-request";
 import { normalizeReadingDetail, readingAnswerBudget, readingSelectionError, type ReadingDetail } from "@/lib/reading-detail";
 import { logAgentEvent } from "@/lib/agent/logger";
@@ -40,7 +41,7 @@ type RequestMeta = {
   fingerprint: string; attemptId: string; leaseUntil: number; input: Input; contextSnapshot: ReadingContextSnapshot; executionSettings?: ContextSettings; failure?: Failure;
 };
 type MessageRow = { id: string; thread_id: string; role: string; content: string; structured_output: string | null; status: string; usage_json?: string | null };
-type SavedAnalysis = Analysis & { anchor?: ReadingAnchor };
+type SavedAnalysis = SavedReadingAnalysis;
 class RequestError extends Error {
   constructor(message: string, readonly status = 409, readonly code = "id_conflict") { super(message); }
 }
@@ -99,9 +100,12 @@ function reserveMessages(db: Db, threadId: string, meta: RequestMeta, model: str
     return undefined;
   } catch (error: unknown) { db.exec("ROLLBACK"); throw error; }
 }
-function persistAssistant(db: Db, threadId: string, meta: RequestMeta, raw: string, status: "streaming" | "completed" | "error", analysis?: SavedAnalysis, failure?: Failure, usage?: TokenUsage): void {
+function persistAssistant(db: Db, threadId: string, meta: RequestMeta, raw: string, status: "streaming" | "completed" | "error", analysis?: SavedAnalysis, failure?: Failure, usage?: TokenUsage, emphasis?: AnswerEmphasis): void {
   // WHY：attemptId 是写入栅栏；已取消的旧请求不能覆盖后来重试成功的同一条消息。
-  db.prepare("UPDATE chat_messages SET content = ?, raw_content = ?, structured_output = ?, status = ?, usage_json = ? WHERE id = ? AND thread_id = ? AND json_extract(structured_output, '$._request.attemptId') = ?").run(raw, raw, JSON.stringify({ ...analysis, outputFormat: "text", _request: { ...meta, failure } }), status, usage ? JSON.stringify(usage) : null, meta.clientAssistantMessageId, threadId, meta.attemptId);
+  const fields: Record<string, unknown> = { ...analysis };
+  delete fields.emphasis;
+  const verified = readAnswerEmphasis(raw, emphasis ?? analysis?.emphasis) ?? (status === "completed" ? inferAnswerEmphasis(raw) : undefined);
+  db.prepare("UPDATE chat_messages SET content = ?, raw_content = ?, structured_output = ?, status = ?, usage_json = ? WHERE id = ? AND thread_id = ? AND json_extract(structured_output, '$._request.attemptId') = ?").run(raw, raw, JSON.stringify({ ...fields, ...(verified ? { emphasis: verified } : {}), outputFormat: "text", _request: { ...meta, failure } }), status, usage ? JSON.stringify(usage) : null, meta.clientAssistantMessageId, threadId, meta.attemptId);
 }
 function buildContext(db: Db, input: Input, meta: RequestMeta) {
   const snapshot = meta.contextSnapshot;
@@ -123,6 +127,8 @@ function replayMessage(db: Db, threadId: string, meta: RequestMeta, row: Message
     controller.enqueue(encode("meta", { threadId, mode: meta.input.mode, messageId: row.id, userMessageId: meta.clientUserMessageId, outputFormat: saved.outputFormat === "text" || !isAnalysis(saved) ? "text" : "legacy-json", replayed: true }));
     controller.enqueue(encode("raw_delta", { text: row.content }));
     for (const event of toolReplayEvents(db, { threadId, messageId: row.id, editionId: meta.input.editionId })) controller.enqueue(encode("tool", { tool: event.tool }));
+    const emphasis = readAnswerEmphasis(row.content, saved.emphasis);
+    if (emphasis) controller.enqueue(encode("emphasis", { result: emphasis, messageId: row.id }));
     if (isAnalysis(saved)) {
       const result: Record<string, unknown> = { ...saved };
       delete result._request;
@@ -191,6 +197,7 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
   let terminal = false;
   let raw = "";
   let analysis: SavedReadingAnalysis | undefined;
+  let emphasis: AnswerEmphasis | undefined;
   let usage: TokenUsage | undefined;
   let lastSaved = 0;
   const send = (event: string, payload: unknown) => { if (!closed) sink.enqueue(encode(event, payload)); };
@@ -203,7 +210,7 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
   };
   const fail = (code: string, message: string) => {
     if (terminal) return;
-    try { persistAssistant(db, threadId, meta, raw, "error", analysis, { code, message, retryable: true }, usage); }
+    try { persistAssistant(db, threadId, meta, raw, "error", analysis, { code, message, retryable: true }, usage, emphasis); }
     catch (error: unknown) { console.error("保存失败状态失败", error); code = "persistence_failed"; message = "保存失败状态失败，请重试"; }
     terminal = true;
     clearTimeout(timeout);
@@ -248,9 +255,17 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
               async save(value) {
                 assertCurrentAttempt();
                 analysis = value;
+                emphasis = readAnswerEmphasis(raw, value.emphasis);
                 logAgentEvent("info", "analysis_save_requested", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, detail: meta.input.detail, readingTextLength: value.readingText?.length ?? 0, selectedTextLength: meta.input.selectedText.length });
-                persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage);
+                persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage, emphasis);
                 send("structured", { result: analysis, messageId: meta.clientAssistantMessageId });
+                if (emphasis) send("emphasis", { result: emphasis, messageId: meta.clientAssistantMessageId });
+              },
+              async saveEmphasis(value) {
+                assertCurrentAttempt();
+                emphasis = readAnswerEmphasis(raw, value);
+                persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage, emphasis);
+                if (emphasis) send("emphasis", { result: emphasis, messageId: meta.clientAssistantMessageId });
               },
             },
             async audit(run) {
@@ -261,7 +276,7 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
               if (terminal) return;
               if (event.type === "raw_delta") {
                 raw += event.text;
-                if (Date.now() - lastSaved > 500) { persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage); lastSaved = Date.now(); }
+                if (Date.now() - lastSaved > 500) { persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage, emphasis); lastSaved = Date.now(); }
               } else if (event.type === "usage") usage = event.usage;
               const { type, ...payload } = event;
               send(type, payload);
@@ -270,17 +285,22 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
           if (terminal) return;
           assertCurrentAttempt();
           raw = result.text; usage = result.usage;
+          // WHY：模型可能具备普通文本能力但省略可选标注工具；服务端提供保守兜底，保证 B 方案不会因一次工具遗漏完全失效。
+          if (!emphasis) {
+            emphasis = inferAnswerEmphasis(raw);
+            if (emphasis) send("emphasis", { result: emphasis, messageId: meta.clientAssistantMessageId });
+          }
           logAgentEvent("info", "agent_completed", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, textLength: raw.length, hasAnalysis: Boolean(analysis), inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
           if (meta.input.mode === "analyze" && !analysis) {
             // WHY：兼容网关省略工具调用时，自动保存仍须绑定同一组已核验来源，不能让成功正文丢失回跳位置。
             const anchor=verifiedAnchor(db,meta.input);
             analysis = { readingText: raw.trim(), summary: "", breakdown: [], concepts: [], context: "", uncertainty: "", citations: [], ...(anchor ? {anchor} : {}) };
             logAgentEvent("warn", "analysis_tool_fallback", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, readingTextLength: analysis.readingText?.length ?? 0 });
-            persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage);
+            persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage, emphasis);
             send("structured", { result: analysis, messageId: meta.clientAssistantMessageId });
             send("tool", { tool: { id: "fallback-save-" + meta.clientAssistantMessageId, name: "save_reading_analysis", status: "completed", result: "句读正文已保存（兼容网关未发送结构化工具调用）" } });
           }
-          persistAssistant(db, threadId, meta, raw, "completed", analysis, undefined, usage);
+          persistAssistant(db, threadId, meta, raw, "completed", analysis, undefined, usage, emphasis);
           terminal = true;
           send("done", { content: raw, messageId: meta.clientAssistantMessageId });
           close();

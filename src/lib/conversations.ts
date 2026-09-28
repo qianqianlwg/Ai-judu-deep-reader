@@ -1,5 +1,5 @@
-import { readRetrievalReport } from "./retrieval-report";
 import { publicToolFailure } from "./agent/diagnostics";
+import { readRetrievalReport } from "./retrieval-report";
 import type { HistoricalToolActivity, ToolActivity } from "./chat-stream";
 
 export type ConversationSummary = {
@@ -118,8 +118,8 @@ export function createConversationClient(fetcher: typeof fetch) {
   };
 }
 
-const PUBLIC_TOOLS = new Set(["search_book", "read_source", "save_reading_analysis"]);
-const TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts"]);
+const PUBLIC_TOOLS = new Set(["search_book", "read_source", "save_reading_analysis", "mark_answer_emphasis"]);
+const TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts", "marked", "emphasis", "marks", "kind", "occurrence", "version"]);
 type ToolDisplayJson = string | number | boolean | null | ToolDisplayJson[] | { [key: string]: ToolDisplayJson };
 export function conversationToolFromRow(value: unknown, editionId: string): { messageId: string; tool: ToolActivity } | undefined {
   if (!record(value) || typeof value.id !== "string" || typeof value.messageId !== "string" || typeof value.name !== "string" || (value.status !== "running" && value.status !== "completed" && value.status !== "error")) {

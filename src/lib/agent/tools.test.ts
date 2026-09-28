@@ -11,7 +11,26 @@ describe("结构化句读工具", () => {
   it("未检索来源或伪造引文不会被保存", async () => { const { deps, tools } = fixture(); expect(await tools[2].invoke(analysis)).toMatchObject({ ok: false }); await tools[0].invoke({ query: "认识" }); expect(await tools[2].invoke({ ...analysis, citations: [{ sourceId: source.sourceId, quote: "不存在的原文" }] })).toMatchObject({ ok: false }); expect(deps.save).not.toHaveBeenCalled(); });
   it("概念必须逐字存在，不把整段分析标题加粗成关键词", async () => { const { deps, tools } = fixture(); expect(await tools[2].invoke({ ...analysis, concepts: [{ name: "自我意识与对象关系", text: "说明" }] })).toMatchObject({ ok: false }); expect(deps.save).not.toHaveBeenCalled(); });
   it("普通聊天无选文时不能保存句读", async () => { const { deps } = fixture(); deps.selectedText = ""; expect(await createReadingTools(deps)[2].invoke(analysis)).toMatchObject({ ok: false }); });
-  it("read_source 拒绝未登记 ID", async () => { const { deps, tools } = fixture(); expect(await tools[1].invoke({ sourceId: "other-edition" })).toMatchObject({ ok: false }); expect(deps.read).not.toHaveBeenCalled(); });
+  it("只保存可见正文逐字匹配的语义标注，不接受模型颜色与虚构文本", async () => {
+    const { deps, tools } = fixture();
+    deps.getVisibleAnswer = () => "先看影响范围，再确定协调责任。";
+    deps.saveEmphasis = vi.fn(async () => undefined);
+    const proposal = { version: 1 as const, marks: [{ kind: "term" as const, quote: "影响范围", occurrence: 1 }] };
+    expect(await tools[3].invoke(proposal)).toMatchObject({ ok: true, marked: 1 });
+    expect(deps.saveEmphasis).toHaveBeenCalledWith(proposal);
+    expect(await tools[3].invoke({ version: 1, marks: [{ kind: "term", quote: "不存在", occurrence: 1 }] })).toMatchObject({ ok: false });
+    expect(deps.saveEmphasis).toHaveBeenCalledOnce();
+    await expect(tools[3].invoke({ version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1, style: "color:red" }] })).rejects.toThrow();
+  });
+  it("句读保存工具将强调和完整回答分开，失配标注不影响正常保存", async () => {
+    const { deps, tools } = fixture();
+    deps.getVisibleAnswer = () => "认识活动改变对象。";
+    await tools[0].invoke({ query: "认识" });
+    await tools[2].invoke({ ...analysis, emphasis: { version: 1, marks: [{ kind: "term", quote: "认识活动", occurrence: 1 }] } });
+    expect(deps.save).toHaveBeenCalledWith(expect.objectContaining({ emphasis: { version: 1, marks: [{ kind: "term", quote: "认识活动", occurrence: 1 }] } }));
+    await tools[2].invoke({ ...analysis, emphasis: { version: 1, marks: [{ kind: "term", quote: "不存在", occurrence: 1 }] } });
+    expect(deps.save).toHaveBeenLastCalledWith(expect.not.objectContaining({ emphasis: expect.anything() }));
+  });  it("read_source 拒绝未登记 ID", async () => { const { deps, tools } = fixture(); expect(await tools[1].invoke({ sourceId: "other-edition" })).toMatchObject({ ok: false }); expect(deps.read).not.toHaveBeenCalled(); });
   it("同一段多次检索保留已提供的证据，但不跨片段拼接引用", async () => {
     const { deps, tools } = fixture(); let second=false; deps.search=vi.fn(async()=>[{...source,text:second?"对象有独立性":"认识改变对象"}]);
     await tools[0].invoke({query:"认识"}); second=true; await tools[0].invoke({query:"对象"});

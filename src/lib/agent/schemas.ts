@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { answerEmphasisSchema } from "../answer-emphasis";
 
 export const searchBookSchema = z.object({
   query: z.string().trim().min(1).max(500).describe("主要检索问题或精确关键词；自然语言适合语义检索"),
@@ -19,9 +20,11 @@ export const saveAnalysisSchema = z.object({
   context: z.string().max(6000).default(""),
   uncertainty: z.string().max(2000).default(""),
   citations: z.array(z.object({ sourceId: z.string().min(1).max(240), quote: z.string().trim().min(1).max(4000) }).strict()).max(16).default([]),
+  emphasis: answerEmphasisSchema.default({ version: 1, marks: [] }),
 }).strict();
+export const markAnswerEmphasisSchema = answerEmphasisSchema;
 export type AnalysisInput = z.infer<typeof saveAnalysisSchema>;
 export type SearchBookInput = z.infer<typeof searchBookSchema>;
 export type ReadSourceInput = z.infer<typeof readSourceSchema>;
 
-export function readingToolSchemaText(save: boolean): string { return JSON.stringify([searchBookSchema, readSourceSchema, ...(save ? [saveAnalysisSchema] : [])].map(schema=>z.toJSONSchema(schema))); }
+export function readingToolSchemaText(save: boolean): string { return JSON.stringify([searchBookSchema, readSourceSchema, markAnswerEmphasisSchema, ...(save ? [saveAnalysisSchema] : [])].map(schema=>z.toJSONSchema(schema))); }

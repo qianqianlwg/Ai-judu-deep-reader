@@ -423,3 +423,45 @@ it.each([{threadId:"thread-1\n"},{clientAssistantMessageId:"assistant-1\n"},{edi
 
 it("请求模型来自允许列表，并真实传入上游且落库",async()=>{fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('second-model',0)");const result=await call({model:'second-model'});expect(result.status).toBe(200);expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).model).toBe('second-model');expect(fixture.db!.prepare("SELECT model_name FROM chat_messages WHERE id='assistant-1'").get()).toMatchObject({model_name:'second-model'});});
 it("未知模型在请求上游和保存消息之前拒绝",async()=>{const result=await call({model:'not-configured'});expect(result.status).toBe(400);expect(fetcher).not.toHaveBeenCalled();expect(count()).toBe(0);});
+
+describe("语义重点标注的 SSE、落库和幂等回放", () => {
+  const answer = "先看影响范围，再确定协调责任。";
+  const emphasis = { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1 }] };
+  function firstStep(name: string, args: unknown): Response {
+    return upstream(delta(answer), block({ id: "tool-step", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-emphasis", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
+  }
+  it("模型省略标注工具时，服务端自动补充可验证重点", async () => {
+    fetcher.mockReset().mockResolvedValueOnce(upstream(delta(answer), done()));
+    const result = await call();
+    expect(result.text).toContain('event: emphasis');
+    expect(stored().emphasis).toMatchObject({ version: 1, marks: [expect.objectContaining({ kind: "key_sentence", quote: answer })] });
+  });
+  it("追问先流式输出无符号正文，再校验独立标注并可刷新回放", async () => {
+    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", emphasis)).mockResolvedValueOnce(upstream(done()));
+    const result = await call();
+    expect(result.text).toContain('event: raw_delta\ndata: {"text":"' + answer + '"}');
+    expect(result.text).toContain('event: emphasis\ndata: {"result":');
+    expect(row()).toMatchObject({ content: answer, status: "completed" });
+    expect(stored().emphasis).toEqual(emphasis);
+    const calls = fetcher.mock.calls.length;
+    const replay = await call();
+    expect(replay.text).toContain('event: emphasis\ndata: {"result":');
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+  });
+  it("句读保存的标注被同一版正文校验，虚构位置不会进入历史", async () => {
+    fetcher.mockReset().mockResolvedValueOnce(firstStep("save_reading_analysis", { ...analysis, emphasis })).mockResolvedValueOnce(upstream(done()));
+    const result = await call({ mode: "analyze" });
+    expect(result.text).toContain('event: structured');
+    expect(result.text).toContain('event: emphasis');
+    expect(stored().emphasis).toEqual(emphasis);
+    expect(row().content).toBe(answer);
+  });
+  it("模型提出正文不存在的词不能保存，原回答照常保留", async () => {
+    const wrong = { version: 1, marks: [{ kind: "term", quote: "不存在", occurrence: 1 }] };
+    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", wrong)).mockResolvedValueOnce(upstream(done()));
+    const result = await call();
+    expect(result.text).toContain('event: emphasis');
+    expect(JSON.stringify(stored().emphasis)).not.toContain("不存在");
+    expect(row().content).toBe(answer);
+  });
+});

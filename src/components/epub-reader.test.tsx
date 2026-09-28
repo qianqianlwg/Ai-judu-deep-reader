@@ -463,3 +463,19 @@ it("真实有效CFI正文偏移通过预检，仍使用原位置而不回退",as
 });
 
 it("拖选过程中即使停顿也不弹菜单，iframe外释放后提交",async()=>{await render();Object.defineProperty(doc.createRange().constructor.prototype,'getBoundingClientRect',{configurable:true,value:()=>({left:10,top:60,width:30})});await act(async()=>{doc.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0}));const range=doc.createRange();range.selectNodeContents(doc.querySelector('p')!);doc.getSelection()!.removeAllRanges();doc.getSelection()!.addRange(range);doc.dispatchEvent(new Event('selectionchange'));await new Promise(resolve=>setTimeout(resolve,150));});expect(props.onSelect).not.toHaveBeenCalled();await act(async()=>document.dispatchEvent(new MouseEvent('pointerup',{button:0})));expect(props.onSelect).toHaveBeenCalledTimes(1);});
+
+it.each(["button", "textarea"])("原版确认选文后焦点转入外层 %s，保留标注用 UTF-16 快照", async (tag) => {
+ const clear = vi.fn(); await render({ onClearSelection: clear });
+ const text = doc.querySelector("p")!.firstChild!, range = doc.createRange(); range.setStart(text, 2); range.setEnd(text, 6);
+ Object.defineProperty(range, "getBoundingClientRect", { value: () => ({ left: 10, top: 60, width: 30 }) });
+ vi.spyOn(doc.defaultView!, "getSelection").mockReturnValue({ rangeCount: 1, isCollapsed: false, getRangeAt: () => range } as unknown as Selection);
+ doc.querySelector("p")!.tabIndex = 0; doc.querySelector("p")!.focus();
+ await act(async () => {
+  doc.querySelector("p")!.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+  doc.dispatchEvent(new MouseEvent("pointerup", { button: 0 }));
+ });
+ expect(props.onSelect).toHaveBeenLastCalledWith({ paragraphId: "p", startOffset: 2, endOffset: 6, text: "😀原版" }, expect.any(Object));
+ clear.mockClear(); const control = document.createElement(tag); document.body.append(control);
+ await act(async () => { control.focus(); doc.defaultView!.dispatchEvent(new Event("blur")); });
+ expect(document.activeElement).toBe(control); expect(clear).not.toHaveBeenCalled(); control.remove();
+});

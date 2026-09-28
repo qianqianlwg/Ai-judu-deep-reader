@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { inferAnswerEmphasis, readAnswerEmphasis, remarkAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
 import { isTokenUsage, type TokenUsage } from "@/lib/token-usage";
 import type { ConversationSummary } from "@/lib/conversations";
 import { ConversationControls, type ConversationControlsProps } from "./conversation-controls";
@@ -66,9 +67,9 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
     <details className="raw-output"><summary>查看原始输出</summary><pre>{rawContent}</pre></details>
   </div>;
 }
-function MarkdownText({ content }: { content: string }) {
+function MarkdownText({ content, emphasis }: { content: string; emphasis?: AnswerEmphasis }) {
   return <div className={"message-content " + styles.markdown} data-output-format="text">
-    <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+    <Markdown remarkPlugins={[remarkGfm, ...(emphasis ? [[remarkAnswerEmphasis, emphasis] as [typeof remarkAnswerEmphasis, AnswerEmphasis]] : [])]} skipHtml components={{
       // WHY：模型生成的图片 URL 不可信；即便 skipHtml，Markdown 图片仍会自动请求并可能泄露阅读资料。
       img: ({ alt }) => <span role="note" data-blocked-image="true">[图片未自动加载{alt ? "：" + alt : ""}]</span>,
       a: ({ children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a> }}>{content}</Markdown>
@@ -98,15 +99,17 @@ function ToolActivityResult({ tool, messageId, onOpenCitation, historical = fals
       </div>)}
     </div>;
   }
+  if (tool.name === "mark_answer_emphasis") return <p>{tool.status === "running" ? "正在标注重点…" : result?.ok === true ? "本轮重点已标注。" : errorText ?? "未添加可验证的重点标注；正文不受影响。"}</p>;
   if (tool.name === "save_reading_analysis") return <p className={tool.status === "error" || result?.ok === false ? styles.failedMessage : undefined}>
     {result?.ok === true && result.saved === true ? (historical ? "该历史尝试曾保存句读；不代表当前回复的句读记录。" : "句读已保存，可展开上方句读记录查看。") : errorText ?? (tool.status === "running" ? "正在保存句读…" : "句读尚未保存成功。")}
   </p>;
   return tool.result === undefined ? <p>{tool.status === "running" ? "等待工具返回结果…" : "工具没有返回展示结果。"}</p> : <pre className={styles.toolOutput}>{toolResultText(tool.result)}</pre>;
 }
-const TOOL_LABELS: Record<string, string> = { search_book: "本书检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
+const TOOL_LABELS: Record<string, string> = { mark_answer_emphasis: "重点标注", search_book: "本书检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
 function ToolRecords({ message, onOpenCitation, includeAnalysis = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean }) {
   const analysis = includeAnalysis && isAnalysis(message.analysis) ? message.analysis : undefined;
-  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && tool.name !== "search_book" && tool.name !== "read_source" && ["running", "completed", "error"].includes(String(tool.status))) : [];
+  // WHY：成功的重点标注已经体现在正文颜色里，工具审计仍落库；只有执行中或失败时才显示状态卡。
+  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && tool.name !== "search_book" && tool.name !== "read_source" && ["running", "completed", "error"].includes(String(tool.status)) && !(tool.name === "mark_answer_emphasis" && tool.status === "completed" && isRecord(tool.result) && tool.result.ok === true && message.emphasis?.marks.length)) : [];
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((warning): warning is string => typeof warning === "string") : [];
   return <>
     {analysis && <details className={styles.toolRecord} data-testid="analysis-record"><summary>句读记录 <span>工具结果</span></summary>
@@ -141,7 +144,7 @@ function AssistantMessage({ message, onOpenCitation }: { message: PanelMessage; 
   }
   return <>
     <div className={message.status === "streaming" ? "streaming-cursor" : undefined} data-streaming-format="markdown">
-      <MarkdownText content={message.content || (message.status === "streaming" ? "正在生成回答…" : "")} />
+      <MarkdownText content={message.content || (message.status === "streaming" ? "正在生成回答…" : "")} emphasis={message.status === "completed" ? readAnswerEmphasis(message.content, message.emphasis) ?? inferAnswerEmphasis(message.content) : undefined} />
     </div>
     <ToolRecords message={message} onOpenCitation={onOpenCitation} />
     <MessageActions message={message} />

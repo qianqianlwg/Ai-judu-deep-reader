@@ -21,6 +21,8 @@ export function bindSettledSelection(root: HTMLElement | Document, options: Opti
     pressed = false; commit();
   };
   const cancel = () => { pressed = false; cancelled = true; options.onCancel?.(); };
+  // WHY：EPUB iframe 切到外层颜色按钮或笔记输入框也会 blur；只取消未完成的拖选，保留已确认的选文快照。
+  const blur = () => { if (pressed) cancel(); };
   const key = () => { if (!pressed) { cancelled = false; commit(); } };
   root.addEventListener('pointerdown', start); root.addEventListener('mousedown', start);
   root.addEventListener('keyup', key); doc.addEventListener('selectionchange', commit);
@@ -28,11 +30,11 @@ export function bindSettledSelection(root: HTMLElement | Document, options: Opti
     source.addEventListener('pointerup', release); source.addEventListener('mouseup', release);
     source.addEventListener('pointercancel', cancel);
   }
-  win?.addEventListener('blur', cancel);
+  win?.addEventListener('blur', blur);
   return () => {
     root.removeEventListener('pointerdown', start); root.removeEventListener('mousedown', start);
     root.removeEventListener('keyup', key); doc.removeEventListener('selectionchange', commit);
     for (const source of releases) { source.removeEventListener('pointerup', release); source.removeEventListener('mouseup', release); source.removeEventListener('pointercancel', cancel); }
-    win?.removeEventListener('blur', cancel);
+    win?.removeEventListener('blur', blur);
   };
 }

@@ -461,3 +461,29 @@ it("失败状态作为圆角消息卡在滚动区内，不挤占输入区并保�
  const b=card.querySelector('button')!;await act(async()=>b.click());expect(retry).toHaveBeenCalledOnce();
  expect(container.querySelector('textarea[aria-label="继续追问"]')).not.toBeNull();
 });
+
+describe("回答关键词与关键句色彩标注", () => {
+  const content = "关键不在层级越高越好，而在于影响范围。\n\n应先看影响范围，再确定协调责任。";
+  const emphasis = { version: 1 as const, marks: [
+    { kind: "key_sentence" as const, quote: "关键不在层级越高越好，而在于影响范围。", occurrence: 1 },
+    { kind: "term" as const, quote: "协调责任", occurrence: 1 },
+  ] };
+  it("同一条完成消息保留原字句并按独立元数据着色", async () => {
+    await render({ messages: [{ id: "colored", role: "assistant", content, emphasis, tools: [{ id: "mark-1", name: "mark_answer_emphasis", status: "completed", result: { ok: true, marked: 2 } }], status: "completed", outputFormat: "text" }] });
+    const html = message("colored");
+    expect(html.querySelectorAll('[data-answer-emphasis="key_sentence"]')).toHaveLength(1);
+    expect(html.querySelector('[data-answer-emphasis="term"]')?.textContent).toBe("协调责任");
+    expect(html.querySelector('[data-streaming-format="markdown"]')?.textContent?.replace(/\s+/gu, "")).toBe(content.replace(/\s+/gu, ""));
+    expect(html.textContent).not.toContain("#关键词#");
+    expect(html.querySelector('[data-tool-id="mark-1"]')).toBeNull();
+  });
+  it("流式及错误状态不出现标注，非法元数据不会执行 HTML", async () => {
+    await render({ messages: [{ id: "incomplete", role: "assistant", content, emphasis, status: "streaming" }] });
+    expect(message("incomplete").querySelector('[data-answer-emphasis]')).toBeNull();
+    await render({ messages: [{ id: "incomplete", role: "assistant", content, emphasis, status: "error" }] });
+    expect(message("incomplete").querySelector('[data-answer-emphasis]')).toBeNull();
+    await render({ messages: [{ id: "incomplete", role: "assistant", content: "安全 <script>危险</script> 解释", emphasis, status: "completed" }] });
+    expect(message("incomplete").querySelector('script')).toBeNull();
+    expect(message("incomplete").querySelector('[data-answer-emphasis]')).toBeNull();
+  });
+});
