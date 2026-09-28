@@ -1,5 +1,6 @@
 import type { FoliateBridge } from './foliate-types';
 import { EPUB_LIMITS } from './epub-security-zip';
+import { decodeHTMLStrict } from 'entities';
 
 export const EPUB_CSP = "default-src 'none'; script-src 'none'; connect-src 'none'; img-src blob: data:; media-src blob: data:; font-src blob: data:; style-src 'unsafe-inline' blob:; frame-src 'none'; child-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
 const HTML = 'http://www.w3.org/1999/xhtml';
@@ -30,8 +31,18 @@ export interface DocumentPolicy {
 export function parseEpubXml(source: string): Document {
   if (source.length > EPUB_LIMITS.text) throw new Error('EPUB XML 文本超过 2 MiB 限制');
   if (/<!ENTITY|<!DOCTYPE[^>]*\[/i.test(source)) throw new Error('EPUB 不允许 DTD 实体');
+  // WHY：有些 XHTML 1.1 章节依赖外部 DTD 声明的排版字符实体；不能加载 DTD，也不能先把 &lt; 解成标签。
+  // 仅把已知 HTML 命名字符实体转换成 XML 数字字符引用，未知实体仍交由严格 XML 解析器拒绝。
+  const withoutDoctype = source.replace(/<!DOCTYPE[^>]*>/gi, '');
+  const normalized = withoutDoctype.replace(/<!\[CDATA\[[\s\S]*?\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|&([A-Za-z][A-Za-z0-9]*);/g,
+    (token, name: string | undefined) => {
+      if (!name || ['amp', 'lt', 'gt', 'quot', 'apos'].includes(name)) return token;
+      const decoded = decodeHTMLStrict(token);
+      return decoded === token ? token : Array.from(decoded, char => `&#x${char.codePointAt(0)!.toString(16)};`).join('');
+    });
+  if (normalized.length > EPUB_LIMITS.text) throw new Error('EPUB XML 文本超过 2 MiB 限制');
   // WHY：XML 解析是惰性的；不使用可能预取图片/iframe 的 text/html 解析器。
-  const doc = new DOMParser().parseFromString(source.replace(/<!DOCTYPE[^>]*>/gi, ''), 'application/xml');
+  const doc = new DOMParser().parseFromString(normalized, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length || !doc.documentElement)
     throw new Error('EPUB XML 无效或编码不受支持');
   return doc;
@@ -82,6 +93,10 @@ export async function sanitizeDocument(source: string, policy: DocumentPolicy): 
     if (ns === MATH && tag === 'annotation') element.textContent = element.textContent; // no embedded foreign markup
   }
   if (doc.documentElement.namespaceURI === HTML) {
+    // WHY：原件的独立 $(-)$ 标题只移除显示用的定界符，不猜测缺字、不改写原文件或普通公式。
+    for (const heading of doc.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+      if (heading.children.length === 0 && heading.textContent?.trim() === '$(-)$') heading.textContent = '(-)';
+    }
     let head = Array.from(doc.documentElement.children).find(el => el.localName === 'head');
     if (!head) { head = doc.createElementNS(HTML, 'head'); doc.documentElement.prepend(head); }
     else doc.documentElement.prepend(head);

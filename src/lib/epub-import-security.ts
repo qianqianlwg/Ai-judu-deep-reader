@@ -1,6 +1,6 @@
 import { inflateRaw } from "node:zlib";
 import { promisify } from "node:util";
-import { EPUB_LIMITS } from "./epub-security-zip";
+import { EPUB_LIMITS, ZIP_ALLOWED_FLAGS } from "./epub-security-zip";
 const inflate = promisify(inflateRaw);
 const crcTable = Uint32Array.from({ length: 256 }, (_, value) => {
   let crc = value;
@@ -42,13 +42,17 @@ function inspect(bytes: Buffer, epub = true): Entry[] {
         || names.has(name.endsWith("/") ? name.slice(0, -1) : name + "/")) reject("路径重复或不安全");
     names.add(name);
     const localNameLength = u16(local + 26), data = local + 30 + localNameLength + u16(local + 28), end = data + compressed;
-    if (u16(at + 34) || flags & 1 || flags & ~(2048 | 8 | 6) || ![0, 8].includes(method)
+    if (u16(at + 34) || flags & 1 || flags & ~ZIP_ALLOWED_FLAGS || ![0, 8].includes(method)
         || u16(local + 6) !== flags || u16(local + 8) !== method || end > start || data > start
         || localNameLength !== nameLength || !nameBytes.equals(bytes.subarray(local + 30, local + 30 + localNameLength))) reject("本地文件头或压缩方法无效");
     if (!(flags & 8) && (u32(local + 18) !== compressed || u32(local + 22) !== size || u32(local + 14) !== u32(at + 16))) reject("本地大小或校验和不一致");
     total += size;
-    if (size > EPUB_LIMITS.entry || total > EPUB_LIMITS.total || size > Math.max(1, compressed) * EPUB_LIMITS.ratio
-        || (name.endsWith("/") && (size || compressed)) || (method === 0 && size !== compressed)) reject("解压大小或压缩比超过限制");
+    // WHY：EPUB 的重复正文/CSS 能合法达到极高压缩比；实际解压仍由 zlib 限长、声明大小和 CRC 共同约束。
+    if (size > EPUB_LIMITS.entry) reject(`条目 ${name} 解压大小超过限制（单条目 24 MiB）`);
+    if (total > EPUB_LIMITS.total) reject(`条目 ${name} 使总解压大小超过限制（总量 128 MiB）`);
+    if (!epub && size > Math.max(1, compressed) * EPUB_LIMITS.ratio) reject("解压大小或压缩比超过限制");
+    // WHY：空目录可以用 DEFLATE 编码成非零压缩字节；必须看真实解压结果是否为零，而不是拒绝压缩字节。
+    if ((name.endsWith("/") && size) || (method === 0 && size !== compressed)) reject("目录或未压缩条目解压大小不一致");
     if (epub && i === 0 && (name !== "mimetype" || local !== 0 || method || u16(local + 28) || flags & 8)) reject("mimetype 必须是首个未压缩条目");
     entries.push({ name, start: data, end, method, size, crc: u32(at + 16) }); ranges.push([local, end]); at = next;
   }

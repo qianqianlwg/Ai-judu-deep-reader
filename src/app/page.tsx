@@ -1,29 +1,38 @@
 "use client";
+import { analysisHistoryMarkerIds } from "@/lib/analysis-history-markers";
+import { pageConceptHighlights } from "@/lib/page-concept-highlights";
 
-import { readRetrievalReport } from "@/lib/retrieval-report";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import {useShelfHistoryRecorder} from "@/hooks/use-shelf-history-recorder";
 import { useBookshelfAssistant } from "@/hooks/use-bookshelf-assistant";
 import { ReaderModeSwitch, useReaderMode } from "@/components/reader-mode";
 import "@/components/epub-reader.css";
 import { ChatPanelResizer } from "@/components/chat-panel-resizer";
+import { maxChatWidth } from "@/lib/chat-layout";
 import { ReaderOptions } from "@/components/reader-options";
+import { useReadingPreferences } from "@/components/use-reading-preferences";
+import { readReadingPreferences } from "@/lib/reading-preferences";
 import { AnalysisPanel } from "@/components/analysis-panel";
+import { emptyExternalPermissions, readExternalPermissions, type ExternalPermissions } from "@/lib/agent/external-permissions";
+import { defaultExternalPreferences, permittedExternalSources, readExternalPreferences, writeExternalPreferences } from "@/lib/agent/external-preferences";
 import { type Analysis, type ChatMessage, type MessageAnchor, type TokenUsage } from "@/lib/chat-stream";
 import { createReadingRequest, restoreReadingRequest, withRetryContextSettings, beginReadingRequest, applyReadingRequest, executeReadingRequest, prepareReadingEdit, type ReadingRequestState } from "@/lib/reading-request";
 import { WorkspaceNav, type WorkspaceView } from "@/components/workspace-nav";
 import {BOOK_RESUME_CHANGED} from "@/lib/book-resume";
 import {importFileSizeError,IMPORT_TOO_LARGE} from "@/lib/import-limits";
 import { Bookshelf } from "@/components/bookshelf";
+import { ImportBookDialog } from "@/components/import-book-dialog";
+import { ImportIndexTask } from "@/components/import-index-task";
 import { useWorkspaceLibrary } from "@/components/workspace-library";
 import { bookEditionUrl, readBookResponse, rememberedEdition, type LibraryBookContent as Book } from "@/lib/library";
-import {BookSearchPanel,type SearchResult,type SearchStatus} from "@/components/book-search-panel";
 import {useNavCollapse} from "@/hooks/use-nav-collapse";
 import { useWorkspaceModel } from "@/components/workspace-model";
 import { useWorkspaceSelection } from "@/components/workspace-selection";
-import { restoreWorkspaceReadingAnchor, selectionFromSearchResult } from "@/components/workspace-reading-location";
+import { useBookSemanticSearch } from "@/components/use-book-semantic-search";
+import { selectionFromSearchResult,restoreWorkspaceReadingAnchor } from "@/components/workspace-reading-location";
 import { KnowledgeWorkspace } from "@/components/knowledge-workspace";
+import type { KnowledgeMaterial } from "@/lib/knowledge-materials";
 import { fetchBookKnowledge } from "@/lib/knowledge";
 import { hydrateChatHistory } from "@/lib/chat-history";
 import { createConversationClient, isConversationId, type ConversationSummary } from "@/lib/conversations";
@@ -40,6 +49,7 @@ import { anchorParts } from "@/lib/reading-anchors";
 import { createAnnotation, sourceSelectionHighlights } from "@/lib/annotations";
 import { countReadingCharacters, readingSelectionError } from "@/lib/reading-detail";
 import { SelectionActions } from "@/components/selection-actions";
+import { SpeechPlaybackBar } from "@/components/speech-controls";
 import { DEFAULT_READING_APPEARANCE, applyReadingAppearanceToRoot, getReadingAppearanceVariables, getReadingTextStyle, readReadingAppearance, writeReadingAppearance, type ReadingAppearancePreferences } from "@/lib/reading-appearance";
 
 type RestoredMessage = { id: string; role: "user" | "assistant"; content: string; structuredOutput?: string | null; status?: "streaming" | "completed" | "error" };
@@ -52,13 +62,14 @@ function flatten(book: Book): PaginatedParagraph[] {
   return book.chapters.flatMap((chapter) => chapter.paragraphs.map((paragraph) => ({ ...paragraph, chapterId: chapter.id, chapterTitle: chapter.title })));
 }
 
-const maxChatWidth = (width: number,collapsed=false) => Math.min(760, width - (width>960 && collapsed?44:width > 1180 ? 220 : width > 960 ? 190 : 0) - 360);
 
 export default function Home() {
   const layoutRef=useRef<HTMLElement>(null);
   const [chatWidth,setChatWidth]=useState(390);
   const model = useWorkspaceModel();
   const navigation=useNavCollapse();
+  // WHY：宽度变化会重渲染本页；保持回调身份稳定，避免拖动 effect 被重建后中断。
+  const getMaxChatWidth = useCallback((width: number) => maxChatWidth(width, navigation.collapsed), [navigation.collapsed]);
   const bookshelfAssistant = useBookshelfAssistant();
   const [book, setBook] = useState<Book>(emptyBook);
   const readerMode = useReaderMode(book);
@@ -69,8 +80,29 @@ export default function Home() {
   const [mobileTocOpen, setMobileTocOpen] = useState(false);
   const [mobileAnalysisOpen, setMobileAnalysisOpen] = useState(false);
   const [selected, setSelected] = useState("");
+  const [externalPreferences, setExternalPreferences] = useState<ExternalPermissions>(defaultExternalPreferences);
+  const [bookContextPrefetch, setBookContextPrefetch] = useState(false);
+  useEffect(() => {
+    let active = true;
+    // WHY：按书籍版本记住明确授权；异步同步浏览器偏好，避免切书时意外沿用上一本的请求权限。
+    void Promise.resolve().then(() => { if (active) setBookContextPrefetch(Boolean(book.editionId && localStorage.getItem("judu:book-context-prefetch:" + book.editionId) === "1")); });
+    return () => { active = false; };
+  }, [book.editionId]);
+  function changeBookContextPrefetch(enabled: boolean) {
+    if (!book.editionId) return;
+    try { localStorage.setItem("judu:book-context-prefetch:" + book.editionId, enabled ? "1" : "0"); setBookContextPrefetch(enabled); }
+    catch (cause: unknown) { console.error("保存本书关联检索设置失败", cause); setNotice("本书关联检索设置未能保存，请检查浏览器存储。"); }
+  }
+  const [externalAvailability, setExternalAvailability] = useState<ExternalPermissions>(emptyExternalPermissions);
+  const [externalReady, setExternalReady] = useState(false);
+  function changeExternalPreferences(value: ExternalPermissions) {
+    setExternalPreferences(value);
+    try { writeExternalPreferences(localStorage, value); }
+    catch (cause: unknown) { console.error("保存外部资料偏好失败", cause); setNotice("外部资料选择已应用，但无法保存到浏览器，下次刷新可能恢复默认。"); }
+  }
   const pendingSourceMessageRef = useRef<string|null>(null);
   const selectionExtensionRef = useRef<{base:ReadingSelection;pending:boolean} | null>(null);
+  const selectedDocumentRef = useRef<Document | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<ReadingSelection | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<{ left: number; top: number } | null>(null);
   const [knowledgeRevision, setKnowledgeRevision] = useState(0);
@@ -81,12 +113,12 @@ export default function Home() {
   const [bookLoading, setBookLoading] = useState(false);
   const [readingAppearance, setReadingAppearance] = useState<ReadingAppearancePreferences>(DEFAULT_READING_APPEARANCE);
   const [appearanceReady, setAppearanceReady] = useState(false);
+  function saveReadingAppearance(value: ReadingAppearancePreferences) {
+    setReadingAppearance(value);
+    try { writeReadingAppearance(localStorage, value); window.dispatchEvent(new Event("judu:settings-updated")); }
+    catch (cause: unknown) { console.error("阅读选项保存失败", cause); setNotice("阅读选项已应用，但保存失败，请检查浏览器存储。"); }
+  }
   const theme = readingAppearance.theme;
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchRetrieval,setSearchRetrieval]=useState("keyword");
-  const [indexRevision,setIndexRevision]=useState(0);
-  const [searchStatus, setSearchStatus] = useState<SearchStatus | null>(null);
   const [threadId, setThreadId] = useState("");
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationLoading, setConversationLoading] = useState(false);
@@ -98,17 +130,21 @@ export default function Home() {
   const requestAbortRef = useRef<AbortController | null>(null);
   useEffect(() => () => { requestAbortRef.current?.abort(); bookLoadSequence.current += 1; }, []);
   const [notice, setNotice] = useState("");
+  const { preferences: readingPreferences, changePreferences: changeReadingPreferences } = useReadingPreferences(book.id, setNotice);
   const showConcepts = useConceptPreference();
   const [bookConcepts, setBookConcepts] = useState<{name:string;text:string}[]>([]);
   const [error, setError] = useState("");
   const readingRef = useRef<HTMLDivElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const importAutoIndex = useRef(false);
+  const [importOpen,setImportOpen]=useState(false),[indexTask,setIndexTask]=useState<{editionId:string;title:string}|null>(null);
   const activeRequestRef = useRef(false);
   const lastRequestRef = useRef<ReadingRequestState | null>(null);
   const [conversationRevision, setConversationRevision] = useState(0);
   const bookLoadSequence = useRef(0);
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const sourceParagraphs = useMemo(() => flatten(book), [book]);
+  const semanticSearch=useBookSemanticSearch(book.editionId,setNotice);
   const readingTextStyle = useMemo(() => getReadingTextStyle(readingAppearance), [readingAppearance]);
   const { pages, pageIndex: safePageIndex, currentPage, setPageIndex, setAnchor: setReadingAnchor, anchor: readingAnchor, busy: paginating, error: paginationError, renderedScale } = useReaderPages(sourceParagraphs, readingRef, 1, readingTextStyle as Readonly<Record<string, string | number>>);
   // WHY：服务端书架列表是可见性的唯一来源，不能把已下架的当前书作为空列表兜底复活。
@@ -118,8 +154,10 @@ export default function Home() {
     setWorkspaceView, setSelected, setSelectionAnchor, setReadingAnchor, setActiveSource, setSelectionMenu, openConversation, openSourceConversation:(id,messageId)=>openConversation(id,messageId,true),
   });
   const readerAnnotations = useMemo(()=>activeSource && selectionAnchor ? [...renderedAnnotations,...sourceSelectionHighlights(selectionAnchors(selectionAnchor))] : renderedAnnotations,[activeSource,selectionAnchor,renderedAnnotations]);
+  const historyMarkerIds = useMemo(() => analysisHistoryMarkerIds(renderedAnnotations, sourceParagraphs.map(paragraph => paragraph.id)), [renderedAnnotations, sourceParagraphs]);
+  const conceptHighlights = useMemo(() => pageConceptHighlights((currentPage?.paragraphs ?? []).map(paragraph => ({ paragraphId: paragraph.id, text: paragraph.text, sourceText: sourceParagraphs.find(p => p.id === paragraph.id)?.text, sourceStartOffset: paragraph.sourceStartOffset ?? 0, sourceEndOffset: paragraph.sourceEndOffset, annotations: renderedAnnotations, bookConcepts: visibleConcepts, showConcepts }))), [currentPage, sourceParagraphs, renderedAnnotations, visibleConcepts, showConcepts]);
   useTextSourceHighlights(readingRef,selectionAnchor,!readerMode.original && workspaceView==="reader",currentPage);
-  useWorkspaceSelection(readingRef, retainSelection, workspaceView === "reader" && !readerMode.original && !bookLoading && !restoringBook && !paginating,()=>setNotice("最多选择 1000 字，选区已限制到上限。"), clearSelection, startSelection);
+  useWorkspaceSelection(readingRef, retainSelection, workspaceView === "reader" && !readerMode.original && !bookLoading && !restoringBook && !paginating,()=>setNotice("最多选择 3000 字符，选区已限制到上限。"), clearSelection, startSelection);
 
   useEffect(() => {
     const restoreAppearance = (): void => {
@@ -138,23 +176,25 @@ export default function Home() {
   useShelfHistoryRecorder({bookId:book.id,editionId:book.editionId,active:!bookLoading&&!restoringBook&&workspaceView==="reader",anchor:readingAnchor,location:sourceParagraphs.find(item=>item.id===readingAnchor?.paragraphId)?.chapterTitle || "",onError:setNotice});
 
   useEffect(() => {
-    if (!restoringBook) localStorage.setItem("judu:workspace-view", workspaceView);
-  }, [workspaceView, restoringBook]);
+    const controller = new AbortController();
+    // WHY：异步确认持久偏好和服务端可用性，在两者就绪前不提交外部检索授权。
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return;
+      try { setExternalPreferences(readExternalPreferences(localStorage)); }
+      catch (cause: unknown) { console.error("读取外部资料偏好失败", cause); setExternalPreferences(emptyExternalPermissions()); setNotice("外部资料偏好已损坏，已暂停外部检索；请在 + 菜单中重新选择。"); }
+      return fetch("/api/external-sources", { signal: controller.signal, cache: "no-store" });
+    })
+      .then(async response => { if (!response || !response.ok) throw new Error("来源状态请求失败"); const body: unknown = await response.json(); if (!body || typeof body !== "object" || !("available" in body)) throw new Error("来源状态格式错误"); return readExternalPermissions(body.available); })
+      .then(value => { if (!controller.signal.aborted) setExternalAvailability(value); })
+      .catch(cause => { if (!controller.signal.aborted) { console.error("读取外部来源状态失败", cause); setNotice("外部来源状态暂不可用，本轮不会向外部发起检索。请刷新重试。"); } })
+      .finally(() => { if (!controller.signal.aborted) setExternalReady(true); });
+    return () => controller.abort();
+  }, []);
+
 
   useEffect(() => {
-    const editionId = book.editionId;
-    if (!editionId) return;
-    let disposed = false;
-    void fetch("/api/search/status?engine=local-vector&editionId=" + encodeURIComponent(editionId))
-      .then(async (response) => {
-        if (!response.ok) throw new Error("读取检索状态失败");
-        return response.json() as Promise<SearchStatus>;
-      })
-      .then((status) => { if (!disposed) setSearchStatus(status); })
-      .catch((statusError: unknown) => { console.error("读取检索状态失败", statusError); if (!disposed) setSearchStatus(null); });
-    return () => { disposed = true; };
-  }, [book.editionId,indexRevision]);
-
+    if (!restoringBook) localStorage.setItem("judu:workspace-view", workspaceView);
+  }, [workspaceView, restoringBook]);
   useEffect(() => {
     const controller = new AbortController();
     if (book.editionId) void fetchBookKnowledge(book.editionId, controller.signal)
@@ -211,23 +251,23 @@ export default function Home() {
     });
     return () => cancelAnimationFrame(frame);
   }, [focusedMessageId, messages, conversationLoading]);
-
   function startSelection(): void { const extension=selectionExtensionRef.current; selectionExtensionRef.current=extension?.pending ? {...extension,pending:false} : null; setSelected(""); setSelectionAnchor(null); setSelectionMenu(null); }
   function clearSelection(): void { setSelected(""); setSelectionAnchor(null); selectionExtensionRef.current=null; setSelectionMenu(null); }
-  function selectText(): void { retainSelection(readReadingSelection(window.getSelection(), readingRef.current!,()=>setNotice("最多选择 1000 字，选区已限制到上限。"))); }
+  function selectText(): void { retainSelection(readReadingSelection(window.getSelection(), readingRef.current!,()=>setNotice("最多选择 3000 字，选区已限制到上限。"))); }
   function retainSelection(selection: ReadingSelection | null): void {
     if (!selection) return;
-    if (!selectionMatchesParagraphs(selection,sourceParagraphs) || countReadingCharacters(selection.text)>1000) { clearSelection(); setNotice("选区位置无效或超过 1000 字，请重新选择原文。"); return; }
+    if (!readerMode.original) selectedDocumentRef.current = document;
+    if (!selectionMatchesParagraphs(selection,sourceParagraphs) || countReadingCharacters(selection.text)>3000) { clearSelection(); setNotice("选区位置无效或超过 3000 字，请重新选择原文。"); return; }
     let effective = selection;
     const extension=selectionExtensionRef.current, previous=extension?.base; if(extension)extension.pending=false;
     if(previous) {
       const merged=mergeContinuousSelections(previous,selection,sourceParagraphs);
-      if(!merged){clearSelection();setNotice("继续选取须与原选区连续，合计最多 1000 字；此次未提交，请重新选择。");return;}
+      if(!merged){clearSelection();setNotice("继续选取须与原选区连续，合计最多 3000 字；此次未提交，请重新选择。");return;}
       effective=merged;
     }
     const candidateRange = window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0) : null;
     const range = candidateRange && typeof candidateRange.getBoundingClientRect === "function" ? candidateRange.getBoundingClientRect() : null;
-    setSelected(effective.text); setSelectionAnchor(effective); setReadingAnchor({ paragraphId: effective.paragraphId, offset: effective.startOffset }); setActiveSource(effective.paragraphId);
+    setSelected(effective.text); setSelectionAnchor(effective); if (!readerMode.original) setReadingAnchor({ paragraphId: effective.paragraphId, offset: effective.startOffset }); setActiveSource(effective.paragraphId);
     const box = range ?? readingRef.current?.getBoundingClientRect();
     if (box) setSelectionMenu({ left: box.left + box.width / 2, top: Math.max(58, box.top - 8) });
   }
@@ -240,8 +280,7 @@ export default function Home() {
       return updated;
     });
   }
-
-  async function loadBook(bookId: string, editionId?: string, restoreView = false, importedBook?: unknown): Promise<void> {
+  async function loadBook(bookId: string, editionId?: string, restoreView = false, importedBook?: unknown, target?: {anchor?: KnowledgeMaterial["anchor"]; conversation?: NonNullable<KnowledgeMaterial["conversation"]>}): Promise<void> {
     if (activeRequestRef.current || conversationPendingRef.current || importing) { setNotice("请等待当前回答或会话操作完成后再切换书籍。"); return; }
     const loadSequence = ++bookLoadSequence.current;
     const targetEdition = editionId ?? rememberedEdition(books.find(item => item.id === bookId), localStorage.getItem("judu:edition:" + bookId));
@@ -258,16 +297,21 @@ export default function Home() {
       const loaded = readBookResponse(payload, bookId, targetEdition);
       if (loadSequence !== bookLoadSequence.current) return;
       const savedAnchor = restoreWorkspaceReadingAnchor(localStorage.getItem("judu:position:" + loaded.id + ":" + loaded.editionId), flatten(loaded));
-      setReadingAnchor(savedAnchor); lastRequestRef.current = null; setError("");
+      const targetAnchor=target?.anchor;
+      const targetSelection=targetAnchor&&targetAnchor.editionId===loaded.editionId?selectionFromParts(anchorParts(targetAnchor).map(({selectedText,...part})=>({...part,text:selectedText}))):null;
+      const verifiedSelection=targetSelection&&selectionMatchesParagraphs(targetSelection,flatten(loaded))?targetSelection:null;
+      if(targetAnchor&&!verifiedSelection)setNotice("来源无法在这本书的当前版本核对，未保留选文。");
+      setReadingAnchor(verifiedSelection?{paragraphId:verifiedSelection.paragraphId,offset:verifiedSelection.startOffset}:savedAnchor); lastRequestRef.current = null; setError("");
       setMobileTocOpen(false); setMobileAnalysisOpen(false);
       setBooks(previous => previous.some(item => item.id === loaded.id) ? previous.map(item => item.id === loaded.id ? { ...item, ...loaded, editions: loaded.editions ?? item.editions } : item) : [...previous, loaded]);
-      setBook(loaded); setSearchStatus(null); setConversations([]); setConversationError(""); setUsage(undefined); resetAnnotations(); setBookConcepts([]); setSelectionAnchor(null); selectionExtensionRef.current=null; setWorkspaceView("reader"); setActiveSource(""); setSelected(""); setMessages([]); setAnalysis(null); setSearchResults([]);
+      setBook(loaded); setConversations([]); setConversationError(""); setUsage(undefined); resetAnnotations(); setBookConcepts([]); setSelectionAnchor(verifiedSelection); selectionExtensionRef.current=null; setWorkspaceView("reader"); setActiveSource(verifiedSelection?.paragraphId??""); setSelected(verifiedSelection?.text??""); setMessages([]); setAnalysis(null);
       // WHY：多版本书籍不能使用未绑定版本的旧缓存会话；历史仍可通过该版本的会话列表选择。
       const cachedThread = localStorage.getItem(`judu:thread:${loaded.id}:${loaded.editionId}`) ?? ((loaded.editions?.length ?? 1) <= 1 ? localStorage.getItem(`judu:thread:${loaded.id}`) : null) ?? "";
-      const savedThread = isConversationId(cachedThread) ? cachedThread : "";
+      const savedThread = target?.conversation&&isConversationId(target.conversation.threadId)?target.conversation.threadId:isConversationId(cachedThread)?cachedThread:"";
       if (cachedThread && !savedThread) setNotice("旧会话定位无效，请从会话列表重新选择；历史记录未删除。");
       setConversationLoading(Boolean(savedThread));
       setThreadId(savedThread); setConversationRevision(value=>value+1);
+      if(target?.conversation){setFocusedMessageId(target.conversation.messageId);setMobileAnalysisOpen(true);}
       localStorage.setItem("judu:active-book", loaded.id);
       if (loaded.editionId) { localStorage.setItem("judu:edition:" + loaded.id, loaded.editionId); window.dispatchEvent(new Event(BOOK_RESUME_CHANGED)); }
       if (restoreView) {
@@ -280,39 +324,12 @@ export default function Home() {
     } finally { if(loadSequence===bookLoadSequence.current) setBookLoading(false); }
   }
 
-  async function searchBook(): Promise<void> {
-    if (!searchQuery.trim()) return;
-    const currentBookSequence = bookLoadSequence.current;
-    try {
-      const response = await fetch(`/api/search?editionId=${encodeURIComponent(book.editionId ?? "demo")}&q=${encodeURIComponent(searchQuery)}&context=1&retrieval=${searchRetrieval}`);
-      const data = await response.json() as { results?: SearchResult[]; retrieval?: unknown; error?: string };
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "搜索失败");
-      if (currentBookSequence !== bookLoadSequence.current) return;
-      setSearchResults(data.results ?? []);
-      const report = readRetrievalReport(data.retrieval);
-      setNotice(`找到 ${data.results?.length ?? 0} 个结果${report?.degraded ? "；部分检索策略不可用，已保留可用结果" : ""}`);
-    } catch (searchError: unknown) {
-      console.error("搜索失败", searchError);
-      setNotice(searchError instanceof Error ? searchError.message : "搜索失败");
-    }
-  }
-
-  function jumpToResult(result: SearchResult): void {
-    setWorkspaceView("reader"); setMobileAnalysisOpen(false);
-    const paragraph = sourceParagraphs.find(item => item.id === result.paragraphId);
-    const selection = selectionFromSearchResult(result, paragraph);
-    // WHY：搜索定位是新的选文来源，失败也必须清除A选区，不能把B文本和A锚点一起发给模型。
-    setSelected(selection?.text ?? ""); setSelectionAnchor(selection); setActiveSource(paragraph?.id ?? "");
-    if (paragraph) setReadingAnchor({ paragraphId: paragraph.id, offset: selection?.startOffset ?? 0 });
-    if (!selection) setNotice("搜索摘录无法精确核对，请在正文重新选择需要句读的文字。");
-  }
-
   async function importBook(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const input = event.currentTarget;
     const file = input.files?.[0];
     if (!file) return;
     const sizeError=importFileSizeError(file.size);if(sizeError){setNotice(sizeError);input.value="";return;}
-    if (activeRequestRef.current || conversationPendingRef.current || importing) { setNotice("请等待当前任务完成后再导入书籍。"); input.value = ""; return; }
+    if (importing) { setNotice("上一本书仍在导入，请稍后再选择文件。"); input.value = ""; return; }
     setImporting(true); setNotice("正在解析书籍…");
     try {
       const form = new FormData(); form.append("file", file);
@@ -325,8 +342,13 @@ export default function Home() {
       if (!data || !Array.isArray(data.chapters)) throw new Error("导入结果无效，请重试");
       const imported = readBookResponse(data, data.id, data.editionId);
       setBooks((previous) => [imported, ...previous.filter((item) => item.id !== imported.id)]);
-      await loadBook(imported.id, imported.editionId, false, imported);
-      setNotice("书籍已导入");
+      // WHY：导入只写书库；生成期间不自动切书或清理正在使用的请求、会话和选文。
+      if (!activeRequestRef.current && !conversationPendingRef.current) {
+        await loadBook(imported.id, imported.editionId, false, imported);
+        setNotice("书籍已导入，关键词检索已可用");
+      } else setNotice("书籍已导入书架；当前回答继续生成，未切换阅读书籍。");
+      // WHY：本地正文已随导入入库；云端向量索引仅在本次选择明确授权后异步启动，不阻塞阅读。
+      if(importAutoIndex.current){setIndexTask({editionId:imported.editionId!,title:imported.title});}
     } catch (importError: unknown) {
       console.error("导入书籍失败", importError);
       setNotice(importError instanceof Error ? importError.message : "导入失败");
@@ -366,14 +388,23 @@ export default function Home() {
 
   async function ask(question = "请句读这一段", requestedMode: "chat" | "analyze" = "analyze"): Promise<void> {
     if (!question.trim() || loading || bookLoading || importing || conversationPendingRef.current || !currentPage) return;
+    if (!externalReady) { setNotice("正在确认外部资料状态，请稍后发送。"); return; }
     if (requestedMode === "analyze" && !selectionAnchor) { setNotice("请重新选中要句读的原文。"); return; }
     if (requestedMode === "analyze") { const selectionError = readingSelectionError(selected); if (selectionError) { setNotice(selectionError); return; } }
     const paragraph = sourceParagraphs.find(p=>p.id===selectionAnchor?.paragraphId) ?? currentPage.paragraphs[0];
     const strategy = localStorage.getItem("judu:compressionStrategy");
-    const detail = localStorage.getItem("judu:readingDetail");
+    let preferences;
+    try { preferences = readReadingPreferences(localStorage, book.id); }
+    catch (cause: unknown) { console.error("读取本书解读设置失败", cause); setNotice("请在加号菜单重新保存本书解读设置后发送。"); return; }
     const savedOutput = Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096);
     const maxOutputTokens = Number.isSafeInteger(savedOutput) && savedOutput >= 1024 && savedOutput <= 16384 ? savedOutput : 4096;
-    const request = createReadingRequest({ model:model.selectedModel, mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, selectionAnchors:selectionAnchor ? selectionAnchors(selectionAnchor) : undefined, context:selectionAnchor ? selectionParts(selectionAnchor).map(part=>sourceParagraphs.find(p=>p.id===part.paragraphId)?.text??"").join("\n\n") : paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:searchResults.slice(0,8), detail: detail === "concise" || detail === "detailed" ? detail : "standard", contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
+    const request = createReadingRequest({ model:model.selectedModel, externalPermissions: permittedExternalSources(externalPreferences, externalAvailability), bookContextPrefetch: requestedMode === "analyze" && Boolean(book.editionId && localStorage.getItem("judu:book-context-prefetch:" + book.editionId) === "1"), mode:requestedMode, question, selectedText:selected, threadId, bookId:book.id, editionId:book.editionId ?? "demo", bookTitle:book.title, chapterTitle:paragraph.chapterTitle, chapterId:paragraph.chapterId, paragraphId:paragraph.id, selectionStart:selectionAnchor?.startOffset, selectionEnd:selectionAnchor?.endOffset, selectionAnchors:selectionAnchor ? selectionAnchors(selectionAnchor) : undefined, context:selectionAnchor ? selectionParts(selectionAnchor).map(part=>sourceParagraphs.find(p=>p.id===part.paragraphId)?.text??"").join("\n\n") : paragraph.text, chatHistory:messages.filter(m=>m.status!=="error"), bookSearch:semanticSearch.results.slice(0,8), detail: preferences.detail, difficulty: preferences.difficulty, contextSettings:{maxInputTokens:normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens")),maxOutputTokens,compressionStrategy:strategy==="aggressive"||strategy==="conservative"?strategy:"balanced"} });
+    if (requestedMode === "analyze") {
+      // WHY：请求已快照原文，释放原生蓝色选区和旧操作栏，才能从同一段文字重新拖选朗读。
+      selectedDocumentRef.current?.getSelection()?.removeAllRanges();
+      window.getSelection()?.removeAllRanges();
+      clearSelection();
+    }
     await runRequest(request);
   }
 
@@ -428,11 +459,31 @@ export default function Home() {
     finally { if (!loadingCreatedHistory) { conversationPendingRef.current = false; setConversationLoading(false); } }
   }
   async function renameConversation(id: string, title: string): Promise<void> {
-    if (activeRequestRef.current || conversationPendingRef.current || bookLoading || !book.editionId) return;
+    if (conversationPendingRef.current || bookLoading || !book.editionId) return;
     const renamed = await conversationClient.rename(id, book.editionId, title);
     setConversations(previous => previous.map(item => item.id === renamed.id ? renamed : item));
   }
 
+  function jumpToSemanticResult(result: import("@/components/book-search-panel").SearchResult): void {
+    setWorkspaceView("reader");setMobileAnalysisOpen(false);
+    const paragraph=sourceParagraphs.find(item=>item.id===result.paragraphId);
+    const selection=selectionFromSearchResult(result,paragraph);
+    setSelected(selection?.text??"");setSelectionAnchor(selection);setActiveSource(paragraph?.id??"");
+    if(paragraph)setReadingAnchor({paragraphId:paragraph.id,offset:selection?.startOffset??0});
+    if(!selection)setNotice("搜索摘录无法精确核对，请在正文重新选择需要句读的文字。");
+  }
+  function openKnowledgeMaterial(item: KnowledgeMaterial): void {
+    if(item.anchor&&item.anchor.editionId!==item.source.editionId){clearSelection();setNotice("来源版本不一致，无法跳转原文。");return;}
+    if(item.source.editionId===book.editionId){if(item.anchor)openKnowledgeSource(item.anchor);else {clearSelection();navigateWorkspace("reader");}return;}
+    // WHY：跨书来源先切换并复核目标版本的完整选区，不能沿用当前书的段落 ID 或选文。
+    void loadBook(item.source.bookId,item.source.editionId,false,undefined,{anchor:item.anchor});
+  }
+  function openKnowledgeConversation(item: KnowledgeMaterial): void {
+    if(!item.conversation)return;
+    if(!isConversationId(item.conversation.threadId)){setNotice("会话定位无效，请刷新知识库后重试。");return;}
+    if(item.source.editionId===book.editionId){openConversation(item.conversation.threadId,item.conversation.messageId);return;}
+    void loadBook(item.source.bookId,item.source.editionId,false,undefined,{conversation:item.conversation});
+  }
   function openKnowledgeSource(anchor: MessageAnchor): void {
     const selection=selectionFromParts(anchorParts(anchor).map(({selectedText,...part})=>({...part,text:selectedText})));
     if(!selectionMatchesParagraphs(selection,sourceParagraphs)){clearSelection();setNotice("这条消息的原文位置无法在当前版本验证，请重新选择原文。");return;}
@@ -449,7 +500,7 @@ export default function Home() {
     if (messageId) setFocusedMessageId(messageId);
   }
   function navigateWorkspace(view: WorkspaceView): void { setWorkspaceView(view); setMobileTocOpen(false); setMobileAnalysisOpen(false); }
-  function requestImport(): void { navigateWorkspace("bookshelf"); importRef.current?.click(); }
+  function requestImport(): void { navigateWorkspace("bookshelf"); setImportOpen(true); }
   function switchReaderMode(mode: "original" | "text"): void { readerMode.selectMode(mode); setSelectionMenu(null); window.getSelection()?.removeAllRanges(); }
   function openChapter(chapterId: string): void {
     if(imageChapters.open(chapterId)){setWorkspaceView("reader");return;}
@@ -464,36 +515,42 @@ export default function Home() {
   return <main className={`app-shell workspace-shell theme-${theme}`} style={getReadingAppearanceVariables(readingAppearance) as CSSProperties}>
     <header className="workspace-mobilebar"><button type="button" aria-label="打开导航" aria-expanded={mobileTocOpen} onClick={() => setMobileTocOpen(value => !value)}>☰</button><strong>句读</strong><button type="button" aria-label={assistantMobileOpen ? "收起对话" : "打开对话"} aria-expanded={assistantMobileOpen} onClick={toggleMobileAssistant}>对话</button></header>
     {notice && <div className="upload-toast" role="status"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={() => setNotice("")}>×</button></div>}
+    {importOpen&&<ImportBookDialog onClose={()=>setImportOpen(false)} onChoose={autoIndex=>{importAutoIndex.current=autoIndex;setImportOpen(false);importRef.current?.click();}}/>}
+    {indexTask&&<ImportIndexTask key={indexTask.editionId} {...indexTask} onClose={()=>setIndexTask(null)} onReady={()=>setKnowledgeRevision(value=>value+1)} onError={setNotice}/>}
     <input ref={importRef} id="book-file" hidden type="file" accept=".mobi,.epub,.pdf,.fb2,.fbz,.fb2.zip,.cbz,.txt,.md" onChange={event => { void importBook(event); }} />
     {navigation.error && <p role="status">{navigation.error}</p>}
     <section data-bookshelf-assistant-hidden={workspaceView === "bookshelf" && !bookshelfAssistant.open} data-nav-collapsed={navigation.collapsed} className="reader-layout" ref={layoutRef} style={{"--chat-panel-width":`${chatWidth}px`} as CSSProperties}>
       <WorkspaceNav collapsed={navigation.collapsed} onToggleCollapse={navigation.toggle} view={workspaceView} onNavigate={navigateWorkspace} books={shelfBooks} currentBookId={book.id} currentEditionId={book.editionId} chapters={book.chapters} currentChapterId={imageChapters.chapter?.id??currentPage?.chapterId}
-        busy={loading || conversationLoading || importing} importing={importing} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onOpenChapter={openChapter} onImport={requestImport} mobileOpen={mobileTocOpen} onDismiss={() => setMobileTocOpen(false)}>
-        <BookSearchPanel editionId={book.editionId} query={searchQuery} onQuery={setSearchQuery} retrieval={searchRetrieval} onRetrieval={setSearchRetrieval} status={searchStatus} results={searchResults} onSearch={()=>void searchBook()} onReady={()=>setIndexRevision(value=>value+1)} onResult={jumpToResult}/>
+        busy={loading || conversationLoading || importing} importDisabled={bookLoading || restoringBook || conversationLoading} importing={importing} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onOpenChapter={openChapter} onImport={requestImport} mobileOpen={mobileTocOpen} onDismiss={() => setMobileTocOpen(false)}>
+
       </WorkspaceNav>
       <div className="workspace-main" data-workspace-view={workspaceView}>
       <article data-original-active={readerMode.original} className="reading-pane" data-workspace-hidden={workspaceView !== "reader"} aria-hidden={workspaceView !== "reader"} inert={workspaceView !== "reader"} aria-busy={bookLoading || restoringBook || paginating}>
-        <div className="reading-toolbar"><ReaderModeSwitch book={book} original={readerMode.original} onChange={switchReaderMode} disabled={bookLoading || importing} /><span className="chapter-context">{imageChapters.chapter?.title??currentPage?.chapterTitle ?? "当前章节"}</span><button className="concept-toggle" disabled={imageChapters.imageOnly} aria-pressed={showConcepts} onClick={() => setConceptPreference(!showConcepts)}>概念 {showConcepts ? "开" : "关"}</button><ReaderOptions value={readingAppearance} onChange={value=>{setReadingAppearance(value);try{writeReadingAppearance(localStorage,value);window.dispatchEvent(new Event("judu:settings-updated"));}catch(cause:unknown){console.error("阅读选项保存失败",cause);setNotice("阅读选项已应用，但保存失败，请检查浏览器存储。");}}}/></div>
+        <div className="reading-toolbar"><ReaderModeSwitch book={book} original={readerMode.original} onChange={switchReaderMode} disabled={bookLoading || importing} /><span className="chapter-context">{imageChapters.chapter?.title??currentPage?.chapterTitle ?? "当前章节"}</span><button className="analysis-toggle" disabled={imageChapters.imageOnly} aria-pressed={readingAppearance.showAnalysisHints} onClick={() => saveReadingAppearance({ ...readingAppearance, showAnalysisHints: !readingAppearance.showAnalysisHints })}>句读线 {readingAppearance.showAnalysisHints ? "开" : "关"}</button><button className="concept-toggle" disabled={imageChapters.imageOnly} aria-pressed={showConcepts} onClick={() => setConceptPreference(!showConcepts)}>概念 {showConcepts ? "开" : "关"}</button><ReaderOptions value={readingAppearance} onChange={saveReadingAppearance}/></div>
         <div className="reading-surface" data-original={readerMode.original}>
         <div className="reading-content" aria-hidden={readerMode.original || undefined} ref={readingRef} onMouseUp={selectText}>
           <div className="reader-sheet" data-measuring={paginating} style={{ ...readingTextStyle, "--reading-scale": renderedScale } as CSSProperties}>
             {currentPage?.isChapterStart && <div className="page-heading"><small>{currentPage.chapterTitle}</small><h1>{currentPage.chapterTitle}</h1></div>}
-            {currentPage?.paragraphs.map((paragraph) => <AnnotatedParagraph key={paragraph.id + ":" + (paragraph.sourceStartOffset ?? 0) + ":" + workspaceView} paragraphId={paragraph.id} text={paragraph.text} sourceText={sourceParagraphs.find(p=>p.id===paragraph.id)?.text} bookConcepts={visibleConcepts} sourceStartOffset={paragraph.sourceStartOffset ?? 0} sourceEndOffset={paragraph.sourceEndOffset} active={activeSource === paragraph.id} annotations={renderedAnnotations} showConcepts={showConcepts} onOpenAnnotation={openAnnotation} />)}
+            {currentPage?.paragraphs.map((paragraph) => <AnnotatedParagraph key={paragraph.id + ":" + (paragraph.sourceStartOffset ?? 0) + ":" + workspaceView} paragraphId={paragraph.id} text={paragraph.text} sourceText={sourceParagraphs.find(p=>p.id===paragraph.id)?.text} bookConcepts={visibleConcepts} highlightedConceptStarts={conceptHighlights.get(paragraph.id)} historyMarkerIds={historyMarkerIds} sourceStartOffset={paragraph.sourceStartOffset ?? 0} sourceEndOffset={paragraph.sourceEndOffset} active={activeSource === paragraph.id} annotations={renderedAnnotations} showConcepts={showConcepts} showAnalysisHints={readingAppearance.showAnalysisHints} analysisHintOpacity={readingAppearance.analysisHintOpacity} onOpenAnnotation={openAnnotation} />)}
           </div>
           {(paginating || paginationError) && <div className="reader-paginating" role="status">{paginationError || "正在按阅读区域重新排版…"}</div>}
         </div>
-        {readerMode.original && <EpubReader key={book.editionId} imageChapterRequest={imageChapters.request} onImagePage={imageChapters.onPage} book={book} anchor={readingAnchor} appearance={readingAppearance} annotations={readerAnnotations} concepts={showConcepts ? visibleConcepts : []} disabled={loading || bookLoading || restoringBook || importing || conversationLoading} onSelect={(selection, box) => { retainSelection(selection); setSelectionMenu(box); }} onStartSelection={startSelection} onClearSelection={clearSelection} onOpenAnnotation={openAnnotation} onPosition={setReadingAnchor} onNotice={setNotice} onFallback={() => switchReaderMode("text")} />}
-          {selectionMenu && selectionAnchor && <SelectionActions selectedText={selected} paragraphCount={selectionParts(selectionAnchor).length} onExtend={()=>{selectionExtensionRef.current={base:selectionAnchor,pending:true};setSelectionMenu(null);setNotice("请翻到相邻页继续选择连续正文，合计最多 1000 字。");}} left={selectionMenu.left} top={selectionMenu.top} disabled={loading || bookLoading || restoringBook || importing || conversationLoading || (!readerMode.original && paginating)} analyzeDisabled={Boolean(readingSelectionError(selected))} reason={readingSelectionError(selected) ?? undefined} onClose={() => setSelectionMenu(null)} onAnalyze={() => { setSelectionMenu(null); void ask(); }} onHighlight={color => void saveManualMark("highlight", "", color)} onFavorite={() => void saveManualMark("favorite")} onNote={(note) => void saveManualMark("note", note)} />}
+        {readerMode.original && <EpubReader key={book.editionId} imageChapterRequest={imageChapters.request} onImagePage={imageChapters.onPage} book={book} anchor={readingAnchor} appearance={readingAppearance} annotations={readerAnnotations} concepts={showConcepts ? visibleConcepts : []} showAnalysisHints={readingAppearance.showAnalysisHints} analysisHintOpacity={readingAppearance.analysisHintOpacity} disabled={bookLoading || restoringBook || conversationLoading} selectionDisabled={bookLoading || restoringBook || conversationLoading} navigationDisabled={bookLoading || restoringBook || conversationLoading} onSelect={(selection, box) => { retainSelection(selection); setSelectionMenu(box); }} onSelectionDocument={doc => { selectedDocumentRef.current = doc; }} onStartSelection={startSelection} onClearSelection={clearSelection} onOpenAnnotation={openAnnotation} onPosition={setReadingAnchor} onNotice={setNotice} onFallback={() => switchReaderMode("text")} />}
+          {selectionMenu && selectionAnchor && <SelectionActions selectedText={selected} paragraphCount={selectionParts(selectionAnchor).length} onExtend={()=>{selectionExtensionRef.current={base:selectionAnchor,pending:true};
+            // WHY：下一页拖选前释放浏览器原生选区，避免从已选文字启动 HTML 拖放；快照仍保留用于连续合并。
+            selectedDocumentRef.current?.getSelection()?.removeAllRanges();
+            window.getSelection()?.removeAllRanges();setSelectionMenu(null);setNotice("请翻到相邻页继续选择连续正文，合计最多 3000 字符。");}} left={selectionMenu.left} top={selectionMenu.top} disabled={bookLoading || restoringBook || conversationLoading || (!readerMode.original && paginating)} speechDisabled={bookLoading || restoringBook || conversationLoading || (!readerMode.original && paginating)} analyzeDisabled={loading || importing || Boolean(readingSelectionError(selected))} reason={loading ? "正在生成，可继续选文、标注和朗读；下一轮句读需等待完成。" : readingSelectionError(selected) ?? undefined} onClose={() => setSelectionMenu(null)} onAnalyze={() => { setSelectionMenu(null); void ask(); }} onHighlight={color => void saveManualMark("highlight", "", color)} onFavorite={() => void saveManualMark("favorite")} onNote={(note) => void saveManualMark("note", note)} />}
         </div>
-        <div className="selection-bar"><div className="reading-settings" aria-label="阅读设置"><span>Aa</span><button aria-label="缩小字号" onClick={() => setReaderScale(-0.05)}>−</button><button aria-label="放大字号" onClick={() => setReaderScale(0.05)}>+</button></div><div className="selection-actions">{selected ? <span>已选 {countReadingCharacters(selected)} / 1000 字</span> : <span>{imageChapters.imageOnly?"图片页无文字来源，OCR尚未启用":"选择一句或一段原文开始句读"}</span>}</div></div>
+        <div className="selection-bar"><div className="reading-settings" aria-label="阅读设置"><span>Aa</span><button aria-label="缩小字号" onClick={() => setReaderScale(-0.05)}>−</button><button aria-label="放大字号" onClick={() => setReaderScale(0.05)}>+</button></div><div className="selection-actions">{selected ? <span>已选 {countReadingCharacters(selected)} / 3000 字符</span> : <span>{imageChapters.imageOnly?"图片页无文字来源，OCR尚未启用":"选择一句或一段原文开始句读"}</span>}</div></div>
         <div className="page-nav" style={readerMode.original ? {display:"none"} : undefined}><button disabled={paginating || safePageIndex === 0} onClick={() => setPageIndex(safePageIndex - 1)}>上一页</button><span>{pages.length ? safePageIndex + 1 : 0} / {pages.length}</span><button disabled={paginating || safePageIndex >= pages.length - 1} onClick={() => setPageIndex(safePageIndex + 1)}>下一页</button></div>
       </article>
-        {workspaceView === "bookshelf" && <Bookshelf assistantOpen={bookshelfAssistant.open} onToggleAssistant={bookshelfAssistant.toggle} preferenceError={bookshelfAssistant.error} books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={loading || conversationLoading || importing} error={libraryError} onBookArchived={id=>{setBooks(items=>items.filter(item=>item.id!==id));setNotice("书籍已下架，文件和阅读记录已保留，可在已下架书籍中恢复。");}} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
-        {workspaceView === "knowledge" && <KnowledgeWorkspace editionId={book.editionId ?? null} bookTitle={book.title + (book.edition ? " · " + book.edition.fileName : "")} refreshToken={knowledgeRevision} onRefreshRequested={() => setKnowledgeRevision(value => value + 1)} onReturnReading={() => navigateWorkspace("reader")} onOpenSource={openKnowledgeSource} onOpenMark={openKnowledgeSource} onOpenConversation={openConversation} />}
+      <SpeechPlaybackBar/>
+        {workspaceView === "bookshelf" && <Bookshelf assistantOpen={bookshelfAssistant.open} onToggleAssistant={bookshelfAssistant.toggle} preferenceError={bookshelfAssistant.error} books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={conversationLoading || restoringBook} navigationDisabled={loading} error={libraryError} onBookArchived={id=>{setBooks(items=>items.filter(item=>item.id!==id));setNotice("书籍已下架，文件和阅读记录已保留，可在已下架书籍中恢复。");}} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
+        {workspaceView === "knowledge" && <KnowledgeWorkspace editionId={book.editionId ?? null} bookTitle={book.title + (book.edition ? " · " + book.edition.fileName : "")} refreshToken={knowledgeRevision} onRefreshRequested={()=>setKnowledgeRevision(value=>value+1)} onReturnReading={() => navigateWorkspace("reader")} onOpenSource={openKnowledgeSource} onOpenMaterial={openKnowledgeMaterial} onOpenConversation={openConversation} onOpenConversationMaterial={openKnowledgeConversation} advancedSearch={{...semanticSearch,editionId:book.editionId,onResult:jumpToSemanticResult}} />}
       </div>
-      <ChatPanelResizer containerRef={layoutRef} getMaxWidth={width=>maxChatWidth(width,navigation.collapsed)} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
-      <AnalysisPanel id="chat-panel" className={assistantMobileOpen ? "analysis-panel mobile-open" : "analysis-panel"} selected={selected} analysis={analysis} loading={loading} error={error} messages={messages}
-        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook || importing} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel}
+      <ChatPanelResizer containerRef={layoutRef} getMaxWidth={getMaxChatWidth} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
+      <AnalysisPanel readingPreferences={readingPreferences} onReadingPreferencesChange={book.editionId ? changeReadingPreferences : undefined} id="chat-panel" className={assistantMobileOpen ? "analysis-panel mobile-open" : "analysis-panel"} selected={selected} analysis={analysis} loading={loading} error={error} messages={messages}
+        conversations={conversations} activeThreadId={threadId || null} editionId={book.editionId} conversationsLoading={conversationLoading || bookLoading || restoringBook} conversationError={conversationError} usage={usage} modelName={model.error ? "模型信息暂不可用" : model.selectedModel} modelOptions={model.modelOptions} selectedModel={model.selectedModel} onModelChange={model.selectModel} externalPermissions={externalPreferences} onExternalPermissionsChange={changeExternalPreferences} bookContextPrefetch={bookContextPrefetch} onBookContextPrefetchChange={book.editionId ? changeBookContextPrefetch : undefined}
         onNewConversation={book.editionId ? newConversation : undefined} onRenameConversation={renameConversation}
         onSelectConversation={id => { if (activeRequestRef.current || conversationPendingRef.current) return; if (!conversations.some(item => item.id === id && item.editionId === book.editionId)) throw new Error("这条会话不属于当前书籍版本"); setSelected(""); setSelectionAnchor(null); selectionExtensionRef.current=null; openConversation(id, null); }}
         onClose={()=>{if(workspaceView==="bookshelf"&&bookshelfAssistant.open)bookshelfAssistant.toggle();else setMobileAnalysisOpen(false);}} onBack={() => navigateWorkspace("reader")} onSend={question => void ask(question, "chat")} onEditMessage={(id, prompt) => void editMessage(id, prompt)} onRetry={() => void retryRequest()} onStop={() => requestAbortRef.current?.abort()} onOpenSource={openKnowledgeSource} onOpenCitation={openCitation} />

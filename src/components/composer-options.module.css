@@ -1,18 +1,27 @@
-/* WHY：模块局部样式直接消费主题角色，避免全局选择器无法命中哈希类名。 */
-.root { position: relative; display: inline-flex; align-items: center; }
-.plus { width: 28px; height: 28px; border: 1px solid var(--reading-border); border-radius: 50%; background: transparent; color: var(--reading-text); font-size: 20px; line-height: 1; cursor: pointer; }
-.plus:hover { background: var(--reading-selected); color: var(--reading-accent); }
-.plus:disabled { opacity: .45; cursor: not-allowed; }
-.menu { position: absolute; z-index: 30; bottom: calc(100% + 8px); left: 0; width: 242px; display: grid; gap: 10px; padding: 12px; border: 1px solid var(--reading-border); border-radius: 10px; background: var(--reading-surface); color: var(--reading-text); box-shadow: 0 8px 24px #233e3524; }
-.section { display: grid; gap: 4px; }
-.sectionTitle { color: var(--reading-accent); font-size: 10px; }
-.option { display: flex; justify-content: space-between; gap: 8px; border: 0; border-radius: 6px; padding: 7px 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; font-size: 12px; }
-.option:hover { background: var(--reading-selected); }
-.option:disabled { opacity: .5; cursor: not-allowed; }
-.option small { color: var(--reading-muted); font-size: 10px; }
-.field { display: grid; grid-template-columns: 68px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--reading-muted); font-size: 11px; }
-.field select { min-width: 0; border: 1px solid var(--reading-border); border-radius: 6px; padding: 5px 7px; background: var(--reading-surface); color: var(--reading-muted); font: inherit; }
+/* WHY：操作菜单是快速选择器而不是设置页；强弱文字、行间距和可收起说明替代堆叠表单。 */
+.root { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.plus { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 0; border: 1px solid var(--reading-border); border-radius: 10px; background: transparent; color: var(--reading-text); font: 18px/1 system-ui; cursor: pointer; }
+.plus:hover, .plus[aria-expanded="true"] { background: var(--reading-selected); color: var(--reading-accent); }
+.plus:focus-visible, .menu :is(button,select,input,summary):focus-visible { outline: 2px solid var(--reading-accent); outline-offset: 2px; }
+.menu { position: absolute; z-index: 35; bottom: calc(100% + 12px); left: 0; box-sizing: border-box; width: min(288px, calc(100vw - 32px)); max-height: min(64dvh, 540px); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 8px; padding: 9px; border: 1px solid var(--reading-border); border-radius: 14px; background: var(--reading-surface); color: var(--reading-text); box-shadow: 0 12px 34px #2632381f, 0 2px 6px #2632380c; font: 12px/1.4 system-ui; }
+.section { display: grid; gap: 2px; }
+.sectionTitle { padding: 3px 7px 5px; color: var(--reading-muted); font-size: 10px; font-weight: 550; }
+.option { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 42px; padding: 5px 7px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.option:hover { background: color-mix(in srgb, var(--reading-text) 5%, transparent); }
+.option:disabled { opacity: .55; cursor: not-allowed; }
+.optionIcon { display: grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; color: var(--reading-muted); }
+.optionText { display: grid; gap: 1px; min-width: 0; }
+.optionText strong { font-size: 12px; font-weight: 520; }
+.optionText small { color: var(--reading-muted); font-size: 10px; }
+.optionChevron { margin-left: auto; color: var(--reading-muted); font-size: 17px; }
+.prefetch { display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: start; column-gap: 8px; padding: 7px; border-radius: 8px; font-size: 12px; line-height: 1.45; cursor: pointer; }
+.prefetch:hover { background: color-mix(in srgb, var(--reading-text) 5%, transparent); }
+.prefetch input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--reading-accent); }
+.prefetch small { grid-column: 2; color: var(--reading-muted); font-size: 10px; line-height: 1.45; }
+.field { display: grid; grid-template-columns: 70px minmax(0,1fr); align-items: center; gap: 6px; padding: 3px 7px; color: var(--reading-muted); font-size: 11px; }
+.field select { min-width: 0; width: 100%; padding: 6px 8px; border: 1px solid var(--reading-border); border-radius: 8px; background: var(--reading-surface); color: var(--reading-text); font: 12px/1.4 system-ui; }
 .field select:disabled { opacity: .55; }
-.notice { margin: 0; color: var(--reading-accent); font-size: 10px; line-height: 1.5; }
-
-.root{display:flex;align-items:center;gap:6px}.root>.field{margin:0;font-size:11px;min-width:0}.root>.field select{max-width:160px;font-size:11px;padding:3px 6px;}
+.root > .field { grid-template-columns: auto minmax(0,1fr); padding: 0; gap: 6px; white-space: nowrap; }
+.root > .field select { width: auto; max-width: 170px; padding: 4px 7px; font-size: 12px; }
+.notice { margin: 0; padding: 0 9px 5px; color: var(--reading-accent); font-size: 11px; line-height: 1.5; }
+@media (max-width: 480px) { .menu { max-height: min(60dvh, 480px); } }

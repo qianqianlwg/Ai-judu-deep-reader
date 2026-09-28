@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { lstat } from "node:fs/promises";
+import { snapshotMobiResourceAncestors, verifyMobiResourceAncestors } from "./mobi-layout-resources.mjs";
 import {readMobiPreparedLayout, type MobiPreparedLayout} from './mobi-prepared-layout';
 import { readMobiLayoutSnapshot, type MobiLayoutSnapshot } from "./mobi-layout-snapshot";
 import type { MobiContainerKind } from "./mobi-format";
@@ -87,6 +88,8 @@ async function startMobiWorker<T>(input: MobiWorkerInput, options: MobiWorkerOpt
     throw new Error("MOBI解析运行时未就绪，请执行 npm run build:mobi-worker 后重试", { cause });
   }
   if (options.signal?.aborted) throw new Error("MOBI解析已取消");
+  // WHY：共享祖先由父进程校验，worker 不获得祖先目录的递归读取权限；返回前再核对身份。
+  const directories = await snapshotMobiResourceAncestors(input.resourceDir);
   // WHY：不继承NODE_OPTIONS、模型密钥等环境；Node权限仅允许读依赖和写本次私有目录。并非完整OS/网络沙箱。
   const env: NodeJS.ProcessEnv = { NODE_ENV: "production", ...Object.fromEntries(["SystemRoot", "WINDIR", "TEMP", "TMP"].flatMap(key => process.env[key] ? [[key, process.env[key]!]] : [])) };
   const child = spawn(process.execPath, ["--max-old-space-size=192", "--permission", `--allow-fs-read=${worker}`,
@@ -96,5 +99,7 @@ async function startMobiWorker<T>(input: MobiWorkerInput, options: MobiWorkerOpt
   const pending = collectMessage(child, options, decode);
   try { child.send({ ...input, mode }, error => { if (error) child.emit("error", error); }); }
   catch (cause: unknown) { child.emit("error", cause instanceof Error ? cause : new Error("MOBI进程通信失败")); }
-  return pending;
+  const result = await pending;
+  await verifyMobiResourceAncestors(directories, true);
+  return result;
 }

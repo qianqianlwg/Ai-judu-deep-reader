@@ -15,6 +15,7 @@ const analysis = (extra: Partial<TextAnnotation> = {}): TextAnnotation => ({ id:
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (cause: Error) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 let props: Props, host: HTMLDivElement, mount: HTMLDivElement, layers: HTMLDivElement[], texts: HTMLSpanElement[], external: HTMLTextAreaElement, root: Root, mounted: boolean;
 let frames: Map<number, FrameRequestCallback>, frameId: number;
+let firstPageVisible: boolean;
 let pdf: { numPages: number; getDestination: ReturnType<typeof vi.fn<(name: string) => Promise<unknown>>>; getPageIndex: ReturnType<typeof vi.fn<() => Promise<number>>> };
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find(node => node.getAttribute("aria-label") === label || node.textContent === label)!;
@@ -30,6 +31,7 @@ function link(page = 1, dest: unknown = [1, { name: "Fit" }]) {
 }
 function makePage(number: number, value: string): PdfTextPage { return { pageNumber: number, width: 600, height: 800, rotation: 0, mapped: false, runs: [], items: [{ str: value, transform: [1, 0, 0, 1, 0, 0], width: 300, height: 14 }] }; }
 beforeEach(() => {
+  firstPageVisible = true;
   vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); frames = new Map(); frameId = 0;
   vi.stubGlobal("requestAnimationFrame", (job: FrameRequestCallback) => { const id = ++frameId; frames.set(id, job); return id; }); vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("本测试禁止读取网络/AI/真实书库"); })); vi.spyOn(window, "open").mockReturnValue(null); vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -48,7 +50,7 @@ beforeEach(() => {
   Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: function (this: Range) {
     const element = this.startContainer instanceof Element ? this.startContainer : this.startContainer.parentElement;
     const page = element?.closest<HTMLElement>("[data-test-page]")?.dataset.testPage;
-    const values = page ? [box(20 + this.startOffset * 10, page === "1" ? 40 : 260, Math.max(10, (this.endOffset - this.startOffset) * 10), 20)] : [];
+    const values = page && (page !== "1" || firstPageVisible) ? [box(20 + this.startOffset * 10, page === "1" ? 40 : 260, Math.max(10, (this.endOffset - this.startOffset) * 10), 20)] : [];
     return Object.assign(values, { item: (i: number) => values[i] ?? null });
   } });
   const book: LibraryBookContent = { id: "book", title: "合成PDF", author: "本地测试", editionId: "a", chapters: [firstText, secondText].map((text, i) => ({ id: `c${i + 1}`, title: "页", sourceHref: `pdf:page:${i + 1}`, paragraphs: [{ id: `p${i + 1}`, text }] })) };
@@ -63,7 +65,7 @@ describe("PDF真实适配到共享浮层", () => {
   it("文字层概念hover显示逐词定义，使用真实共用portal而非Foliate假对象", async () => {
     await render(); await mouse(texts[0], "mousemove"); expect(dialog()?.classList.contains("judu-annotation-popover")).toBe(true);
     expect(dialog()?.textContent).toContain("中央与地方之间财政关系"); expect(dialog()?.parentElement).toBe(document.body);
-    expect(host.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(2);
+    expect(host.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
     expect(pdf.getDestination).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
   });
   it("全程不向PDF正文插入节点或改写已存在Range", async () => {
@@ -130,9 +132,11 @@ describe("PDF引用显式跳转、scope与键盘", () => {
     expect(dialog()).toBeNull(); expect(event.defaultPrevented).toBe(false); expect(pdf.getDestination).not.toHaveBeenCalled();
   });
   it("第二页概念只根据第二页坐标命中，不被第一页doc监听吞掉", async () => {
+    // WHY：同词仅标记可见范围的首次出现；模拟翻到第二页，而非让两页同时可见。
+    firstPageVisible = false;
     await render(); await mouse(texts[1], "mousemove", 85, 270); expect(dialog()?.textContent).toContain("中央与地方之间财政关系");
     expect(host.querySelector('[data-epub-target^="pdf:2:"]')?.getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector('[data-epub-target^="pdf:1:"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[data-epub-target^="pdf:1:"]')).toBeNull();
   });
   it("外部聊天事件即使与正文坐标重叠也不触发概念", async () => {
     await render(); await mouse(external, "mousemove"); await mouse(external, "click"); expect(dialog()).toBeNull();

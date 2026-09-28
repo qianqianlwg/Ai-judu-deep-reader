@@ -86,7 +86,7 @@ describe("共享概念交互来源与非侵入性", () => {
 
 describe("共享历史与手动标记", () => {
   it("同末端多个历史只一个入口，按时间倒序；不同末端独立", () => {
-    const f = fixture(["甲乙丙丁戊己"]), old = annotation({ id: "old" }), newer = annotation({ id: "new", startOffset: 1, createdAt: "2026-09-18T03:00:00Z" }), last = annotation({ id: "last", startOffset: 4, endOffset: 6 });
+    const f = fixture(["甲乙丙丁戊己"]), old = annotation({ id: "old", messageId: "old-message" }), newer = annotation({ id: "new", messageId: "new-message", startOffset: 1, createdAt: "2026-09-18T03:00:00Z" }), last = annotation({ id: "last", messageId: "last-message", startOffset: 4, endOffset: 6 });
     const result = historiesOf(f.build([old, last, newer]));
     expect(result.map(item => item.annotations.map(a => a.id))).toEqual([["new", "old"], ["last"]]);
     expect(result.map(item => item.range.toString())).toEqual(["丁", "己"]);
@@ -142,4 +142,11 @@ describe("共享坐标边界", () => {
     for (const [x, y] of [[9.99, 20], [40.01, 20], [10, 19.99], [10, 60.01]]) expect(insideRect(bounds, x, y)).toBe(false);
     expect(insideRect(bounds, Number.NaN, 30)).toBe(false);
   });
+});
+
+it("多段同一次句读只在完整选文末尾生成历史入口，下横线数据不改",()=>{
+ const f=fixture(["第一段","第二段","第三段"]);
+ const items=f.paragraphs.map((p,i)=>annotation({id:"part-"+i,paragraphId:p.id,startOffset:0,endOffset:p.text.length}));
+ const before=JSON.stringify(items),result=historiesOf(f.build(items));
+ expect(result).toHaveLength(1);expect(result[0].key).toContain("p2:history:");expect(JSON.stringify(items)).toBe(before);
 });

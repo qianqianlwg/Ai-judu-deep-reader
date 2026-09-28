@@ -7,6 +7,7 @@ const fixture = vi.hoisted(() => ({ db: undefined as TestDb | undefined }));
 vi.mock("@/lib/db", () => ({ getDb: () => { if (!fixture.db) throw new Error("测试数据库未初始化"); return fixture.db; } }));
 import { POST } from "./route";
 import * as retrievalModule from "@/lib/book-retrieval";
+import * as prefetchModule from "@/lib/agent/book-context-prefetch";
 import { captureReadingContext, type ReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, restoreReadingRequest } from "@/lib/reading-request";
 
 const runtime = (process as unknown as { getBuiltinModule(name: string): { DatabaseSync: new (file: string) => TestDb } }).getBuiltinModule("node:sqlite");
@@ -48,6 +49,26 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); fixture.db?.close(); fixture.db = undefined; });
 
 describe("流式 Provider 路由集成", () => {
+  it("选区已确认时只注入其他章节来源，写入审计并可重放；默认不预检索", async () => {
+    const spy = vi.spyOn(prefetchModule, "prefetchBookContext").mockResolvedValue({ status: "completed", sources: [{ sourceId: "book:edition-1:paragraph:p-old", paragraphId: "p-old", chapterId: "chapter-old", chapterTitle: "第一章", text: "第一章讨论相关术语的原文。", startOffset: 0, endOffset: 16, channels: ["semantic"] }] });
+    const result = await call({ mode: "analyze", bookContextPrefetch: true });
+    expect(result.text).toContain('"name":"prefetch_book_context"');
+    expect(result.text).toContain("第一章讨论相关术语");
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy.mock.calls[0][0].selectedParagraphIds).toContain("p1");
+    const requestBody = JSON.stringify(JSON.parse(String(fetcher.mock.calls[0][1]?.body)));
+    expect(requestBody).toContain("第一章讨论相关术语");
+    const runs = fixture.db!.prepare("SELECT tool_name, input_json FROM agent_tool_runs").all() as { tool_name: string; input_json: string }[];
+    expect(runs.some(run => run.tool_name === "prefetch_book_context")).toBe(true);
+    expect(runs.find(run => run.tool_name === "prefetch_book_context")?.input_json).not.toContain("这是十字原文");
+    const replay = await call({ mode: "analyze", bookContextPrefetch: true });
+    expect(replay.text).toContain('"name":"prefetch_book_context"');
+    expect(spy).toHaveBeenCalledOnce();
+  });
+  it("非法自动检索选项在请求上游之前被拒绝", async () => {
+    expect((await call({ bookContextPrefetch: "true" })).status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("OpenAI 请求鉴权、真实增量、落库和 meta ID 一致", async () => {
     const response = await POST(request());
     expect(response.headers.get("Content-Type")).toContain("text/event-stream");
@@ -416,7 +437,7 @@ describe("完整SDK的旧工具迟到与新attempt交错",()=>{
     expect(row()).toMatchObject({status:"completed",content:"你好，世界"});expect(count()).toBe(2);
     expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM agent_tool_runs").get()).toEqual({count:0});expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"save_reading_analysis"');expect(fetcher).toHaveBeenCalledTimes(number);expect(count()).toBe(2);});
+  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"save_reading_analysis"');expect(replay.text).toContain('"contentOffset":0');const timeline=JSON.parse(row().structured_output) as {_request:{timeline:{tools:Record<string,number>;analysis:number}}};expect(timeline._request.timeline.tools["call-save"]).toBe(0);expect(timeline._request.timeline.analysis).toBe(0);expect(fetcher).toHaveBeenCalledTimes(number);expect(count()).toBe(2);});
 });
 
 it.each([{threadId:"thread-1\n"},{clientAssistantMessageId:"assistant-1\n"},{editionId:"edition-1\n"}])("流式入口也拒绝尾换行ID，不再制造不可打开的新会话 %j",async input=>{expect((await call(input)).status).toBe(400);expect(count()).toBe(0);expect(fetcher).not.toHaveBeenCalled();});
@@ -424,44 +445,35 @@ it.each([{threadId:"thread-1\n"},{clientAssistantMessageId:"assistant-1\n"},{edi
 it("请求模型来自允许列表，并真实传入上游且落库",async()=>{fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('second-model',0)");const result=await call({model:'second-model'});expect(result.status).toBe(200);expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).model).toBe('second-model');expect(fixture.db!.prepare("SELECT model_name FROM chat_messages WHERE id='assistant-1'").get()).toMatchObject({model_name:'second-model'});});
 it("未知模型在请求上游和保存消息之前拒绝",async()=>{const result=await call({model:'not-configured'});expect(result.status).toBe(400);expect(fetcher).not.toHaveBeenCalled();expect(count()).toBe(0);});
 
-describe("语义重点标注的 SSE、落库和幂等回放", () => {
-  const answer = "先看影响范围，再确定协调责任。";
-  const emphasis = { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1 }] };
-  function firstStep(name: string, args: unknown): Response {
-    return upstream(delta(answer), block({ id: "tool-step", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-emphasis", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
-  }
-  it("模型省略标注工具时，服务端自动补充可验证重点", async () => {
-    fetcher.mockReset().mockResolvedValueOnce(upstream(delta(answer), done()));
-    const result = await call();
-    expect(result.text).toContain('event: emphasis');
-    expect(stored().emphasis).toMatchObject({ version: 1, marks: [expect.objectContaining({ kind: "key_sentence", quote: answer })] });
-  });
-  it("追问先流式输出无符号正文，再校验独立标注并可刷新回放", async () => {
-    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", emphasis)).mockResolvedValueOnce(upstream(done()));
-    const result = await call();
-    expect(result.text).toContain('event: raw_delta\ndata: {"text":"' + answer + '"}');
-    expect(result.text).toContain('event: emphasis\ndata: {"result":');
-    expect(row()).toMatchObject({ content: answer, status: "completed" });
-    expect(stored().emphasis).toEqual(emphasis);
-    const calls = fetcher.mock.calls.length;
-    const replay = await call();
-    expect(replay.text).toContain('event: emphasis\ndata: {"result":');
-    expect(fetcher).toHaveBeenCalledTimes(calls);
-  });
-  it("句读保存的标注被同一版正文校验，虚构位置不会进入历史", async () => {
-    fetcher.mockReset().mockResolvedValueOnce(firstStep("save_reading_analysis", { ...analysis, emphasis })).mockResolvedValueOnce(upstream(done()));
-    const result = await call({ mode: "analyze" });
-    expect(result.text).toContain('event: structured');
-    expect(result.text).toContain('event: emphasis');
-    expect(stored().emphasis).toEqual(emphasis);
-    expect(row().content).toBe(answer);
-  });
-  it("模型提出正文不存在的词不能保存，原回答照常保留", async () => {
-    const wrong = { version: 1, marks: [{ kind: "term", quote: "不存在", occurrence: 1 }] };
-    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", wrong)).mockResolvedValueOnce(upstream(done()));
-    const result = await call();
-    expect(result.text).toContain('event: emphasis');
-    expect(JSON.stringify(stored().emphasis)).not.toContain("不存在");
-    expect(row().content).toBe(answer);
-  });
+it("本轮解读方式和长度传入模型并保存；下轮替换不改已有记录", async () => {
+  const first = await call({ detail: "gist", difficulty: "accessible" });
+  expect(first.text).toContain("event: done");
+  const firstModel = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+  expect(JSON.stringify(firstModel.messages)).toContain("面向初学者");
+  expect(JSON.stringify(firstModel.messages)).toContain("当前回复长度：大意");
+  const original = row().structured_output;
+  expect(JSON.parse(original)._request.input).toMatchObject({ detail: "gist", difficulty: "accessible" });
+  const second = await call({ clientUserMessageId: "user-2", clientAssistantMessageId: "assistant-2", detail: "expanded", difficulty: "advanced" });
+  expect(second.text).toContain("event: done");
+  const secondModel = JSON.parse(String(fetcher.mock.calls.at(-1)![1]?.body));
+  expect(JSON.stringify(secondModel.messages)).toContain("当前解读方式：深入");
+  expect(JSON.stringify(secondModel.messages)).toContain("当前回复长度：展开");
+  expect(row().structured_output).toBe(original);
+});
+
+it("超出长度目标后仍完整保存，句读记录与已流式输出的正文一致且不追加寒暄", async () => {
+  const visible = "解释".repeat(250);
+  const tool = { ...analysis, readingText: "另一份较短的释读", citations: [] };
+  fetcher.mockResolvedValueOnce(upstream(
+    delta(visible),
+    block({ id: "combined", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-save", type: "function", function: { name: "save_reading_analysis", arguments: JSON.stringify(tool) } }] }, finish_reason: null }] }),
+    block({ id: "combined", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }),
+    block("[DONE]"),
+  ));
+  const result = await call({ mode: "analyze", selectedText: "这是十字原文用来句读", detail: "gist" });
+  expect(result.text).toContain("event: done");
+  expect(result.text).not.toContain("answer_length_limit");
+  expect(row()).toMatchObject({ content: visible, status: "completed" });
+  expect(JSON.parse(row().structured_output).readingText).toBe(visible);
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });

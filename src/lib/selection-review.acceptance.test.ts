@@ -112,26 +112,26 @@ afterEach(async () => { if (root) await act(async () => root!.unmount()); host.r
 
 describe("P0 独立验收：字符上限与 DOM", () => {
   it.each([false, true])("精读反向=%s，Unicode 限制后的可见 DOM 与快照一致", reverse => {
-    const values = ["甲".repeat(600), "😀".repeat(600)], selection = domSelection(values, reverse, true);
+    const values = ["甲".repeat(1800), "😀".repeat(1800)], selection = domSelection(values, reverse, true);
     const snapshot = readReadingSelection(selection, host)!;
-    expect(countReadingCharacters(snapshot.text)).toBe(1000);
+    expect(countReadingCharacters(snapshot.text)).toBe(3000);
     expect(selection.toString()).toBe(snapshot.fragments!.map(part => part.text).join(""));
     expect(readReadingSelection(selection, host)).toEqual(snapshot);
     expect(selectionMatchesParagraphs(snapshot, chapter(values).paragraphs)).toBe(true);
     expect(snapshot.fragments!.map(p => p.text).join("")).not.toMatch(/[\uD800-\uDBFF]$/u);
   });
   it.each([false, true])("原版反向=%s，Unicode 限制后的可见 DOM 与来源一致", reverse => {
-    const values = ["甲".repeat(600), "😀".repeat(600)], selection = domSelection(values, reverse, false);
+    const values = ["甲".repeat(1800), "😀".repeat(1800)], selection = domSelection(values, reverse, false);
     const maps = mapEpubDocument(document, chapter(values)), snapshot = readLimitedEpubSelection(selection, maps)!;
-    expect(countReadingCharacters(snapshot.text)).toBe(1000);
+    expect(countReadingCharacters(snapshot.text)).toBe(3000);
     expect(selection.toString()).toBe(snapshot.fragments!.map(part => part.text).join(""));
     expect(selectionFromEpubRange(selection.getRangeAt(0), maps)).toEqual(snapshot);
     expect(selectionMatchesParagraphs(snapshot, chapter(values).paragraphs)).toBe(true);
   });
-  it("1000 字边界只留下完整 UTF16 字符，不能越界或凭空拼段", () => {
-    const source = [{ id: "p", text: "😀".repeat(1001) }];
-    const capped = capReadingSelection({ paragraphId: "p", startOffset: 0, endOffset: 2002, text: source[0].text });
-    expect(capped).toEqual({ paragraphId: "p", startOffset: 0, endOffset: 2000, text: "😀".repeat(1000) });
+  it("3000 字符边界只留下完整 UTF16 字符，不能越界或凭空拼段", () => {
+    const source = [{ id: "p", text: "😀".repeat(3001) }];
+    const capped = capReadingSelection({ paragraphId: "p", startOffset: 0, endOffset: 6002, text: source[0].text });
+    expect(capped).toEqual({ paragraphId: "p", startOffset: 0, endOffset: 6000, text: "😀".repeat(3000) });
     expect(selectionMatchesParagraphs(capped, source)).toBe(true);
     expect(anchorsMatchParagraphs([{ paragraphId: "p", startOffset: 1, endOffset: 3, selectedText: source[0].text.slice(1, 3) }], source)).toBe(false);
   });
@@ -196,7 +196,7 @@ describe("P0 独立验收：页面事件与发送", () => {
     if (!mark) throw new Error("未渲染测试标注");
     await click(mark); await click(button("查看完整句读", document));
     const selectionText = host.querySelector(".selection-bar")?.textContent;
-    expect(selectionText).toContain("已选 " + countReadingCharacters(fullSelection().text) + " / 1000 字");
+    expect(selectionText).toContain("已选 " + countReadingCharacters(fullSelection().text) + " / 3000 字符");
     expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p0", offset: 0 });
   });
 });
@@ -363,7 +363,7 @@ describe("P0 独立验收：消息来源完整性优先于残缺标注", () => {
     const sources = host.querySelectorAll('[data-message-id="message-review"] [data-testid="message-source"] blockquote');
     expect(sources).toHaveLength(2);
     expect([...sources].map(source=>source.textContent).join("\n\n")).toBe(fullSelection().text);
-    expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + countReadingCharacters(fullSelection().text) + " / 1000 字");
+    expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + countReadingCharacters(fullSelection().text) + " / 3000 字符");
     expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p0", offset: 0 });
   });
 });
@@ -378,7 +378,7 @@ describe("P0 独立验收：旧消息缺来源与损坏来源的区别", () => {
   }
   it("真正没有保存 anchor 的旧消息保留已核验的单段标注来源", async () => {
     await openPartialAnnotation({ ...analysis });
-    expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + texts[1].length + " / 1000 字");
+    expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + texts[1].length + " / 3000 字符");
     expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p1", offset: 0 });
   });
   it("完整 anchor 中后一段与当前版文字不符时，清除临时局部选文", async () => {
@@ -411,6 +411,6 @@ it("[回归] 中间段 annotation 缺失时，不能在请求权威消息来源�
   await mount(); const marker = paragraph(2).querySelector<HTMLElement>(".judu-history-marker");
   expect(marker).not.toBeNull(); await click(marker!); await click(button("查看完整句读", document));
   expect(fetcher.mock.calls.filter(([input]) => url(input).pathname === "/api/threads/thread-review"), "不能因残缺标注不连续而放弃读取更完整的消息来源").toHaveLength(1);
-  expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + countReadingCharacters(selection.text) + " / 1000 字");
+  expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + countReadingCharacters(selection.text) + " / 3000 字符");
   expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p0", offset: 0 });
 });

@@ -296,3 +296,24 @@ function matchParagraphConcepts(input: AnnotationSlice, source: string, sourceOf
 export function sourceSelectionHighlights(parts: readonly ReadingAnchorPart[]): TextAnnotation[] {
   return parts.map(part=>({id:"source-"+part.paragraphId+"-"+part.startOffset,paragraphId:part.paragraphId,startOffset:part.startOffset,endOffset:part.endOffset,textHash:hashText(part.selectedText),threadId:"source-preview",summary:"",concepts:[],kind:"highlight",markColor:"yellow",createdAt:""}));
 }
+
+/** WHY：概念已有黄色高亮，句读线只画在概念之外；按 UTF-16 偏移拆分，不改写正文节点。 */
+export function analysisIntervalsWithoutConcepts(text: string, start: number, end: number, concepts: readonly ConceptDetail[]): Array<{ start: number; end: number }> {
+  let intervals = [{ start, end }];
+  for (const concept of concepts) {
+    if (!concept.name) continue;
+    let at = text.indexOf(concept.name);
+    while (at >= 0) {
+      const cutEnd = at + concept.name.length;
+      intervals = intervals.flatMap(item => {
+        if (cutEnd <= item.start || at >= item.end) return [item];
+        const parts: Array<{ start: number; end: number }> = [];
+        if (item.start < at) parts.push({ start: item.start, end: at });
+        if (cutEnd < item.end) parts.push({ start: cutEnd, end: item.end });
+        return parts;
+      });
+      at = text.indexOf(concept.name, at + concept.name.length);
+    }
+  }
+  return intervals;
+}

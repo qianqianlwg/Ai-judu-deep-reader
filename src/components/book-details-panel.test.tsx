@@ -71,3 +71,13 @@ it("管理中成功改名刷新书架；成功下架才通知父层", async () =
   expect(fetcher.mock.calls[0][0]).toBe("/api/books/a/display-title");
   click("下架《简洁书名》"); await act(async () => click("确认下架")); expect(archived).toHaveBeenCalledOnce(); expect(open).not.toHaveBeenCalled();
 });
+
+it("生成的导航锁不影响书名修改、封面重载和下架入口", async () => {
+  await render({ navigationDisabled: true, initialSection: "manage" });
+  expect(host.querySelector<HTMLInputElement>("input")?.disabled).toBe(false);
+  expect(host.querySelector<HTMLButtonElement>('[aria-label="下架《简洁书名》"]')?.disabled).toBe(false);
+  click("重新加载封面"); expect(retry).toHaveBeenCalledOnce();
+  click("继续阅读↗"); expect(open).not.toHaveBeenCalled();
+  click("文件与版本");
+  expect([...host.querySelectorAll<HTMLButtonElement>('[data-edition-id]')].every(button => button.disabled)).toBe(true);
+});

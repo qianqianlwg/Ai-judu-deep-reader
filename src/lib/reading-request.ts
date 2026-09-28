@@ -2,7 +2,9 @@ import { readAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 import { decodeChatEvent, isAnalysis, isRecord, type Analysis, type ChatEvent, type ChatMessage, type ToolActivity, type TokenUsage } from "./chat-stream";
 import { DEFAULT_CONTEXT_SETTINGS, MAX_CONTEXT_INPUT_TOKENS, type ContextMessage, type ContextSettings } from "./context-compaction";
 import { SseDecoder } from "./sse";
+import { normalizeReadingDifficulty, type ReadingDifficulty } from "./reading-preferences";
 import { normalizeReadingDetail, type ReadingDetail } from "./reading-detail";
+import { emptyExternalPermissions, readExternalPermissions, type ExternalPermissions } from "./agent/external-permissions";
 
 import { makeReadingAnchor, readAnchorParts, type ReadingAnchorPart } from "./reading-anchors";
 import type { ReadingAnchor } from "./reading-anchors";
@@ -20,8 +22,11 @@ export function withRetryContextSettings(state: ReadingRequestState, value: Retr
 }
 export type ReadingRequestInput = {
   model?: string;
+  externalPermissions?: ExternalPermissions;
+  bookContextPrefetch?: boolean;
   retryContextSettings?: RetryContextSettings;
   detail?: ReadingDetail;
+  difficulty?: ReadingDifficulty;
   mode: "chat" | "analyze";
   question: string;
   selectedText: string;
@@ -121,7 +126,7 @@ export function createReadingRequest(input: ReadingRequestInput, makeId = () => 
   if (!input.question.trim()) throw new Error("问题不能为空");
   if (input.mode === "analyze" && !input.selectedText.trim()) throw new Error("没有选中文本");
   // WHY：重试使用第一次提交的完整输入快照，不受切书、选区或当前输入框变化影响。
-  const payload = structuredClone({ ...input, detail: normalizeReadingDetail(input.detail), threadId: input.threadId || makeId(), clientUserMessageId: makeId(), clientAssistantMessageId: makeId() });
+  const payload = structuredClone({ ...input, detail: normalizeReadingDetail(input.detail), difficulty: normalizeReadingDifficulty(input.difficulty), threadId: input.threadId || makeId(), clientUserMessageId: makeId(), clientAssistantMessageId: makeId() });
   return { payload, status: "idle", attempt: 0, content: "" };
 }
 
@@ -141,7 +146,7 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   const failure = isRecord(meta.failure) ? meta.failure : undefined;
   const status = message.status === "completed" && message.content.trim() ? "completed" : failure?.code === "cancelled" ? "cancelled" : "error";
   return {
-    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, model: optionalString(input.model), detail: normalizeReadingDetail(input.detail), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
+    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, model: optionalString(input.model), externalPermissions: readExternalPermissions(input.externalPermissions), bookContextPrefetch: input.bookContextPrefetch === true, detail: normalizeReadingDetail(input.detail), difficulty: normalizeReadingDifficulty(input.difficulty), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
     status, attempt: 1, content: message.content, analysis: isAnalysis(saved) ? saved : undefined, emphasis: readAnswerEmphasis(message.content, saved.emphasis),
     error: status === "completed" ? undefined : typeof failure?.message === "string" ? failure.message : "上次生成未完成，可以重试",
   };
@@ -169,7 +174,7 @@ export function prepareReadingEdit(state: ReadingRequestState, messages: ChatMes
   if (index < 0) throw new Error("找不到要编辑的原始用户消息");
   // WHY：编辑只生成新请求计划，不删除旧消息、不复用旧 assistant 身份；父任务负责创建新分支和新 attempt。
   const originalInput: ReadingRequestInput = {
-    mode: state.payload.mode, model:state.payload.model, detail: state.payload.detail, question: state.payload.question, selectedText: state.payload.selectedText,
+    mode: state.payload.mode, model:state.payload.model, externalPermissions: emptyExternalPermissions(), bookContextPrefetch: false, detail: state.payload.detail, difficulty: state.payload.difficulty, question: state.payload.question, selectedText: state.payload.selectedText,
     bookId: state.payload.bookId, editionId: state.payload.editionId, chapterId: state.payload.chapterId, paragraphId: state.payload.paragraphId,
     bookTitle: state.payload.bookTitle, chapterTitle: state.payload.chapterTitle, context: state.payload.context, selectionStart: state.payload.selectionStart,
     selectionAnchors: state.payload.selectionAnchors, selectionEnd: state.payload.selectionEnd, textHash: state.payload.textHash, contextSettings: state.payload.contextSettings,
@@ -204,7 +209,7 @@ export function applyReadingRequest(messages: ChatMessage[], state: ReadingReque
     const sameAnchor = JSON.stringify(message.anchor) === JSON.stringify(anchor);
     return message.id === userId && !sameAnchor ? { ...message, anchor } : message;
   });
-  if (!user) next.push({ id: userId, role: "user", kind: "chat", anchor, content: question, status: "completed" });
+  if (!user) next.push({ id: userId, createdAt: new Date().toISOString(), role: "user", kind: "chat", anchor, content: question, status: "completed" });
   const replacement: ChatMessage = { id: assistantId, anchor, role: "assistant", kind: mode === "analyze" ? "analysis" : "chat", content: state.content, analysis: state.analysis, emphasis: state.emphasis, outputFormat: state.outputFormat ?? "text", usage: state.usage, tools: state.tools, warnings: state.warnings, status: state.status === "completed" ? "completed" : state.status === "streaming" ? "streaming" : "error" };
   const index = next.findIndex((message) => message.id === assistantId);
   // WHY：只替换原助手消息；后续对话的位置和原用户消息不动，也不把旧的半截回答拼进重试结果。

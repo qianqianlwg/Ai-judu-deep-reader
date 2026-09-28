@@ -112,3 +112,17 @@ it("会话 client 不丢失当前工具与独立的旧尝试分区", async () =>
  expect(history.messages[0].tools).toHaveLength(1);
  expect(history.messages[0].historicalTools?.[0].attemptId).toBeNull();
 });
+
+describe("本书关联检索历史安全回放", () => {
+  const row = (output: unknown) => ({ id: "prefetch-1", messageId: "assistant-1", name: "prefetch_book_context", status: "completed", outputJson: JSON.stringify(output) });
+  it("仅回放本版真实正文片段，丢弃跨版伪造来源", () => {
+    const visible = conversationToolFromRow(row({ ok: true, sources: [{ sourceId: "book:e1:paragraph:old", paragraphId: "old", chapterTitle: "第一章", text: "关联的真实原文" }, { sourceId: "book:e2:paragraph:foreign", paragraphId: "foreign", text: "不属于本版" }] }), "e1");
+    expect(JSON.stringify(visible)).toContain("关联的真实原文");
+    expect(JSON.stringify(visible)).not.toContain("不属于本版");
+  });
+  it("索引未就绪时保留可信降级提示，而不是空白卡", () => {
+    const retrieval = { version: 1, requestedMode: "semantic", effectiveMode: "none", queries: ["思想"], branches: [{ query: "思想", strategy: "semantic", status: "skipped", count: 0, durationMs: 0, reason: "本书索引未完成" }], durationMs: 0, sourceCount: 0, degraded: true };
+    const visible = conversationToolFromRow(row({ ok: false, sources: [], message: "本书索引未完成", retrieval }), "e1");
+    expect(visible?.tool.result).toMatchObject({ ok: false, message: "本书索引未完成", retrieval: { effectiveMode: "none" } });
+  });
+});

@@ -4,6 +4,10 @@ import { Geist, Geist_Mono } from "next/font/google";
 import {
   DEFAULT_READING_APPEARANCE, getReadingAppearanceBootstrapScript, getReadingAppearanceVariables,
 } from "@/lib/reading-appearance";
+import { SpeechProvider } from "@/components/speech-controls";
+import "@/components/lxgw-wenkai.css";
+import { uiTextSizeBootstrapScript } from "@/lib/ui-typography";
+import "@/components/ui-typography.css";
 import "./globals.css";
 import "@/components/workspace-theme.css";
 
@@ -20,7 +24,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const defaultVariables = getReadingAppearanceVariables(DEFAULT_READING_APPEARANCE) as CSSProperties;
   return <html lang="zh-CN" data-reading-theme={DEFAULT_READING_APPEARANCE.theme} suppressHydrationWarning
     className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} style={defaultVariables}>
-    <head><script dangerouslySetInnerHTML={{ __html: getReadingAppearanceBootstrapScript() }} /></head>
-    <body className="min-h-full flex flex-col" style={{ background: "var(--reading-paper, #fffdf9)", color: "var(--reading-text, #263238)" }}>{children}</body>
+    <head><script dangerouslySetInnerHTML={{ __html: getReadingAppearanceBootstrapScript() }} /><script dangerouslySetInnerHTML={{ __html: uiTextSizeBootstrapScript() }} /></head>
+    <body className="min-h-full flex flex-col" style={{ background: "var(--reading-paper, #fffdf9)", color: "var(--reading-text, #263238)" }}><SpeechProvider>{children}</SpeechProvider></body>
   </html>;
 }

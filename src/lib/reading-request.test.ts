@@ -19,6 +19,12 @@ describe("reading request 原消息重试状态机", () => {
     expect(state.payload.chatHistory?.[0].content).toBe("早先问题");
     expect(request().payload).toMatchObject({ threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", selectionStart: 2, selectionEnd: 4 });
   });
+  it("关联检索授权固定在原请求，刷新恢复仍保留；编辑旧消息默认关闭", () => {
+    const initial = createReadingRequest({ mode: "analyze", question: "请句读", selectedText: "书中原文", bookContextPrefetch: true }, () => "id-" + Math.random().toString(16).slice(2));
+    expect(initial.payload.bookContextPrefetch).toBe(true);
+    const saved = { id: initial.payload.clientAssistantMessageId, role: "assistant", content: "", status: "error", structuredOutput: JSON.stringify({ _request: { version: 1, clientUserMessageId: initial.payload.clientUserMessageId, clientAssistantMessageId: initial.payload.clientAssistantMessageId, input: initial.payload } }) };
+    expect(restoreReadingRequest(initial.payload.threadId, saved)?.payload.bookContextPrefetch).toBe(true);
+  });
   it("失败重试只重置原助手，保留原用户对象及后续消息", () => {
     const started = beginReadingRequest(request(), []);
     let state = reduceReadingRequest(started.state, { type: "raw_delta", text: "半截内容" });
@@ -229,4 +235,14 @@ it("语义强调元数据在原消息完成、恢复与重试中保持一致", (
   });
   expect(restored?.emphasis).toEqual(emphasis);
   expect(beginReadingRequest({ ...done, status: "error" }, applyReadingRequest(started.messages, done)).state.emphasis).toBeUndefined();
+});
+
+it("设置按请求快照固定，后续修改不改旧请求且恢复保留方式", () => {
+  const preferences = { difficulty: "accessible" as const, detail: "gist" as const };
+  const first = createReadingRequest({ mode: "chat", question: "解释", selectedText: "原文", ...preferences, contextSettings: { maxInputTokens: 4096, maxOutputTokens: 1024, compressionStrategy: "balanced" } });
+  const second = createReadingRequest({ ...first.payload, difficulty: "advanced", detail: "expanded" });
+  expect(first.payload).toMatchObject(preferences);
+  expect(second.payload).toMatchObject({ difficulty: "advanced", detail: "expanded" });
+  const restored = restoreReadingRequest(first.payload.threadId, { id: first.payload.clientAssistantMessageId, role: "assistant", content: "", status: "error", structuredOutput: JSON.stringify({ _request: { version: 1, clientUserMessageId: first.payload.clientUserMessageId, clientAssistantMessageId: first.payload.clientAssistantMessageId, input: first.payload } }) });
+  expect(restored?.payload).toMatchObject(preferences);
 });

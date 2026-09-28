@@ -18,7 +18,7 @@ export function createBookSources(db: Db, editionId: string) {
     initial(paragraphId: string | null, selectionStart = 0): BookSource[] {
       if (!paragraphId) return [];
       const row = db.prepare(SELECT + " WHERE c.edition_id=? AND p.id=?").get(editionId, paragraphId) as Row | undefined;
-      const sources = row ? neighbors(row, 1).map(item => item.paragraphId === paragraphId ? { ...item, text: row.text.slice(Math.max(0, selectionStart - 1500), Math.max(0, selectionStart - 1500) + 12000) } : item) : [];
+      const sources = row ? neighbors(row, 1).map(item => ({ ...item, origin: "context" as const, text: item.paragraphId === paragraphId ? row.text.slice(Math.max(0, selectionStart - 1500), Math.max(0, selectionStart - 1500) + 12000) : item.text })) : [];
       for (const item of sources) registered.set(item.sourceId, item);
       return sources;
     },

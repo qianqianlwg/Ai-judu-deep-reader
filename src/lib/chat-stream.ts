@@ -3,20 +3,20 @@ export type { TokenUsage } from "./token-usage";
 import type { StreamEvent } from "./sse";
 import { answerEmphasisSchema, readAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 
-export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string };
-export type Analysis = { readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
+export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string; origin?: "selection" | "context" | "search" };
+export type Analysis = { emphasis?: AnswerEmphasis; provenanceVersion?: 1; readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
 export type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 import type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
-export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown };
+export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown; contentOffset?:number };
 export type HistoricalToolActivity = ToolActivity & { attemptId: string | null; auditId: string };
-export type ChatMessage = { emphasis?: AnswerEmphasis; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; status?: "streaming" | "completed" | "error" };
+export type ChatMessage = { emphasis?: AnswerEmphasis; createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
 export type ChatEvent =
   | { type: "meta"; threadId: string; messageId?: string; outputFormat?: "text" | "legacy-json" }
   | { type: "raw_delta"; text: string }
   | {type:"usage";usage:TokenUsage}
   | {type:"tool";tool:ToolActivity}
   | {type:"warning";message:string}
-  | { type: "structured"; result: Analysis; messageId?: string }
+  | { type: "structured"; result: Analysis; messageId?: string; contentOffset?:number }
   | { type: "emphasis"; result: AnswerEmphasis; messageId?: string }
   | { type: "done"; content?: string }
   | { type: "error"; message: string };
@@ -50,7 +50,7 @@ export function decodeChatEvent(event: StreamEvent): ChatEvent | null {
   if (event.event === "warning" && typeof data.message === "string") return {type:"warning",message:data.message};
   if (event.event === "tool" && isRecord(data.tool) && typeof data.tool.id === "string" && typeof data.tool.name === "string" && ["running","completed","error"].includes(String(data.tool.status))) return {type:"tool",tool:data.tool as ToolActivity};
   if (event.event === "raw_delta" && typeof data.text === "string") return { type: "raw_delta", text: data.text };
-  if (event.event === "structured" && isAnalysis(data.result)) return { type: "structured", result: data.result, messageId: typeof data.messageId === "string" ? data.messageId : undefined };
+  if (event.event === "structured" && isAnalysis(data.result)) return { type: "structured", result: data.result, messageId: typeof data.messageId === "string" ? data.messageId : undefined, contentOffset: Number.isSafeInteger(data.contentOffset) ? data.contentOffset as number : undefined };
   if (event.event === "emphasis") { const emphasis = answerEmphasisSchema.safeParse(data.result); if (emphasis.success) return { type: "emphasis", result: emphasis.data, messageId: typeof data.messageId === "string" ? data.messageId : undefined }; }
   if (event.event === "done") return { type: "done", content: typeof data.content === "string" ? data.content : undefined };
   if (event.event === "error") return { type: "error", message: typeof data.message === "string" ? data.message : "生成失败，请重试" };
@@ -66,11 +66,12 @@ export function applyChatEvent(messages: ChatMessage[], assistantId: string, eve
       case "tool": {
         // WHY：并行工具乱序完成时原位更新，避免用户展开的检索详情随状态变化跳到另一位置。
         const tools = message.tools ?? [];
-        return {...message, tools: tools.some(tool=>tool.id===event.tool.id) ? tools.map(tool=>tool.id===event.tool.id?event.tool:tool) : [...tools,event.tool]};
+        // WHY：检索卡不按正文位置穿插；旧审计无偏移时保持未知，不能按回放后的正文长度猜位置。
+        return {...message, tools: tools.some(tool=>tool.id===event.tool.id) ? tools.map(tool=>tool.id===event.tool.id?{...event.tool,contentOffset:tool.contentOffset}:tool) : [...tools,{...event.tool,contentOffset:Number.isSafeInteger(event.tool.contentOffset) && event.tool.contentOffset! >= 0 && event.tool.contentOffset! <= message.content.length ? event.tool.contentOffset : ["search_book", "read_source", "search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(event.tool.name) ? undefined : message.content.length}]};
       }
       case "warning": return { ...message, warnings: [...(message.warnings ?? []), event.message] };
       case "raw_delta": return { ...message, content: message.content + event.text, status: "streaming" };
-      case "structured": return { ...message, kind: "analysis", analysis: event.result };
+      case "structured": return { ...message, kind: "analysis", analysis: event.result, analysisOffset: Number.isSafeInteger(event.contentOffset) && event.contentOffset! >= 0 && event.contentOffset! <= message.content.length ? event.contentOffset : message.content.length };
       case "emphasis": return { ...message, emphasis: readAnswerEmphasis(message.content, event.result) };
       case "done": return { ...message, content: event.content ?? message.content, status: "completed" };
       case "error": return { ...message, status: "error" };

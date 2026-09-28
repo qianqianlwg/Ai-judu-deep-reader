@@ -55,3 +55,30 @@
 .empty { text-align: center; padding: 36px 14px; color: var(--reading-muted); }
 .empty h3 { color: var(--reading-text); font-size: 14px; font-weight: 500; }
 .footer { flex-shrink: 0; padding: 10px 18px; border-top: 1px solid var(--reading-border); color: var(--reading-muted); font-size: 10px; }
+/* 内容优先：单列完整阅读，不让定义、引用藏在二级卡片和过短的行高里。 */
+.panel{background:transparent;}
+.header{align-items:center;}
+.header h2{font-size:13px;color:var(--reading-muted);}
+.header p{font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
+.search input{min-height:42px;border-radius:10px;padding:9px 14px;}
+.card{padding:20px 22px;border-radius:12px;box-shadow:0 2px 10px color-mix(in srgb,var(--reading-text) 4%,transparent);}
+.cardHeading{align-items:flex-start;}
+.cardHeading h3{font-size:17px;line-height:1.5;}
+.cardHeading>span{padding:3px 8px;border-radius:999px;background:var(--reading-paper);white-space:nowrap;}
+.summary,.definition p{font-size:13px;line-height:1.8;white-space:pre-wrap;}
+.definition p{margin:13px 0;}
+.meta{gap:8px 18px;line-height:1.5;}
+.source{margin:14px 0;padding:12px 14px;border-left:2px solid var(--reading-accent);border-radius:0 8px 8px 0;background:var(--reading-paper);}
+.source>span{color:var(--reading-muted);font-size:11px;}
+.source blockquote{margin:7px 0 0;padding:0;border:0;font-size:12px;line-height:1.8;white-space:pre-wrap;}
+.sources{margin:18px 0 0;border-top:1px solid var(--reading-border);padding-top:12px;}
+.sources h4{margin:0 0 12px;font-size:12px;font-weight:600;color:var(--reading-muted);}
+.sources h4 span{font-variant-numeric:tabular-nums;}
+.sources>.card{margin:0;padding:14px 0;border:0;border-radius:0;box-shadow:none;background:transparent;}
+.sources>.card+.card{border-top:1px solid var(--reading-border);}
+.sources .summary{margin:8px 0;}
+.sources .source{margin:8px 0;}
+.actions{margin-top:12px;}
+.actions button{padding:7px 11px;border-radius:8px;}
+.tags li{padding:4px 8px;border-radius:6px;}
+@media(max-width:600px){.card{padding:16px;}.meta{flex-direction:column;gap:3px;}}

@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import type { Analysis, ChatMessage } from "@/lib/chat-stream";
+import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { isAnalysis, type Analysis, type ChatMessage } from "@/lib/chat-stream";
+import { SpeechButton } from "./speech-controls";
+import { speechPlainText } from "@/lib/speech";
 import styles from "./message-actions.module.css";
 
 type CopyableMessage = Pick<ChatMessage, "role" | "content" | "analysis" | "outputFormat">;
 export type MessageActionsProps = {
-  message: CopyableMessage & { id?: string };
+  message: CopyableMessage & { id?: string; createdAt?: string; status?: ChatMessage["status"] };
+  children?: ReactNode;
   editingDisabled?: boolean;
   onEditMessage?: (userMessageId: string, newPrompt: string) => void;
 };
@@ -41,7 +44,7 @@ function legacyReadable(value: string): string | undefined {
 }
 
 export function readableAssistantText(message: CopyableMessage): string {
-  if (message.analysis) return analysisText(message.analysis);
+  if (isAnalysis(message.analysis)) return analysisText(message.analysis);
   const content = message.content.trim();
   if (message.outputFormat === "legacy-json" || content.startsWith("{")) return legacyReadable(content) ?? message.content;
   return message.content;
@@ -52,30 +55,53 @@ async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
 
-export function MessageActions({ message, editingDisabled = false, onEditMessage }: MessageActionsProps) {
+export function MessageActions({ message, editingDisabled = false, onEditMessage, children }: MessageActionsProps) {
+  const textarea=useRef<HTMLTextAreaElement>(null),editButton=useRef<HTMLButtonElement>(null),returnFocus=useRef(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
   const [feedback, setFeedback] = useState("");
 
+  useLayoutEffect(()=>{
+    if(!editing){if(returnFocus.current){returnFocus.current=false;editButton.current?.focus();}return;}
+    if(!textarea.current)return;
+    const input=textarea.current;input.style.height="auto";input.style.height=Math.min(260,Math.max(84,input.scrollHeight))+"px";
+  },[editing,draft]);
+  const cancelEdit=()=>{returnFocus.current=true;setEditing(false);setFeedback("");};
+  const copy=(text:string)=>{setFeedback("");void copyText(text).then(()=>setFeedback("已复制")).catch((error:unknown)=>{console.error("消息复制失败",error);setFeedback(error instanceof Error?error.message:"复制失败，请重试");});};
   if (message.role === "user") {
     const canEdit = Boolean(message.id && onEditMessage && !editingDisabled);
-    if (editing) return <form className={styles.editor} onSubmit={(event: FormEvent) => {
-      event.preventDefault();
-      const prompt = draft.trim();
-      if (!prompt) { setFeedback("问题不能为空"); return; }
-      if (!message.id || !onEditMessage) { setFeedback("当前消息暂不可编辑"); return; }
-      onEditMessage(message.id, prompt); setEditing(false); setFeedback("");
-    }}>
-      <textarea aria-label="编辑原始问题" value={draft} onChange={event => setDraft(event.target.value)} disabled={editingDisabled} />
-      <div className={styles.editorActions}><button type="button" onClick={() => { setEditing(false); setFeedback(""); }} disabled={editingDisabled}>取消</button><button type="submit" disabled={editingDisabled}>保存修改</button></div>
-      {feedback && <p className={styles.feedback} role="alert">{feedback}</p>}
-    </form>;
-    return <div className={styles.actions}><button type="button" aria-label="编辑原始问题" title={editingDisabled ? "生成中不能编辑" : "编辑原始问题"} disabled={!canEdit} onClick={() => { setDraft(message.content); setEditing(true); setFeedback(""); }}>编辑</button></div>;
+    const date=message.createdAt?new Date(message.createdAt):null;
+    const validDate=date!==null&&Number.isFinite(date.getTime());
+    // WHY：编辑框原位替换气泡，不在原消息下面叠加第二份正文；源文卡片由父组件保留。
+    return <div className={styles.userMessage} data-editing={editing}>
+      {editing?<form className={styles.editor} data-message-editor="" onSubmit={(event:FormEvent)=>{
+        event.preventDefault();if(editingDisabled)return;
+        const prompt=draft.trim();if(!prompt){setFeedback("问题不能为空");return;}
+        if(!message.id||!onEditMessage){setFeedback("当前消息暂不可编辑");return;}
+        onEditMessage(message.id,prompt);setEditing(false);setFeedback("");
+      }}>
+        <textarea ref={textarea} autoFocus aria-label="编辑原始问题" value={draft} onChange={event=>setDraft(event.target.value)} disabled={editingDisabled} onKeyDown={event=>{
+          if(event.key==="Escape"&&!editingDisabled){event.preventDefault();cancelEdit();}
+          else if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}
+        }}/>
+        <div className={styles.editorActions}><button type="button" onClick={cancelEdit} disabled={editingDisabled}>取消</button><button type="submit" disabled={editingDisabled||!draft.trim()}>发送</button></div>
+      </form>:<>
+        <div className={styles.userBubble}>{children??<p>{message.content}</p>}</div>
+        <div className={styles.userActions} aria-label="用户消息操作">
+          {validDate&&<time dateTime={date.toISOString()} title={date.toLocaleString('zh-CN')}>{date.toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</time>}
+          <button type="button" aria-label="复制问题" title="复制问题" onClick={()=>copy(message.content)}><svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/><path d="M12 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.4"/></svg></button>
+          <button ref={editButton} type="button" aria-label="编辑原始问题" title={editingDisabled?"生成中不能编辑":"编辑并重新发送"} disabled={!canEdit} onClick={()=>{setDraft(message.content);setEditing(true);setFeedback("");}}><svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m12.5 3.5 4 4M4 12l8.5-8.5a2.8 2.8 0 0 1 4 4L8 16l-5 1z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+        </div>
+      </>}
+      {feedback&&<p className={styles.feedback} role={editing?'alert':'status'}>{feedback}</p>}
+    </div>;
   }
 
   if (!message.content && !message.analysis) return null;
   return <div className={styles.actions}>
     <button type="button" aria-label="复制回答" onClick={() => { setFeedback(""); void copyText(readableAssistantText(message)).then(() => setFeedback("已复制")).catch(error => setFeedback(error instanceof Error ? error.message : "复制失败，请重试")); }}>复制</button>
+    {/* WHY：朗读消费点击时已收到的文字快照，不等待或改写当前生成流。 */}
+    <SpeechButton text={speechPlainText(readableAssistantText(message))} label="AI回答" />
     {feedback && <span className={styles.feedback} role="status">{feedback}</span>}
   </div>;
 }

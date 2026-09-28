@@ -6,8 +6,8 @@ import { buildMobiSourceIndex } from './mobi-source-map.mjs';
 import { indexMobiLayout } from './mobi-layout-html.mjs';
 import { verifyMobiLayoutTargets } from './mobi-layout-targets.mjs';
 /** @typedef {import('./mobi-layout-snapshot').MobiLayoutSnapshot} Snapshot */
-/** @param {import('../../vendor/mobi/index.mjs').MobiCandidate} parser @param {{bytes:Uint8Array,kind:'mobi'|'kf8',resourceDir:string}} input @returns {Promise<Snapshot>} */
-export async function buildMobiLayout(parser, input) {
+/** @param {import('../../vendor/mobi/index.mjs').MobiCandidate} parser @param {{bytes:Uint8Array,kind:'mobi'|'kf8',resourceDir:string}} input @param {boolean} [permissionBounded] @returns {Promise<Snapshot>} */
+export async function buildMobiLayout(parser, input, permissionBounded = false) {
   const metadata = parser.getMetadata();
   const spine = parser.getSpine();
   if (!Array.isArray(spine) || !spine.length || spine.length > 10000) throw new Error('MOBI布局章节数无效');
@@ -22,7 +22,7 @@ export async function buildMobiLayout(parser, input) {
     rawChapters.push({id:item.id,title:blocks.heading,html:loaded.html,head:loaded.head,css:loaded.css.map(item=>item.href),paragraphs:blocks.paragraphs});
   }
   const coverPath = parser.getCoverImage();
-  const captured = await captureMobiResources(input.resourceDir);
+  const captured = await captureMobiResources(input.resourceDir, permissionBounded);
   // WHY：vendor返回稳定包内ID；旧的绝对路径仅可经已捕获集合精确复核，不能猜路径。
   const resourceId = (/** @type {string} */ value) => captured.resources.some(resource=>resource.id===value) ? value : captured.idFor(value);
   const chapters = rawChapters.map(chapter=>({...chapter,html:captured.rewrite(chapter.html),head:captured.rewrite(chapter.head),css:chapter.css.map(href=>resourceId(href))}));

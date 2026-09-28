@@ -47,27 +47,27 @@ it("分页片段转换只映射稳定原文锚点，不把页码当作语义位�
   expect(selectionFragmentFromPagePart({ paragraphId: "p", text: "😀", sourceStartOffset: 2, sourceEndOffset: 4, pageIndex: 3, pageNumber: 4 })).toEqual({ paragraphId: "p", text: "😀", startOffset: 2, endOffset: 4, pageIndex: 3, pageNumber: 4 });
 });
 
-it("跨段总字数包含分隔符，最多1000，不拆开emoji",()=>{
- const selection=selectionFromParts([{paragraphId:"a",startOffset:0,endOffset:600,text:"甲".repeat(600)},{paragraphId:"b",startOffset:0,endOffset:1200,text:"😀".repeat(600)}]);
- const capped=capReadingSelection(selection); expect(Array.from(capped.text).length).toBe(1000);expect(capped.fragments?.[1].endOffset).toBe(796);
- expect(selectionMatchesParagraphs(capped,[{id:"a",text:"甲".repeat(600)},{id:"b",text:"😀".repeat(600)}])).toBe(true);
- expect(selectionAnchors(capped)[1].selectedText).toBe("😀".repeat(398));
- const reverse=capReadingSelection(selection,true); expect(Array.from(reverse.text).length).toBe(1000);expect(reverse.fragments?.[0].startOffset).toBe(202);
+it("跨段总字数包含分隔符，最多3000，不拆开emoji",()=>{
+ const selection=selectionFromParts([{paragraphId:"a",startOffset:0,endOffset:1800,text:"甲".repeat(1800)},{paragraphId:"b",startOffset:0,endOffset:3600,text:"😀".repeat(1800)}]);
+ const capped=capReadingSelection(selection); expect(Array.from(capped.text).length).toBe(3000);expect(capped.fragments?.[1].endOffset).toBe(2396);
+ expect(selectionMatchesParagraphs(capped,[{id:"a",text:"甲".repeat(1800)},{id:"b",text:"😀".repeat(1800)}])).toBe(true);
+ expect(selectionAnchors(capped)[1].selectedText).toBe("😀".repeat(1198));
+ const reverse=capReadingSelection(selection,true); expect(Array.from(reverse.text).length).toBe(3000);expect(reverse.fragments?.[0].startOffset).toBe(602);
 });
-it.each([999,1000,1001])("可见DOM选区与快照一致：%s字",length=>{
+it.each([2999,3000,3001])("可见DOM选区与快照一致：%s字",length=>{
  const host=document.createElement("div");host.innerHTML='<p data-paragraph-id="limit">'+"字".repeat(length)+'</p>';document.body.append(host);
  const range=document.createRange();range.selectNodeContents(host.firstChild!);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
  let limited=false;const snapshot=readReadingSelection(selection,host,()=>{limited=true;});
- expect(snapshot?.text.length).toBe(Math.min(length,1000));expect(selection.toString().length).toBe(Math.min(length,1000));expect(limited).toBe(length>1000);host.remove();
+ expect(snapshot?.text.length).toBe(Math.min(length,3000));expect(selection.toString().length).toBe(Math.min(length,3000));expect(limited).toBe(length>3000);host.remove();
 });
-it("反向拖选从原起点限制1000字，保留非BMP完整字符",()=>{
- const host=document.createElement("div"),text="前".repeat(10)+"😀".repeat(1000);host.innerHTML='<p data-paragraph-id="r">'+text+'</p>';document.body.append(host);
+it("反向拖选从原起点限制3000字，保留非BMP完整字符",()=>{
+ const host=document.createElement("div"),text="前".repeat(10)+"😀".repeat(3000);host.innerHTML='<p data-paragraph-id="r">'+text+'</p>';document.body.append(host);
  const node=host.firstChild!.firstChild!,selection=window.getSelection()!;selection.setBaseAndExtent(node,text.length,node,0);
- const snapshot=readReadingSelection(selection,host);expect(snapshot?.startOffset).toBe(10);expect(snapshot?.text).toBe("😀".repeat(1000));expect(selection.anchorOffset).toBe(text.length);expect(selection.focusOffset).toBe(10);host.remove();
+ const snapshot=readReadingSelection(selection,host);expect(snapshot?.startOffset).toBe(10);expect(snapshot?.text).toBe("😀".repeat(3000));expect(selection.anchorOffset).toBe(text.length);expect(selection.focusOffset).toBe(10);host.remove();
 });
 it("跨页连续选文可合并，超限、断段和重叠拒绝",()=>{
  const p=[{id:"a",text:"一二三"},{id:"b",text:"四五六"}];
  const a={paragraphId:"a",startOffset:1,endOffset:3,text:"二三"},b={paragraphId:"b",startOffset:0,endOffset:2,text:"四五"};
  expect(mergeContinuousSelections(a,b,p)?.text).toBe("二三\n\n四五");expect(mergeContinuousSelections(a,a,p)).toBeNull();
- expect(mergeContinuousSelections({...a,text:"字".repeat(600),startOffset:0,endOffset:600},{...b,text:"字".repeat(600),endOffset:600},[{id:"a",text:"字".repeat(600)},{id:"b",text:"字".repeat(600)}])).toBeNull();
+ expect(mergeContinuousSelections({...a,text:"字".repeat(1800),startOffset:0,endOffset:1800},{...b,text:"字".repeat(1800),endOffset:1800},[{id:"a",text:"字".repeat(1800)},{id:"b",text:"字".repeat(1800)}])).toBeNull();
 });

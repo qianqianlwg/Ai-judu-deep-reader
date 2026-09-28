@@ -136,6 +136,38 @@ export function readAnswerEmphasis(markdown: string, value: unknown): AnswerEmph
   return verified.marks.length ? verified : undefined;
 }
 
+// WHY：工具时间线把同一正文分段渲染；按真实位置换算 occurrence，不能把“第二次出现”误标到另一个片段。
+export function sliceAnswerEmphasis(markdown: string, emphasis: AnswerEmphasis | undefined, start: number, end = markdown.length): AnswerEmphasis | undefined {
+  if (!emphasis || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end > markdown.length || end <= start) return undefined;
+  const verified = validateAnswerEmphasis(markdown, emphasis);
+  if (start === 0 && end === markdown.length) return verified.marks.length ? verified : undefined;
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown);
+  const fragment = markdown.slice(start, end);
+  const nodes: Text[] = [];
+  visit(unified().use(remarkParse).use(remarkGfm).parse(fragment), "text", (node, _index, parent) => { if (parent?.type === "paragraph") nodes.push(node); });
+  const marks: AnswerEmphasis["marks"] = [];
+  for (const { node, span, mark } of locate(tree, verified.marks)) {
+    const offset = node.position?.start.offset;
+    // WHY：含 Markdown 转义的节点不能直接用原始偏移推测；宁可不标，也不把重点移到错误位置。
+    if (offset === undefined || markdown.slice(offset, offset + node.value.length) !== node.value) continue;
+    const absolute = offset + span.start;
+    if (absolute < start || offset + span.end > end) continue;
+    let occurrence = 0;
+    for (const local of nodes) {
+      for (let from = 0; from < local.value.length;) {
+        const found = local.value.indexOf(mark.quote, from);
+        if (found < 0) break;
+        occurrence++;
+        const localOffset = local.position?.start.offset;
+        if (localOffset !== undefined && fragment.slice(localOffset, localOffset + local.value.length) === local.value && start + localOffset + found === absolute) marks.push({ ...mark, occurrence });
+        from = found + mark.quote.length;
+      }
+    }
+  }
+  const result = validateAnswerEmphasis(fragment, { version: 1, marks });
+  return result.marks.length ? result : undefined;
+}
+
 export function remarkAnswerEmphasis(emphasis: AnswerEmphasis) {
   return (tree: Root): void => {
     const placements = locate(tree, emphasis.marks);

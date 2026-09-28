@@ -50,6 +50,9 @@ describe("ReadingAppearanceSettings", () => {
     await act(async () => (host.querySelector('select[name="font"]') as HTMLSelectElement).value = "kai");
     const fontSelect = host.querySelector<HTMLSelectElement>('select[name="font"]')!; await act(async () => fontSelect.dispatchEvent(new Event("change", { bubbles: true })));
     current = onChange.mock.lastCall![0]; await rerender(); expect(current.font).toBe("kai");
+    expect(Array.from(host.querySelectorAll('select[name="font"] option')).some(option => option.textContent === "霞鹜文楷")).toBe(true);
+    fontSelect.value = "wenkai"; await act(async () => fontSelect.dispatchEvent(new Event("change", { bubbles: true })));
+    current = onChange.mock.lastCall![0]; await rerender(); expect(current.font).toBe("wenkai");
     await changeValue('input[name="fontSize"]', "32"); current = onChange.mock.lastCall![0]; expect(current.fontSize).toBe(32); await rerender();
     await changeValue('input[name="lineHeight"]', "1.4"); current = onChange.mock.lastCall![0]; expect(current.lineHeight).toBe(1.4); await rerender();
     await changeValue('input[name="letterSpacing"]', "0.08"); current = onChange.mock.lastCall![0]; expect(current.letterSpacing).toBe(0.08); await rerender();
@@ -57,6 +60,20 @@ describe("ReadingAppearanceSettings", () => {
     const justify = host.querySelector<HTMLInputElement>('input[name$="-alignment"][value="justify"]')!; await act(async () => justify.click()); current = onChange.mock.lastCall![0]; expect(current.textAlign).toBe("justify"); await rerender();
     const language = host.querySelector<HTMLSelectElement>('select[name="language"]')!; language.options[1].selected = true; await act(async () => { language.dispatchEvent(new Event("change", { bubbles: true })); }); current = onChange.mock.lastCall![0]; expect(current.language).toBe("en"); await rerender();
     expect(host.querySelector('[data-testid="reading-appearance-preview"]')?.getAttribute("lang")).toBe("en");
+  });
+  it("原版字体覆盖默认关闭，用户可在设置中开启", async () => {
+    const checkbox = host.querySelector<HTMLInputElement>('input[name="originalBodyFontOverride"]')!;
+    expect(checkbox.checked).toBe(false);
+    await act(async () => checkbox.click());
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ originalBodyFontOverride: true }));
+  });
+  it("句读提示开关和透明度在设置中可调整", async () => {
+    const checkbox = host.querySelector<HTMLInputElement>('input[name="showAnalysisHints"]')!;
+    await act(async () => checkbox.click());
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({showAnalysisHints:false}));
+    current = onChange.mock.lastCall![0]; await rerender();
+    await changeValue('input[name="analysisHintOpacity"]', '0.25');
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({analysisHintOpacity:.25, showAnalysisHints:false}));
   });
   it("预览随受控值反映字号、行距、列宽；恢复默认是单一 onChange", async () => {
     current = { ...defaults, fontSize: 32, lineHeight: 2.4, columnWidth: 520 }; await rerender();

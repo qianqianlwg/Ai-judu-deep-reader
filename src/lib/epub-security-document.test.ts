@@ -50,8 +50,30 @@ describe('EPUB inert document sanitation', () => {
     expect(result).toContain('font-weight:bold');
     expect(result).toContain('color:red');
   });
+  it('resolves XHTML named character entities without loading a DTD or turning escaped text into elements', async () => {
+    const source = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">'
+      + wrap('<p title="&ldquo;引语&rdquo;">&ldquo;文字&rdquo; &amp; &lt;script&gt; <![CDATA[&ldquo;]]></p>');
+    const result = await sanitizeDocument(source, policy);
+    const doc = new DOMParser().parseFromString(result, 'application/xhtml+xml');
+    expect(doc.querySelector('p')?.getAttribute('title')).toBe('“引语”');
+    expect(doc.querySelector('p')?.textContent).toBe('“文字” & <script> &ldquo;');
+    expect(doc.querySelectorAll('script')).toHaveLength(0);
+    expect(result).not.toContain('DOCTYPE');
+  });
+  it('still rejects unknown named entities and internal DTD expansion', async () => {
+    await expect(sanitizeDocument(wrap('<p>&notAnXhtmlEntity;</p>'), policy)).rejects.toThrow('XML');
+    await expect(sanitizeDocument('<!DOCTYPE html [<!ENTITY x "expanded">]>' + wrap('&x;'), policy)).rejects.toThrow('DTD');
+  });
   it('rejects entity expansion and malformed XML instead of falling back to active HTML parsing', async () => {
     await expect(sanitizeDocument('<!DOCTYPE html [<!ENTITY x "abc">]>' + wrap('&x;'), policy)).rejects.toThrow('DTD');
     await expect(sanitizeDocument(wrap('<img>'), policy)).rejects.toThrow('XML');
   });
+});
+
+it('只规范独立标题的字面 $(-)$，不更改正文和公式', async () => {
+  const result = await sanitizeDocument(wrap('<h2 id="ordinal">$(-)$</h2><p>$(-)$ 是正文</p><h3>$x+y$</h3>'), policy);
+  const doc = new DOMParser().parseFromString(result, 'application/xhtml+xml');
+  expect(doc.querySelector('#ordinal')?.textContent).toBe('(-)');
+  expect(doc.querySelector('p')?.textContent).toBe('$(-)$ 是正文');
+  expect(doc.querySelector('h3')?.textContent).toBe('$x+y$');
 });

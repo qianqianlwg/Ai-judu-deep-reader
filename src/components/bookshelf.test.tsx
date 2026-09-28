@@ -81,3 +81,11 @@ it("列表也使用同一个独立详情层，刷新后所选书下架则关闭"
  expect(host.querySelector(".bookshelf-card dialog")).toBeNull();
  await render({books: [props.books[0]]}); expect(host.querySelector("dialog")).toBeNull();
 });
+
+it("生成期间只锁阅读入口，导入和查看信息仍可独立操作", async () => {
+  await render({ navigationDisabled: true });
+  expect(host.querySelector<HTMLButtonElement>(".bookshelf-open")?.disabled).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>(".bookshelf-import")?.disabled).toBe(false);
+  click(".bookshelf-import"); expect(onImport).toHaveBeenCalledOnce();
+  click(".bookshelf-open"); expect(onOpen).not.toHaveBeenCalled();
+});

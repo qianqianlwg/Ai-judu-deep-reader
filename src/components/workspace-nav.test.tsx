@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -36,4 +37,22 @@ describe("WorkspaceNav", () => {
     expect(host.querySelector(".book-shelf")).toBeNull(); expect(host.querySelector("[data-edition-id]")).toBeNull();
     expect(host.querySelector(".toc-item") !== null).toBe(view === "reader");
   });
+});
+
+
+describe("侧栏字体层级", () => {
+  it("目录标题突出，主导航比章节大，序号维持辅助字号", async () => {
+    const css = await readFile("src/components/workspace-nav.css", "utf8");
+    expect(css).toContain('[aria-label="主导航"] .workspace-nav-item { font-size: max(14px');
+    expect(css).toContain('[aria-label="本书目录"] .toc-item { min-height: 32px; padding: 5px 7px; font-size: max(12px');
+    expect(css).toContain('.toc-item.active { color: var(--reading-text); font-weight: 600; }');
+  });
+});
+
+it("生成中的导航提示不锁住独立导入入口", async () => {
+  const imported = vi.fn();
+  await render({ busy: true, importDisabled: false, onImport: imported });
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "导入书籍")!;
+  expect(button.disabled).toBe(false);
+  act(() => button.click()); expect(imported).toHaveBeenCalledOnce();
 });

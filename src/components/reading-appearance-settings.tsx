@@ -52,7 +52,7 @@ function Preview({ value }: { value: ReadingAppearancePreferences }) {
 interface RangeSettingProps {
   id: string;
   label: string;
-  name: "fontSize" | "lineHeight" | "letterSpacing";
+  name: "fontSize" | "lineHeight" | "letterSpacing" | "analysisHintOpacity";
   value: number;
   unit: string;
   onChange: (value: number) => void;
@@ -126,7 +126,12 @@ export function ReadingAppearanceSettings({ value, onChange, ready = true, disab
               {READING_FONTS.map((font) => <option key={font.id} value={font.id} style={{ fontFamily: font.family }}>{font.label}</option>)}
             </select>
           </label>
-          <p className={styles.hint}>使用设备已安装字体；缺失时按同类字体回退，不下载字体。</p>
+          <p className={styles.hint}>霞鹜文楷为本地托管字体，仅选中时加载；其他字体优先使用设备字体，缺失时回退。</p>
+          <label className={styles.checkboxField}><input type="checkbox" name="originalBodyFontOverride" checked={preferences.originalBodyFontOverride} onChange={(event) => update({ originalBodyFontOverride: event.currentTarget.checked })} /> 原版正文统一使用阅读字体</label>
+          <p className={styles.hint}>默认保留书内排版；开启后只覆盖原版正文及内联文字的字体，不改变字号、对齐、缩进或标题。</p>
+          <label className={styles.checkboxField}><input type="checkbox" name="showAnalysisHints" disabled={blocked} checked={preferences.showAnalysisHints} onChange={(event) => update({ showAnalysisHints: event.currentTarget.checked })} /> 显示句读线</label>
+          <RangeSetting id={id + "-analysis-opacity"} name="analysisHintOpacity" label="句读线透明度" value={preferences.analysisHintOpacity} unit="" onChange={(analysisHintOpacity) => update({ analysisHintOpacity })} />
+          <p className={styles.hint}>使用半透明细线标识已句读文字；概念已有黄色高亮，不重复画线。</p>
           <RangeSetting id={id + "-size"} name="fontSize" label="字号" value={preferences.fontSize} unit="px" onChange={(fontSize) => update({ fontSize })} />
           <RangeSetting id={id + "-height"} name="lineHeight" label="行距" value={preferences.lineHeight} unit=" 倍" onChange={(lineHeight) => update({ lineHeight })} />
           <RangeSetting id={id + "-spacing"} name="letterSpacing" label="字距" value={preferences.letterSpacing} unit="em" onChange={(letterSpacing) => update({ letterSpacing })} />

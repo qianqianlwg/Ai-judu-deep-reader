@@ -1,0 +1,16 @@
+/* WHY：非正文 UI 变量仅用于界面与聊天，正文书页和测量器不包含在选择器内。 */
+.app-shell.workspace-shell .workspace-nav :is(button, a, input, select, summary, p),
+.app-shell.workspace-shell .workspace-main > :not(.reading-pane) :is(p, button, label, input, select, textarea, summary, li),
+.app-shell.workspace-shell .analysis-panel :is(p, button, label, input, select, textarea, summary, li),
+.app-shell.workspace-shell .reading-pane :is(.reading-toolbar, .selection-bar, .page-nav, .epub-navigation) :is(button, span, label, select, p),
+[data-settings-page="true"] :is(label, button, select, input, textarea) {
+  font-size: var(--ui-text-size, 13px);
+}
+.app-shell.workspace-shell .analysis-panel :is(small, time),
+.app-shell.workspace-shell .workspace-nav small,
+[data-settings-page="true"] section > p { font-size: var(--ui-small-size, 11px); }
+.app-shell.workspace-shell .analysis-panel .message-content,
+.app-shell.workspace-shell .analysis-panel .readable-text,
+.app-shell.workspace-shell .analysis-panel .assistant-readable { font-size: var(--ui-text-size, 13px); }
+.app-shell.workspace-shell .analysis-panel .message-content :is(h1, h2, h3, h4),
+[data-settings-page="true"] section > h2 { font-size: var(--ui-heading-size, 18px); }

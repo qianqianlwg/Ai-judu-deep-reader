@@ -49,6 +49,7 @@ describe("import and original retrieval integration", () => {
     ["book.md", Buffer.from("# Heading\n\nMarkdown paragraph."), ["# Heading", "Markdown paragraph."]],
     ["book.mobi", makeMobiFixture(), ["第一段。", "第二段😀。"]],
     ["book.epub", makeEpub(), ["First paragraph important .", "第二段， 保持原文。"]],
+    ["compressed-directories.epub", makeEpub(false,true), ["First paragraph important .", "第二段， 保持原文。"]],
     ["book.pdf", makePdf(), ["First page text.", "Second page text."]],
   ] as const)("imports %s with unchanged paragraphs, raw bytes, metadata and restart persistence", async (name, bytes, paragraphs) => {
     const response = await POST(request(bytes, name)); const result = await response.json();
@@ -131,6 +132,17 @@ describe("import and original retrieval integration", () => {
   });
 });
 
+it("高重复但有界的 EPUB 文件可以完整导入并原样取回",async()=>{
+ const {default:JSZip}=await import('jszip');const archive=await JSZip.loadAsync(makeEpub());
+ archive.file('mimetype','application/epub+zip',{compression:'STORE'});
+ archive.file('OPS/repeated.css','/*'+'x'.repeat(3*1024*1024)+'*/',{createFolders:false});
+ const bytes=await archive.generateAsync({type:'nodebuffer',compression:'DEFLATE'});
+ expect(bytes.length).toBeLessThan(10000);
+ const response=await POST(request(bytes,'repeated.epub'));const result=await response.json();
+ expect(response.status,JSON.stringify(result)).toBe(200);
+ expect(result.chapters[0].paragraphs[0].text).toContain('First paragraph');
+ expect(Buffer.from(await (await getOriginal(result.id,result.editionId)).arrayBuffer())).toEqual(bytes);
+});
 it("服务端有界拒绝 ZIP 炸弹及虚报大小，返回JSON且无遗留",async()=>{
  const {default:JSZip}=await import('jszip');const archive=new JSZip();archive.file('mimetype','application/epub+zip',{compression:'STORE'});archive.file('chapter.xhtml','x'.repeat(3*1024*1024),{createFolders:false});
  const bomb=await archive.generateAsync({type:'nodebuffer',compression:'DEFLATE'});

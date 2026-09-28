@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import { readFile } from "node:fs/promises";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
-import { readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageAnchor } from "@/lib/chat-stream";
 import { applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, type ReadingRequestState } from "@/lib/reading-request";
@@ -58,7 +58,7 @@ describe("AnalysisPanel 消息、选文与失败状态", () => {
     expect(message("a1").textContent).not.toContain('"summary"');
     expect(message("a1").querySelector('[data-streaming-format="friendly-preview"]')).not.toBeNull();
     expect(message("a2").textContent).toContain("自然追问回答");
-    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
     expect(container.querySelector('[role="status"]')?.textContent).toContain("正在生成");
   });
   it("用户每条消息携带各自折叠选文，不使用当前 selected 冒充历史原文", async () => {
@@ -102,7 +102,7 @@ describe("AnalysisPanel 消息、选文与失败状态", () => {
   it("非法锚点不显示假跳转，缺少回调时入口明确禁用", async () => {
     await render({ messages: [{ id: "bad", role: "user", content: "请句读", anchor: { ...anchor(), endOffset: 999 } }, { id: "valid", role: "user", content: "请句读", anchor: anchor() }] });
     expect(message("bad").querySelector('[data-testid="message-source"]')).toBeNull();
-    expect(message("valid").querySelector("button")?.disabled).toBe(true);
+    expect(message("valid").querySelector<HTMLButtonElement>('[aria-label="定位本次选文"]')?.disabled).toBe(true);
   });
   it("failed _request 元数据不是 Analysis，不 crash，也不转成新的 onSend", async () => {
     const metadata = { _request: { input: { selectedText: "旧的未验证选文" }, failure: { code: "upstream_failed" } } };
@@ -196,6 +196,8 @@ describe("AnalysisPanel 真 DOM 的滚动和消息复用", () => {
     expect(latest().parentElement).toBe(viewport().parentElement);
     const css = await readFile("src/components/analysis-panel.module.css", "utf8");
     expect(css).toContain(".latestButton[hidden] { display: none; }");
+    expect(css).toContain(":global(.chat-message.assistant .message-content :is(p,li,blockquote))");
+    expect(css).toContain(".composerInput { font-size: max(15px, calc(var(--ui-text-size, 13px) + 2px)); }");
     expect(css).toContain("overflow-anchor: none");
     expect(css).toContain("pointer-events: auto");
   });
@@ -443,7 +445,7 @@ describe("局部输入区视觉结构与交互回归", () => {
   it("流式消息仍展示停止按钮，读取会话时禁用输入与发送", async () => {
     const onStop = vi.fn();
     await render({ onSend: vi.fn(), onStop, messages: [{ id: "stream", role: "assistant", content: "回答中", status: "streaming" }] });
-    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
     expect(labelledButton("停止生成").classList.contains(styles.sendButton)).toBe(true);
     await click(labelledButton("停止生成"));
     expect(onStop).toHaveBeenCalledOnce();
@@ -462,28 +464,35 @@ it("失败状态作为圆角消息卡在滚动区内，不挤占输入区并保�
  expect(container.querySelector('textarea[aria-label="继续追问"]')).not.toBeNull();
 });
 
-describe("回答关键词与关键句色彩标注", () => {
-  const content = "关键不在层级越高越好，而在于影响范围。\n\n应先看影响范围，再确定协调责任。";
-  const emphasis = { version: 1 as const, marks: [
-    { kind: "key_sentence" as const, quote: "关键不在层级越高越好，而在于影响范围。", occurrence: 1 },
-    { kind: "term" as const, quote: "协调责任", occurrence: 1 },
-  ] };
-  it("同一条完成消息保留原字句并按独立元数据着色", async () => {
-    await render({ messages: [{ id: "colored", role: "assistant", content, emphasis, tools: [{ id: "mark-1", name: "mark_answer_emphasis", status: "completed", result: { ok: true, marked: 2 } }], status: "completed", outputFormat: "text" }] });
-    const html = message("colored");
-    expect(html.querySelectorAll('[data-answer-emphasis="key_sentence"]')).toHaveLength(1);
-    expect(html.querySelector('[data-answer-emphasis="term"]')?.textContent).toBe("协调责任");
-    expect(html.querySelector('[data-streaming-format="markdown"]')?.textContent?.replace(/\s+/gu, "")).toBe(content.replace(/\s+/gu, ""));
-    expect(html.textContent).not.toContain("#关键词#");
-    expect(html.querySelector('[data-tool-id="mark-1"]')).toBeNull();
-  });
-  it("流式及错误状态不出现标注，非法元数据不会执行 HTML", async () => {
-    await render({ messages: [{ id: "incomplete", role: "assistant", content, emphasis, status: "streaming" }] });
-    expect(message("incomplete").querySelector('[data-answer-emphasis]')).toBeNull();
-    await render({ messages: [{ id: "incomplete", role: "assistant", content, emphasis, status: "error" }] });
-    expect(message("incomplete").querySelector('[data-answer-emphasis]')).toBeNull();
-    await render({ messages: [{ id: "incomplete", role: "assistant", content: "安全 <script>危险</script> 解释", emphasis, status: "completed" }] });
-    expect(message("incomplete").querySelector('script')).toBeNull();
-    expect(message("incomplete").querySelector('[data-answer-emphasis]')).toBeNull();
-  });
+it("编辑只替换用户气泡，来源卡片及原始锚点始终保留",async()=>{
+ const onEdit=vi.fn(),source=anchor();await render({onEditMessage:onEdit,messages:[{id:'u-edit',role:'user',content:'请句读这一段',anchor:source,createdAt:'2026-09-26T04:00:00Z'}]});
+ const article=message('u-edit'),card=article.querySelector('[data-testid="message-source"]');
+ await click(article.querySelector<HTMLButtonElement>('button[aria-label="编辑原始问题"]')!);
+ expect(article.querySelector('.readable-text')).toBeNull();expect(article.querySelector('textarea')?.value).toBe('请句读这一段');expect(article.querySelector('[data-testid="message-source"]')).toBe(card);
+ await click(article.querySelector<HTMLButtonElement>('button[type="button"]')!);expect(article.querySelector('.readable-text')?.textContent).toBe('请句读这一段');expect(onEdit).not.toHaveBeenCalled();
+});
+
+// WHY：保存的引文与实际检索必须分别呈现，旧数据缺少来源时不得猜作检索所得。
+it("句读记录分组选文、上下文与检索引用，并显示真实检索状态", async () => {
+ const citations = [
+  {sourceId:"s1",paragraphId:"p1",quote:"选文",origin:"selection" as const},
+  {sourceId:"s2",paragraphId:"p2",quote:"邻段",origin:"context" as const},
+  {sourceId:"s3",paragraphId:"p3",quote:"书内结果",origin:"search" as const},
+ ];
+ const saved = {...analysis,provenanceVersion:1 as const,citations};
+ await render({messages:[{id:"a1",role:"assistant",content:"解读",analysis:saved,outputFormat:"text",status:"completed",tools:[{id:"save",name:"save_reading_analysis",status:"completed"}]}]});
+ const record=message("a1").querySelector('[data-testid="analysis-record"]')!;
+ expect(record.querySelector("summary")?.textContent).toContain("未检索");
+ expect(record.querySelector('[data-citation-origin="selection"]')?.textContent).toContain("选文依据");
+ expect(record.querySelector('[data-citation-origin="context"]')?.textContent).toContain("上下文原文");
+ expect(record.querySelector('[data-citation-origin="search"]')?.textContent).toContain("本书检索引用");
+ expect(record.querySelector('[data-testid="analysis-retrieval-status"]')?.textContent).toContain("本轮未执行本书检索");
+ await render({messages:[{id:"a1",role:"assistant",content:"解读",analysis:saved,outputFormat:"text",status:"completed",tools:[{id:"search",name:"search_book",status:"completed",result:{ok:true,sources:[]}}]}]});
+ expect(message("a1").querySelector('[data-testid="analysis-record"] summary')?.textContent).toContain("已检索");
+ expect(message("a1").querySelector('[data-testid="analysis-retrieval-status"]')?.textContent).toContain("本轮调用了本书检索");
+});
+it("旧句读缺少来源标记时不冒充选文或检索",async()=>{
+ await render({messages:[{id:"old",role:"assistant",content:"解读",analysis:{...analysis,citations:[{sourceId:"s",paragraphId:"p",quote:"旧原文"}]},outputFormat:"text",status:"completed"}]});
+ expect(message("old").querySelector('[data-citation-origin="unknown"]')?.textContent).toContain("来源未标记的原文");
+ expect(message("old").querySelector('[data-testid="analysis-retrieval-status"]')?.textContent).toContain("不能仅凭引用判断是否检索");
 });

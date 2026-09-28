@@ -1,0 +1,14 @@
+.section { display: grid; gap: 2px; padding: 8px 0 0; border-top: 1px solid var(--reading-border); }
+.heading { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; padding: 0 7px 4px; font-size: 10px; font-weight: 550; color: var(--reading-muted); }
+.heading span { color: var(--reading-muted); font-size: 10px; font-weight: 400; white-space: nowrap; }
+.option { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 5px 7px; border-radius: 8px; font-size: 12px; cursor: pointer; }
+.option:hover { background: color-mix(in srgb, var(--reading-text) 5%, transparent); }
+.option input { flex: 0 0 16px; width: 16px; height: 16px; margin: 0 2px; accent-color: var(--reading-accent); }
+.option span { display: grid; gap: 1px; min-width: 0; }
+.option small { font-size: 10px; line-height: 1.35; color: var(--reading-muted); }
+.option:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.disclosure { padding: 3px 7px 0; color: var(--reading-muted); font-size: 10px; }
+.disclosure summary { width: fit-content; cursor: pointer; list-style-position: inside; }
+.disclosure summary:hover { color: var(--reading-text); }
+.note { margin: 8px 0 2px; font-size: 10px; line-height: 1.5; color: var(--reading-muted); }
+.error { margin: 4px 9px; color: #b24539; font-size: 11px; line-height: 1.5; }

@@ -210,24 +210,25 @@ describe("PdfReader 页导航、虚拟化、hash位置", () => {
   });
 });
 
-describe("PdfReader 原生选文1000上限及高亮", () => {
-  it.each([999, 1000, 1001])("选择%d字，原生选区和回调均不超过1000", async length => {
+describe("PdfReader 原生选文3000上限及高亮", () => {
+  it.each([2999, 3000, 3001])("选择%d字，原生选区和回调均不超过3000", async length => {
     h = fixture(1, () => "甲".repeat(length)); await render({ book: h.book }); await select(textNode(), 0, textNode(), length);
     const snapshot = vi.mocked(props.onSelect).mock.calls.at(-1)![0];
-    expect(Array.from(snapshot.text)).toHaveLength(Math.min(length, 1000)); expect(document.getSelection()!.toString()).toBe(snapshot.text);
-    expect(snapshot.endOffset).toBe(Math.min(length, 1000));
-    if (length > 1000) expect(props.onNotice).toHaveBeenCalledWith(expect.stringContaining("1000"));
+    expect(Array.from(snapshot.text)).toHaveLength(Math.min(length, 3000)); expect(document.getSelection()!.toString()).toBe(snapshot.text);
+    expect(snapshot.endOffset).toBe(Math.min(length, 3000));
+    if (length > 3000) expect(props.onNotice).toHaveBeenCalledWith(expect.stringContaining("3000"));
     else expect(props.onNotice).not.toHaveBeenCalled();
   });
-  it("反向1001字从拖选起点保留1000字，UTF16不截断emoji", async () => {
-    h = fixture(1, () => "首" + "😀".repeat(1000)); await render({ book: h.book }); await select(textNode(), 0, textNode(), 2001, true);
+  it("反向3001字从拖选起点保留3000字，UTF16不截断emoji", async () => {
+    h = fixture(1, () => "首" + "😀".repeat(3000)); await render({ book: h.book }); await select(textNode(), 0, textNode(), 6001, true);
     const snapshot = vi.mocked(props.onSelect).mock.calls.at(-1)![0];
-    expect(snapshot).toMatchObject({ startOffset: 1, endOffset: 2001, text: "😀".repeat(1000) });
-    expect(document.getSelection()!.anchorOffset).toBe(2001); expect(document.getSelection()!.focusOffset).toBe(1);
+    expect(snapshot).toMatchObject({ startOffset: 1, endOffset: 6001, text: "😀".repeat(3000) });
+    expect(document.getSelection()!.anchorOffset).toBe(6001); expect(document.getSelection()!.focusOffset).toBe(1);
   });
   it("跨页选区保留多片段有序来源，mouseup/keyup不重复提交", async () => {
-    await render(); await select(textNode(1), 2, textNode(2), 12);
+    const onSelectionDocument=vi.fn();await render({onSelectionDocument}); await select(textNode(1), 2, textNode(2), 12);
     const snapshot = vi.mocked(props.onSelect).mock.calls[0][0]; expect(snapshot.version).toBe(2);
+    expect(onSelectionDocument).toHaveBeenCalledWith(document);
     expect(snapshot.fragments?.map(part => part.paragraphId)).toEqual(["p1", "p2"]);
     await act(async () => { viewport().dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); viewport().dispatchEvent(new KeyboardEvent("keyup", { bubbles: true })); });
     expect(props.onSelect).toHaveBeenCalledOnce(); expect(highlights.get("judu-pdf-selection")?.ranges).toHaveLength(2);
@@ -449,13 +450,13 @@ describe("PdfReader 版本持久化竞态补充", () => {
     await act(async () => { document.getSelection()!.removeAllRanges(); document.dispatchEvent(new Event("selectionchange")); });
     expect(props.onClearSelection).not.toHaveBeenCalled(); expect(highlights.get("judu-pdf-selection")?.ranges).toHaveLength(1);
   });
-  it.each([false, true])("跨页1003字原生选区与请求整体限1000，不自动分段（反向=%s）", async reverse => {
-    h = fixture(2, page => page === 1 ? "甲".repeat(500) : "乙".repeat(501)); await render({ book: h.book });
-    await select(textNode(1), 0, textNode(2), 501, reverse); expect(props.onSelect).toHaveBeenCalledOnce();
-    const snapshot = vi.mocked(props.onSelect).mock.calls[0][0]; expect(Array.from(snapshot.text)).toHaveLength(1000);
+  it.each([false, true])("跨页3003字原生选区与请求整体限3000，不自动分段（反向=%s）", async reverse => {
+    h = fixture(2, page => page === 1 ? "甲".repeat(1500) : "乙".repeat(1501)); await render({ book: h.book });
+    await select(textNode(1), 0, textNode(2), 1501, reverse); expect(props.onSelect).toHaveBeenCalledOnce();
+    const snapshot = vi.mocked(props.onSelect).mock.calls[0][0]; expect(Array.from(snapshot.text)).toHaveLength(3000);
     expect(snapshot.fragments).toHaveLength(2); expect(document.getSelection()!.toString().replace(/\s/gu, "")).toBe(snapshot.text.replace(/\s/gu, ""));
     expect(snapshot.fragments![0].startOffset).toBe(reverse ? 3 : 0);
-    expect(snapshot.fragments![1].endOffset).toBe(reverse ? 501 : 498);
+    expect(snapshot.fragments![1].endOffset).toBe(reverse ? 1501 : 1498);
   });
 });
 
@@ -488,4 +489,11 @@ it("250%缩放时滚动内容至少为纸张宽加32px，左右留白均可达",
   expect(scrollSpace.style.width).toMatch(/px$/u); expect(contentWidth).toBeGreaterThanOrEqual(Math.max(...paperWidths) + 32);
   expect(contentWidth).toBeGreaterThanOrEqual(viewport().clientWidth || 600);
   expect(loader.openPdf).toHaveBeenCalledOnce();
+});
+
+it("生成中仅放行PDF文字选择，导航仍维持禁用", async () => {
+  await render({ disabled: true, selectionDisabled: false });
+  await select(textNode(), 0, textNode(), 12);
+  expect(props.onSelect).toHaveBeenCalledOnce();
+  expect(button("上一页").disabled).toBe(true);
 });

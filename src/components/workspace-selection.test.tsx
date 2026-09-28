@@ -56,3 +56,14 @@ it("开始新拖选取消待发旧快照，不影响工具栏点击，键盘折�
  act(()=>{document.getSelection()!.collapseToEnd();host.querySelector('[data-reader-text]')!.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'ArrowRight'}));});
  expect(cleared).toHaveBeenCalledOnce();
 });
+
+it("点击正文外空白一次就取消原生选区和确认快照，不在mouseup重新提交",()=>{
+ act(()=>{select();document.dispatchEvent(new Event('selectionchange'));});flush();expect(received).toHaveBeenCalledOnce();
+ act(()=>{document.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0}));document.body.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));document.dispatchEvent(new MouseEvent('mouseup',{button:0}));document.dispatchEvent(new Event('selectionchange'));});flush();
+ expect(cleared).toHaveBeenCalledOnce();expect(document.getSelection()!.rangeCount).toBe(0);expect(received).toHaveBeenCalledOnce();
+});
+it("点击句读按钮仍保留选文，不被空白取消逻辑误伤",()=>{
+ act(()=>{select();document.dispatchEvent(new Event('selectionchange'));});flush();
+ act(()=>host.querySelector('button')!.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0})));
+ expect(cleared).not.toHaveBeenCalled();expect(document.getSelection()!.toString()).not.toBe('');
+});

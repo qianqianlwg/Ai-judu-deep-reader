@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annotationKey, createAnnotation, splitConceptTerms, annotationConceptDetails, segmentAnnotatedText, dedupeAnnotations } from "./annotations";
+import { annotationKey, createAnnotation, splitConceptTerms, annotationConceptDetails, segmentAnnotatedText, dedupeAnnotations, analysisIntervalsWithoutConcepts } from "./annotations";
 
 describe("annotations", () => {
   it("uses stable text anchors for deduplication", () => {
@@ -137,5 +137,13 @@ describe("全书概念字典与跨页精确命中", () => {
   it("sourceText 与当前片段内容不一致时明确报错而非错误定位", () => {
     expect(() => segmentAnnotatedText({ ...slice(5, 7), text: "错字" })).toThrow("完整原段落");
     expect(() => segmentAnnotatedText({ ...slice(5, 7), sourceText: "过短" })).toThrow("完整原段落");
+  });
+});
+
+
+describe("句读与概念标记不重叠", () => {
+  it("句读区间跨越概念时只给前后文字画线", () => {
+    expect(analysisIntervalsWithoutConcepts("甲概念乙", 0, 4, [{name:"概念", text:"解释"}])).toEqual([{start:0,end:1},{start:3,end:4}]);
+    expect(analysisIntervalsWithoutConcepts("概念", 0, 2, [{name:"概念", text:"解释"}])).toEqual([]);
   });
 });

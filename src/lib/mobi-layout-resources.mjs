@@ -24,7 +24,9 @@ function unchanged(a, b) {
     && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs && a.birthtimeNs === b.birthtimeNs;
 }
 /** @param {string} directory @returns {Promise<Snapshot[]>} */
-async function ancestors(directory) {
+export async function snapshotMobiResourceAncestors(directory) {
+  if (typeof directory !== "string" || !directory || !path.isAbsolute(directory) || directory.includes("\0")
+    || directory.startsWith("\\\\") || directory.startsWith("//") || path.resolve(directory) !== directory || path.dirname(directory) === directory) fail("目录必须是规范化私有绝对路径");
   const names = [directory];
   while (path.dirname(names[0]) !== names[0]) names.unshift(path.dirname(names[0]));
   const result = [];
@@ -35,13 +37,13 @@ async function ancestors(directory) {
   }
   return result;
 }
-/** @param {Snapshot[]} directories */
-async function checkDirectories(directories) {
+/** @param {Snapshot[]} directories @param {boolean} [allowResourceWrites] */
+export async function verifyMobiResourceAncestors(directories, allowResourceWrites = false) {
   for (const { name, stat } of directories) {
     const current = await lstat(name, { bigint: true });
     // WHY：共享祖先的其他子目录可能变化，仅根资源目录要求内容时间戳不变；所有层都核对身份和链接。
     if (current.isSymbolicLink() || !current.isDirectory() || current.dev !== stat.dev || current.ino !== stat.ino
-      || current.mode !== stat.mode || current.birthtimeNs !== stat.birthtimeNs || (name === directories.at(-1)?.name && !unchanged(stat, current))) fail("目录在快照期间变化");
+      || current.mode !== stat.mode || current.birthtimeNs !== stat.birthtimeNs || (!allowResourceWrites && name === directories.at(-1)?.name && !unchanged(stat, current))) fail("目录在快照期间变化");
   }
 }
 /** @param {Snapshot} file */
@@ -107,14 +109,16 @@ function rewriter(directory, ids) {
 /**
  * 纯本地快照和字面路径改写；不执行、不净化、不下载，返回内容仍不可信。
  * @param {string} directory
+ * @param {boolean} [permissionBounded] 仅受父进程祖先校验保护的私有 worker 使用。
  * @returns {Promise<{resources: Resource[], rewrite: (text: string) => string, idFor: (absolutePath: string) => string}>}
  */
-export async function captureMobiResources(directory) {
+export async function captureMobiResources(directory, permissionBounded = false) {
   try {
     if (typeof directory !== "string" || !directory || directory.includes("\0") || !path.isAbsolute(directory)
       || directory.startsWith("\\\\") || directory.startsWith("//")
       || path.resolve(directory) !== directory || path.dirname(directory) === directory) fail("目录必须是规范化绝对路径且不能是根目录");
-    const directories = await ancestors(directory);
+    // WHY：父进程核验共享祖先；受限 worker 只核验其可读取的私有根，不能授权整盘来执行 lstat。
+    const directories = permissionBounded ? [{ name: directory, stat: await lstat(directory, { bigint: true }) }] : await snapshotMobiResourceAncestors(directory);
     const names = [];
     for await (const entry of await opendir(directory)) {
       if (names.length >= MAX_FILES) fail("数量超过5000");
@@ -141,7 +145,7 @@ export async function captureMobiResources(directory) {
     const resources = [];
     let outputBytes = 0;
     for (const file of files) {
-      await checkDirectories(directories);
+      await verifyMobiResourceAncestors(directories);
       let bytes = await readBounded(file);
       const extension = /** @type {keyof typeof TYPES} */ (path.extname(file.name).slice(1));
       if (TEXT.has(extension)) {
@@ -159,7 +163,7 @@ export async function captureMobiResources(directory) {
       resources.push({ id, mediaType: TYPES[extension], bytes });
     }
     for (const file of files) if (!unchanged(file.stat, await lstat(file.name, { bigint: true }))) fail("文件在快照完成前变化");
-    await checkDirectories(directories);
+    await verifyMobiResourceAncestors(directories);
     return { resources, rewrite, idFor: absolutePath => {
       const id = ids.get(absolutePath);
       if (!id) fail("路径不在已捕获集合内");

@@ -52,3 +52,7 @@ next-env.d.ts
 
 # private generated parser deployment assets (npm run build:mobi-worker)
 /runtime/
+
+# local verification scratch files and desktop launch logs
+.verify-*
+.run*.log

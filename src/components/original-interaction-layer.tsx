@@ -16,6 +16,13 @@ function selectedInSource(doc:Document,scope?:HTMLElement):boolean{
  if(parent?.closest('[data-reader-decoration],.judu-annotation-popover'))return false;
  return !scope||range.intersectsNode(scope);
 }
+function ReferencePreviewText({text}:{text:string}){
+ const [expanded,setExpanded]=useState(false);
+ const characters=Array.from(text),canExpand=characters.length>200;
+ // WHY：默认仅展示前 200 个 Unicode 字符，完整预览只在用户主动展开后进入浮层，避免悬停时卡片高度骤变。
+ const visible=canExpand&&!expanded?characters.slice(0,200).join("")+"…":text;
+ return <><p>{visible}</p>{canExpand&&<button type="button" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?"收起全文":"展开全文"}</button>}</>;
+}
 export function OriginalInteractionLayer(props:OriginalInteractionProps){
  const root=useRef<HTMLDivElement>(null),proxy=useRef<HTMLButtonElement>(null),latest=useRef(props),activeRef=useRef<Active|null>(null),hoverKey=useRef("");
  const [located,setLocated]=useState<Located[]>([]),[activeState,setActive]=useState<Active|null>(null),[anchor,setAnchor]=useState<HTMLElement|null>(null);
@@ -44,11 +51,14 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
   let frame:number|undefined,disposed=false;
   const paint=()=>{
    frame=undefined;const bounds=container.getBoundingClientRect();
+   const seenConcepts=new Set<string>();
    const next:Located[]=targets.flatMap(({doc,target})=>{
     const source=Array.from(target.range.getClientRects()).filter(rect=>rect.width>0&&rect.height>0);
     const raw=target.kind==="history" ? source.slice(-1) : source;
     const rects=raw.map(rect=>epubRectToHost(doc,rect)).flatMap(rect=>{const clipped=clipReaderRect(rect,bounds);return clipped?[clipped]:[];});
     if(!rects.length)return [];
+    // WHY：只在可见页中保留同词首个交互，先过滤不可见项，翻页后重新计数。
+    if(target.kind==="concept"){if(seenConcepts.has(target.concept.name))return [];seenConcepts.add(target.concept.name);}
     const last=rects[rects.length-1];
     // WHY：末端标识只在真实结束点所在页显示，不把跨页裁剪的假末尾当作句读结尾。
     if(target.kind==="history"&&source.length){const end=epubRectToHost(doc,source[source.length-1]);if(end.right>bounds.right+1||end.bottom>bounds.bottom+1||end.right<=bounds.left)return [];}
@@ -113,13 +123,13 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
  const bounds=props.host.current?.getBoundingClientRect();
  const local=(rect:ReaderRect)=>({left:rect.left-(bounds?.left??0),top:rect.top-(bounds?.top??0),width:rect.width,height:rect.height});
  return <div ref={root} className="epub-interactions original-interactions" data-reader-decoration="" aria-label="原版阅读交互层">
-  {located.filter(item=>item.target.kind!=='mark').map(item=><button key={item.target.key} type="button" data-epub-target={item.target.key} className={item.target.kind==='history'?'epub-history-marker':'epub-concept-trigger'} style={local(item.rect)} disabled={props.disabled} aria-label={item.target.kind==='concept'?'查看概念：'+item.target.concept.name:'查看句读历史（'+(item.target.kind==='history'?item.target.annotations.length:0)+'条）'} aria-haspopup="dialog" aria-controls={active?.key===item.target.key?id:undefined} onKeyDown={enterCard} aria-expanded={active?.key===item.target.key} onMouseEnter={event=>{if(!event.buttons){hoverKey.current=item.target.key;openTarget(item,false);}}} onFocus={()=>{if(ignoreFocus.current){ignoreFocus.current=false;return;}openTarget(item,false);}} onClick={()=>openTarget(item,true)}>{item.target.kind==='history'&&<svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 3.5h12v9H9l-4 3v-3H4zM7 7h6M7 9.5h4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>}</button>)}
+  {located.filter(item=>item.target.kind!=='mark').map(item=><button key={item.target.key} type="button" data-epub-target={item.target.key} className={item.target.kind==='history'?'epub-history-marker':'epub-concept-trigger'} style={local(item.rect)} disabled={props.disabled} aria-label={item.target.kind==='concept'?'查看概念：'+item.target.concept.name:'查看句读历史（'+(item.target.kind==='history'?item.target.annotations.length:0)+'条）'} aria-haspopup="dialog" aria-controls={active?.key===item.target.key?id:undefined} onKeyDown={enterCard} aria-expanded={active?.key===item.target.key} onMouseEnter={event=>{if(item.target.kind!=='history'&&!event.buttons){hoverKey.current=item.target.key;openTarget(item,false);}}} onFocus={()=>{if(ignoreFocus.current){ignoreFocus.current=false;return;}if(item.target.kind!=='history')openTarget(item,false);}} onClick={()=>openTarget(item,true)}>{item.target.kind==='history'&&<svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 3.5h12v9H9l-4 3v-3H4zM7 7h6M7 9.5h4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>}</button>)}
   {active&&<button ref={bindAnchor} type="button" tabIndex={-1} className="epub-popover-anchor" style={local(active.rect)} aria-label="返回原版引用位置"/>}
   {active&&anchor&&<AnnotationPopover id={id} anchor={anchor} source={source} returnFocus={restoreFocus} title={active.kind==='concept'?active.target.concept.name:active.kind==='history'?'句读历史':active.kind==='mark'?(active.target.annotation.kind==='note'?'笔记':'阅读标记'):(active.preview?.title?.trim() || '引用预览')} pinned={active.pinned} onClose={close}>
    {active.kind==='concept'&&<ConceptPopoverContent concept={active.target.concept}/>}
    {active.kind==='history'&&<HistoryPopoverContent annotations={active.target.annotations} disabled={props.disabled||!props.onOpenAnnotation} onOpen={annotation=>{props.onOpenAnnotation?.(annotation);close();}}/>}
    {active.kind==='mark'&&<p>{active.target.annotation.summary||'此标记已保存，可在知识卡片中查看。'}</p>}
-   {active.kind==='link'&&<div className="epub-reference-preview">{active.preview?<><p>{active.preview.text}</p>{active.preview.address&&<details className="epub-link-details"><summary>定位详情</summary><p className="epub-link-address">{active.preview.address}</p></details>}{active.preview.index!==undefined&&<button type="button" disabled={props.disabled} onClick={()=>{const preview=active.preview,sequence=request.current,key=active.key;if(preview)void props.onJump(preview).then(()=>{if(sequence===request.current&&activeRef.current?.key===key)close();}).catch((cause:unknown)=>{console.warn('引用跳转失败',cause);if(sequence===request.current)props.onNotice('引用跳转失败，请从原书目录重试。');});}}>跳转到原文</button>}</>:<p role="status">正在读取引用…</p>}</div>}
+   {active.kind==='link'&&<div className="epub-reference-preview">{active.preview?<><ReferencePreviewText key={active.key} text={active.preview.text}/>{active.preview.address&&<details className="epub-link-details"><summary>定位详情</summary><p className="epub-link-address">{active.preview.address}</p></details>}{active.preview.index!==undefined&&<button type="button" disabled={props.disabled} onClick={()=>{const preview=active.preview,sequence=request.current,key=active.key;if(preview)void props.onJump(preview).then(()=>{if(sequence===request.current&&activeRef.current?.key===key)close();}).catch((cause:unknown)=>{console.warn('引用跳转失败',cause);if(sequence===request.current)props.onNotice('引用跳转失败，请从原书目录重试。');});}}>跳转到原文</button>}</>:<p role="status">正在读取引用…</p>}</div>}
   </AnnotationPopover>}
  </div>;
 }

@@ -1,0 +1,30 @@
+import { createRequire } from "node:module";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+type TestDatabase={exec(sql:string):void;close():void;prepare(sql:string):{run(...args:unknown[]):unknown;all(...args:unknown[]):unknown[];get(...args:unknown[]):unknown}};
+const holder=vi.hoisted(()=>({db:undefined as TestDatabase|undefined}));
+vi.mock("@/lib/db",()=>({getDb:()=>{if(!holder.db)throw new Error("测试数据库未启动");return holder.db;}}));
+import { GET } from "./route";
+const {DatabaseSync}=createRequire(import.meta.url)("node:sqlite") as {DatabaseSync:new(file:string)=>TestDatabase};
+let db:TestDatabase;
+beforeEach(()=>{db=new DatabaseSync(":memory:");holder.db=db;db.exec(`CREATE TABLE books(id TEXT PRIMARY KEY,title TEXT,author TEXT,created_at TEXT);CREATE TABLE editions(id TEXT PRIMARY KEY,book_id TEXT,file_name TEXT,file_type TEXT,created_at TEXT);CREATE TABLE chapters(id TEXT PRIMARY KEY,edition_id TEXT,title TEXT,order_index INTEGER);CREATE TABLE paragraphs(id TEXT PRIMARY KEY,chapter_id TEXT,text TEXT,order_index INTEGER);CREATE TABLE reading_marks(id TEXT,edition_id TEXT,kind TEXT,note TEXT,anchors_json TEXT,created_at TEXT,updated_at TEXT);CREATE TABLE annotations(id TEXT,paragraph_id TEXT,start_offset INTEGER,end_offset INTEGER,text_hash TEXT,thread_id TEXT,summary TEXT,concepts TEXT,concept_details TEXT,message_id TEXT,created_at TEXT);CREATE TABLE reading_threads(id TEXT,edition_id TEXT);CREATE TABLE chat_messages(id TEXT,thread_id TEXT,role TEXT,structured_output TEXT,status TEXT,created_at TEXT);INSERT INTO books VALUES('b1','哲学导论','作者一','2026-09-20'),('b2','交换与劳动','作者二','2026-09-21');INSERT INTO editions VALUES('e1','b1','one.txt','.txt','2026-09-20'),('e2','b2','two.txt','.txt','2026-09-21');INSERT INTO chapters VALUES('c1','e1','第一章','0'),('c2','e2','第二章','0');INSERT INTO paragraphs VALUES('p1','c1','哲学帮助我们理解概念。','0'),('p2','c2','劳动与交换形成社会关系。','0');`);});
+afterEach(()=>{db.close();holder.db=undefined;});
+describe("GET /api/knowledge/materials",()=>{
+ it("当前书籍同时返回资料卡和可定位原文命中",async()=>{const response=await GET(new NextRequest("http://localhost/api/knowledge/materials?scope=current&editionId=e1&q=哲学&kind=all&retrieval=keyword"));expect(response.status).toBe(200);const data=await response.json();expect(data.scope).toBe("current");expect(data.editionId).toBe("e1");expect(data.items.map((item:{kind:string})=>item.kind)).toEqual(expect.arrayContaining(["source","passage"]));expect(data.items.find((item:{kind:string})=>item.kind==="passage").anchor).toMatchObject({editionId:"e1",chapterId:"c1",paragraphId:"p1"});});
+ it("全部书籍使用同一材料契约并保留各自来源",async()=>{const response=await GET(new NextRequest("http://localhost/api/knowledge/materials?scope=all&q=交换&kind=source&retrieval=keyword"));expect(response.status).toBe(200);const data=await response.json();expect(data.editionId).toBeNull();expect(data.items).toHaveLength(2);expect(data.items).toEqual(expect.arrayContaining([expect.objectContaining({kind:"passage",source:expect.objectContaining({editionId:"e2",bookTitle:"交换与劳动"})}),expect.objectContaining({kind:"source",source:expect.objectContaining({editionId:"e2"})})]));});
+ it("个人笔记和AI句读可在同一查询中显示，来源不可核对时保留记录但禁用跳转",async()=>{
+  const analysis={summary:"哲学句读",breakdown:[],concepts:[{name:"哲学",text:"思想训练"}],context:"",uncertainty:"",anchor:{paragraphId:"p1",startOffset:0,endOffset:2,selectedText:"哲学"}};
+  db.prepare("INSERT INTO reading_threads VALUES(?,?)").run("t1","e1");
+  db.prepare("INSERT INTO chat_messages VALUES(?,?,?,?,?,?)").run("m1","t1","assistant",JSON.stringify(analysis),"completed","2026-09-22");
+  db.prepare("INSERT INTO reading_marks VALUES(?,?,?,?,?,?,?)").run("mark1","e1","note","我的哲学笔记",JSON.stringify([{paragraphId:"p1",startOffset:0,endOffset:2,selectedText:"哲学",textHash:"unused"}]),"2026-09-22","2026-09-23");
+  db.prepare("INSERT INTO reading_marks VALUES(?,?,?,?,?,?,?)").run("mark2","e1","note","旧哲学笔记",JSON.stringify([{paragraphId:"p1",startOffset:10,endOffset:12,selectedText:"错误"}]),"2026-09-22","2026-09-23");
+  const response=await GET(new NextRequest("http://localhost/api/knowledge/materials?scope=current&editionId=e1&q=哲学&kind=all"));
+  expect(response.status).toBe(200);const data=await response.json();
+  expect(data.counts).toMatchObject({excerpt:2,understanding:1});
+  expect(data.items.find((item:{id:string})=>item.id==="excerpt:mark1").anchor).toMatchObject({editionId:"e1",paragraphId:"p1"});
+  expect(data.items.find((item:{id:string})=>item.id==="excerpt:mark2")).toMatchObject({anchor:null,locationReason:expect.stringContaining("待核对")});
+  expect(data.items.find((item:{id:string})=>item.id==="message:m1")).toMatchObject({origin:"ai",conversation:{threadId:"t1",messageId:"m1"}});
+  const page=await GET(new NextRequest("http://localhost/api/knowledge/materials?scope=current&editionId=e1&q=哲学&kind=excerpt&limit=1&offset=1"));
+  expect((await page.json()).items).toHaveLength(1);
+ }); it.each(["scope=current","scope=all&retrieval=hybrid&kind=all"])("拒绝不支持的范围或检索参数：%s",async(query)=>{const response=await GET(new NextRequest("http://localhost/api/knowledge/materials?"+query));expect(response.status).toBe(400);});
+});

@@ -9,12 +9,12 @@ import type {WorkspaceBook} from "./workspace-editions";
 import "./bookshelf.css";
 export type BookshelfProps = {
   books: readonly WorkspaceBook[]; currentBookId: string; currentEditionId?: string;
-  loading?: boolean; importing?: boolean; busy?: boolean; error?: string;
+  loading?: boolean; importing?: boolean; busy?: boolean; navigationDisabled?: boolean; error?: string;
   assistantOpen?: boolean; onToggleAssistant?: () => void; preferenceError?: string;
   onOpenBook: (id: string, editionId?: string) => void; onImport: () => void;
   onRefresh: () => void; onBookArchived?: (bookId: string) => void;
 };
-export function Bookshelf({books, currentBookId, currentEditionId, loading, importing, busy, error, assistantOpen, onToggleAssistant, preferenceError, onOpenBook, onImport, onRefresh, onBookArchived}: BookshelfProps) {
+export function Bookshelf({books, currentBookId, currentEditionId, loading, importing, busy, navigationDisabled = false, error, assistantOpen, onToggleAssistant, preferenceError, onOpenBook, onImport, onRefresh, onBookArchived}: BookshelfProps) {
   const resumes = useBookResumes(books);
   const [archiveRevision, setArchiveRevision] = useState(0);
   // WHY：查看信息的选择独立于当前阅读书籍，不触发加载、进度保存或最近阅读更新。
@@ -50,19 +50,19 @@ export function Bookshelf({books, currentBookId, currentEditionId, loading, impo
     {(resumes.error || preferenceError) && <p className="workspace-inline-error" role="status">{resumes.error || preferenceError}</p>}
     {error && <div className="workspace-inline-error" role="alert">{error}<button type="button" onClick={onRefresh}>重新加载书架</button></div>}
     <div className="bookshelf-scroll">
-      {!loading && !error && recent && !query && !format && status === "all" && <section className="bookshelf-recent" aria-label="最近阅读"><div><small>继续上次阅读</small><strong>{shelfTitle(recent)}</strong><p>{resumes.history[recent.id].location} · <time dateTime={new Date(resumes.history[recent.id].updatedAt).toISOString()}>{new Date(resumes.history[recent.id].updatedAt).toLocaleDateString("zh-CN")}</time></p></div><button type="button" disabled={busy || importing} onClick={() => onOpenBook(recent.id, resumes.history[recent.id].editionId)}>继续阅读 ↗</button></section>}
+      {!loading && !error && recent && !query && !format && status === "all" && <section className="bookshelf-recent" aria-label="最近阅读"><div><small>继续上次阅读</small><strong>{shelfTitle(recent)}</strong><p>{resumes.history[recent.id].location} · <time dateTime={new Date(resumes.history[recent.id].updatedAt).toISOString()}>{new Date(resumes.history[recent.id].updatedAt).toLocaleDateString("zh-CN")}</time></p></div><button type="button" disabled={busy || importing || navigationDisabled} onClick={() => onOpenBook(recent.id, resumes.history[recent.id].editionId)}>继续阅读 ↗</button></section>}
       {loading && <p role="status">正在读取书架…</p>}
       {!loading && !error && books.length === 0 && <div className="workspace-empty"><h2>从一本书开始</h2><p>导入图书或文档，在这里继续你的阅读。原文件和阅读记录保存在本地。</p><button type="button" onClick={onImport} disabled={busy || importing}>导入第一本书</button></div>}
       {!loading && books.length > 0 && filtered.length === 0 && <div className="workspace-empty" role="status"><h2>没有找到这本书</h2><p>试试其他关键词，或清空格式与阅读状态筛选。</p><button type="button" onClick={reset}>清空筛选</button></div>}
       {(query || format || status !== "all") && <p className="bookshelf-result-count" role="status">找到 {filtered.length} 本书</p>}
-      <div className={"bookshelf-grid" + (view === "list" ? " bookshelf-list" : "")}>{filtered.map(book => <BookshelfCard key={book.id} book={book} resumeEdition={resumes.editions[book.id]} location={resumes.history[book.id]?.editionId === resumes.editions[book.id] ? resumes.history[book.id]?.location : undefined} currentBookId={currentBookId} coverRevision={coverRevisions[book.id]} busy={busy || importing || loading} onOpen={onOpenBook} onDetails={openDetails} />)}</div>
+      <div className={"bookshelf-grid" + (view === "list" ? " bookshelf-list" : "")}>{filtered.map(book => <BookshelfCard key={book.id} book={book} resumeEdition={resumes.editions[book.id]} location={resumes.history[book.id]?.editionId === resumes.editions[book.id] ? resumes.history[book.id]?.location : undefined} currentBookId={currentBookId} coverRevision={coverRevisions[book.id]} busy={busy || importing || loading} navigationDisabled={navigationDisabled} onOpen={onOpenBook} onDetails={openDetails} />)}</div>
       <ArchivedBooks revision={archiveRevision} busy={busy || importing || loading} onRestored={onRefresh} />
     </div>
     <footer className="bookshelf-footer">单文件最大 300 MB · 在书籍的「⋯」中查看信息、版本与管理操作</footer>
     {selectedBook && selection && <BookDetailsPanel key={selectedBook.id} book={selectedBook} initialSection={selection.section}
       currentBookId={currentBookId} currentEditionId={currentEditionId} resumeEdition={resumes.editions[selectedBook.id]}
       location={resumes.history[selectedBook.id]?.editionId === resumes.editions[selectedBook.id] ? resumes.history[selectedBook.id]?.location : undefined}
-      coverRevision={coverRevisions[selectedBook.id]} busy={busy || importing || loading} onClose={() => setSelection(null)}
+      coverRevision={coverRevisions[selectedBook.id]} busy={busy || importing || loading} navigationDisabled={navigationDisabled} onClose={() => setSelection(null)}
       onOpen={(id, editionId) => {setSelection(null); onOpenBook(id, editionId);}} onUpdated={onRefresh} onArchived={() => archived(selectedBook.id)}
       onRetryCover={() => setCoverRevisions(previous => ({...previous, [selectedBook.id]: (previous[selectedBook.id] ?? 0) + 1}))} />}
 

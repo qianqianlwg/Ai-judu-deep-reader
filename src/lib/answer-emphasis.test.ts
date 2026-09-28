@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
 import { describe, expect, it } from "vitest";
 import remarkGfm from "remark-gfm";
-import { inferAnswerEmphasis, readAnswerEmphasis, remarkAnswerEmphasis, validateAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
+import { inferAnswerEmphasis, readAnswerEmphasis, sliceAnswerEmphasis, remarkAnswerEmphasis, validateAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 
 const sample = "关键不在于层级越高越好，而在于协调范围能否覆盖影响范围。\n\n先看影响范围，再看协调责任。";
 const marks: AnswerEmphasis = { version: 1, marks: [
@@ -49,4 +49,24 @@ it("模型没有调用标注工具时，兜底仍只标注正文中的完整句�
   expect(inferred?.marks.some(mark => mark.kind === "key_sentence")).toBe(true);
   expect(inferred?.marks.every(mark => mark.quote !== "影响范围" || mark.kind !== "term")).toBe(true);
   expect(inferred?.marks.some(mark => mark.kind === "term")).toBe(true);
+});
+
+
+describe("合并后的工具时间线与重点元数据", () => {
+  const text = "影响范围在前。\n\n再次讨论影响范围。";
+  const emphasis: AnswerEmphasis = { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 2 }] };
+  it("分段后换算出现次数，不误标第一次原词", () => {
+    const split = text.indexOf("再次");
+    expect(sliceAnswerEmphasis(text, emphasis, 0, split)).toBeUndefined();
+    expect(sliceAnswerEmphasis(text, emphasis, split)?.marks).toEqual([{ kind: "term", quote: "影响范围", occurrence: 1 }]);
+    expect(sliceAnswerEmphasis(text, emphasis, 0)).toEqual(emphasis);
+  });
+  it("片段边界切断原词或含转义时不猜测重点位置", () => {
+    const inside = text.lastIndexOf("影响范围") + 1;
+    expect(sliceAnswerEmphasis(text, emphasis, inside)).toBeUndefined();
+    expect(sliceAnswerEmphasis(text, emphasis, 0, inside)).toBeUndefined();
+    expect(sliceAnswerEmphasis(text, emphasis, -1)).toBeUndefined();
+    const escaped = "前文。\n\n\\*影响范围";
+    expect(sliceAnswerEmphasis(escaped, { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1 }] }, 5)).toBeUndefined();
+  });
 });

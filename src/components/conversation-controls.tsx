@@ -7,12 +7,12 @@ import styles from "./conversation-controls.module.css";
 type Action = () => void | Promise<void>;
 export type ConversationControlsProps = {
   conversations: ConversationSummary[]; activeThreadId?: string | null; editionId?: string;
-  busy?: boolean; error?: string;
+  busy?: boolean; switchingDisabled?: boolean; error?: string;
   onNewConversation?: Action;
   onSelectConversation?: (threadId: string) => void | Promise<void>;
   onRenameConversation?: (threadId: string, title: string) => void | Promise<void>;
 };
-export function ConversationControls({ conversations, activeThreadId, editionId, busy = false, error, onNewConversation, onSelectConversation, onRenameConversation }: ConversationControlsProps) {
+export function ConversationControls({ conversations, activeThreadId, editionId, busy = false, switchingDisabled = false, error, onNewConversation, onSelectConversation, onRenameConversation }: ConversationControlsProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -25,6 +25,8 @@ export function ConversationControls({ conversations, activeThreadId, editionId,
   const mounted = useRef(false);
   const operationRunning = useRef(false);
   const locked = busy || pending;
+  // WHY：浏览和重命名会话不改变生成任务身份，只有实际切换与新建会话需要生成锁。
+  const navigationLocked = locked || switchingDisabled;
   const scoped = conversations.filter((conversation) => !editionId || conversation.editionId === editionId);
   const active = scoped.find((conversation) => conversation.id === activeThreadId);
   const filtered = scoped.filter((conversation) => conversation.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
@@ -58,10 +60,10 @@ export function ConversationControls({ conversations, activeThreadId, editionId,
     onKeyDown={(event) => { if (event.key === "Escape" && open) { event.preventDefault(); setOpen(false); setRenaming(false); triggerRef.current?.focus({ preventScroll: true }); } }}>
     <div className={styles.toolbar}>
       <button ref={triggerRef} type="button" className={styles.trigger} aria-label="切换会话" aria-haspopup="dialog" aria-expanded={open} disabled={locked}
-        title={busy ? "生成或加载期间不能切换会话" : active?.title ?? "查看当前书籍会话"} onClick={() => { setOpen(!open); setLocalError(""); }}>
+        title={active?.title ?? "查看当前书籍会话"} onClick={() => { setOpen(!open); setLocalError(""); }}>
         <span className={styles.heading}>{active?.title ?? "新会话"}</span><span aria-hidden="true">⌄</span>
       </button>
-      <button type="button" className={styles.iconButton} aria-label="新建会话" title={busy ? "请等待当前生成结束" : "新建会话"} disabled={locked || !onNewConversation} onClick={() => void perform(onNewConversation)}>
+      <button type="button" className={styles.iconButton} aria-label="新建会话" title={navigationLocked ? "请等待当前生成或加载结束" : "新建会话"} disabled={navigationLocked || !onNewConversation} onClick={() => void perform(onNewConversation)}>
         <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
       </button>
     </div>
@@ -73,14 +75,14 @@ export function ConversationControls({ conversations, activeThreadId, editionId,
       </form>}
       <input ref={searchRef} type="search" className={styles.search} aria-label="搜索会话" placeholder="搜索会话" value={query} disabled={locked} onChange={(event) => setQuery(event.target.value)} />
       <ul className={styles.list}>{filtered.map((conversation) => <li key={conversation.id}>
-        <button type="button" disabled={locked || !onSelectConversation} aria-current={conversation.id === activeThreadId ? "true" : undefined}
-          onClick={() => { if (locked) return; if (conversation.id === activeThreadId) { setOpen(false); return; } void perform(() => onSelectConversation?.(conversation.id)); }}>
+        <button type="button" disabled={navigationLocked || !onSelectConversation} aria-current={conversation.id === activeThreadId ? "true" : undefined}
+          onClick={() => { if (navigationLocked) return; if (conversation.id === activeThreadId) { setOpen(false); return; } void perform(() => onSelectConversation?.(conversation.id)); }}>
           <span className={styles.rowTitle}>{conversation.title}</span>
           <span className={styles.rowMeta}>{conversation.messageCount} 条消息{conversation.id === activeThreadId ? " · 当前" : ""}</span>
         </button>
       </li>)}</ul>
       {filtered.length === 0 && <p className={styles.empty}>{query ? "没有匹配的会话" : "暂无会话，点击 + 新建"}</p>}
-      {busy && <p className={styles.hint}>当前生成或加载结束后可切换会话</p>}
+      {navigationLocked && <p className={styles.hint}>可浏览和搜索历史；当前生成或加载结束后可切换会话</p>}
     </div>}
     {(localError || error) && <p className={styles.error} role="alert">{localError || error}</p>}
   </div>;

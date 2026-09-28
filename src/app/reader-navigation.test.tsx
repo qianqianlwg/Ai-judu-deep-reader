@@ -17,7 +17,7 @@ vi.mock("@/hooks/use-reader-pages", () => ({
 }));
 // WHY：模拟旧卡片/扩展组件传回不可信ID，验证真正的page入口而非仅测试按钮自身的disabled。
 vi.mock("@/components/knowledge-workspace", () => ({
-  KnowledgeWorkspace: (props: KnowledgeWorkspaceProps) => <button type="button" onClick={() => props.onOpenConversation?.(boundary.invalidThread, "old-assistant")}>打开旧卡片来源</button>,
+  KnowledgeWorkspace: (props: KnowledgeWorkspaceProps) => <><button type="button" onClick={() => props.onOpenConversation?.(boundary.invalidThread, "old-assistant")}>打开旧卡片来源</button><button type="button" onClick={() => props.onOpenMaterial?.({id:"passage:b",kind:"passage",origin:"original",title:"乙章",body:result.excerpt??"",quote:result.matchedText??result.excerpt??"",createdAt:"2026-09-26",source:{bookId:"book",editionId:"edition",bookTitle:"导航验收书",author:"测试作者",fileName:"test.txt",fileType:".txt",createdAt:"2026-09-26",paragraphCount:2},chapterTitle:result.chapterTitle,anchor:{editionId:"edition",chapterId:result.chapterId,paragraphId:result.paragraphId,startOffset:result.startOffset??0,endOffset:(result.startOffset??0)+(result.matchedText??result.excerpt??"").length,selectedText:result.matchedText??result.excerpt??""},locationReason:null,concepts:[],conversation:null})}>打开知识命中</button></>,
 }));
 import Home from "./page";
 
@@ -52,15 +52,9 @@ async function selectA() {
     const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   }); await settle();
-  expect(element(".selection-actions").textContent).toContain("已选 2 / 1000 字");
+  expect(element(".selection-actions").textContent).toContain("已选 2 / 3000 字符");
 }
-async function searchB() {
-  await click(element(".workspace-book-search summary"));
-  const input = element<HTMLInputElement>("#workspace-book-query");
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "乙段"); input.dispatchEvent(new Event("input", { bubbles: true })); });
-  await act(async () => element(".workspace-book-search form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))); await settle();
-  await click(element(".search-results button"));
-}
+async function searchB() { await click(button("知识库")); await click(button("打开知识命中")); }
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.stubGlobal("ResizeObserver", undefined); vi.stubGlobal("CSS", { escape: (text: string) => text });
   frames = new Map(); frameId = 0; requests = []; boundary.invalidThread = ""; badCreate = false;
@@ -158,7 +152,9 @@ describe("多段选文真实页面装配",()=>{
   await click(button('句读一下'));expect(requests[0]).toMatchObject({selectedText:text,paragraphId:'a',selectionStart:2,selectionEnd:sourceA.length,selectionAnchors:[{paragraphId:'a',startOffset:2,endOffset:sourceA.length,selectedText:sourceA.slice(2)},{paragraphId:'b',startOffset:0,endOffset:12,selectedText:sourceB.slice(0,12)}]});
  });
  it("显式继续选取在拖动端点多次更新时始终保留前段，下一次新拖选清理扩展",async()=>{
-  await mount();await selectBetween('a',2,'a',sourceA.length);await click(button('继续选取'));
+  await mount();await selectBetween('a',2,'a',sourceA.length);expect(document.getSelection()?.rangeCount).toBe(1);await click(button('继续选取'));
+  // WHY：保留应用的选文快照，但解除浏览器原生选区，下一页拖动不能变成拖放所选文字。
+  expect(document.getSelection()?.rangeCount).toBe(0);
   await selectBetween('b',0,'b',6,true);expect(element('.selection-preview blockquote').textContent).toBe(sourceA.slice(2)+'\n\n'+sourceB.slice(0,6));
   await selectBetween('b',0,'b',12);expect(element('.selection-preview blockquote').textContent).toBe(sourceA.slice(2)+'\n\n'+sourceB.slice(0,12));
   await selectBetween('b',12,'b',24,true);expect(element('.selection-preview blockquote').textContent).toBe(sourceB.slice(12,24));

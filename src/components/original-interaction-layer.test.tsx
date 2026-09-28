@@ -69,6 +69,15 @@ describe("共享原版浮层：真实内容和host Document", () => {
     await render({ documents: [{ ...props.documents[0], targets: [concept("财政体制", "")] }] }); await mouse(paragraph, "mousemove");
     expect(dialog()?.textContent).toContain("暂无定义"); expect(dialog()?.textContent).not.toContain("句读概述");
   });
+  it("原版历史标符悬停与聚焦不打开浮窗，仅点击触发", async () => {
+    await render({ documents: [{ ...props.documents[0], targets: [{ kind: "history", key: "history", range: sourceRange(5, 6), annotations: [mark()] }] }] });
+    const trigger = button("查看句读历史（1条）");
+    await mouse(trigger, "mouseover");
+    await act(async () => trigger.focus());
+    expect(dialog()).toBeNull();
+    await click(trigger);
+    expect(dialog()?.textContent).toContain("句读历史");
+  });
   it("历史多条展示对应来源，完整句读回调不串消息", async () => {
     const records = [mark({ id: "a2", messageId: "m2", summary: "第二条概述" }), mark()];
     await render({ documents: [{ ...props.documents[0], targets: [{ kind: "history", key: "history", range: sourceRange(5, 6, box(120, 40, 10, 20)), annotations: records }] }] });
@@ -313,4 +322,44 @@ describe("引用标题：真实文本、回退和不可信字符串", () => {
     expect(dialog()?.querySelector("script,img,[onerror]")).toBeNull(); expect(scope.innerHTML).toBe(before);
     expect(fetch).not.toHaveBeenCalled(); expect(window.open).not.toHaveBeenCalled();
   });
+});
+
+describe("引用预览默认长度与展开", () => {
+ it.each([199,200,201,2400])("%s 字的预览仅超过 200 字时折叠",async length=>{
+  const full="甲".repeat(length),reference=link();vi.mocked(props.previewLink!).mockResolvedValue({title:"引用预览",text:full,index:1});
+  await render();await mouse(reference,"mouseover",170,50);
+  const preview=dialog()!.querySelector(".epub-reference-preview > p")!;
+  expect(preview.textContent).toBe(length>200?"甲".repeat(200)+"…":full);
+  expect(button("展开全文")===undefined).toBe(length<=200);
+  if(length>200){
+   expect(button("展开全文").getAttribute("aria-expanded")).toBe("false");
+   await click(button("展开全文"));expect(preview.textContent).toBe(full);
+   expect(button("收起全文").getAttribute("aria-expanded")).toBe("true");
+   await click(button("收起全文"));expect(preview.textContent).toBe("甲".repeat(200)+"…");
+  }
+ });
+ it("Unicode 补充字符不截断代理项，新引用恢复默认折叠",async()=>{
+  const full="😀".repeat(201),a=link("#first"),b=link("#second");
+  vi.mocked(props.previewLink!).mockResolvedValueOnce({title:"第一条",text:full}).mockResolvedValueOnce({title:"第二条",text:"乙".repeat(201)});
+  await render();await mouse(a,"mouseover",170,50);
+  expect(dialog()!.querySelector(".epub-reference-preview > p")?.textContent).toBe("😀".repeat(200)+"…");
+  await click(button("展开全文"));expect(dialog()!.querySelector(".epub-reference-preview > p")?.textContent).toBe(full);
+  await mouse(b,"mouseover",170,50);
+  expect(dialog()!.querySelector(".epub-reference-preview > p")?.textContent).toBe("乙".repeat(200)+"…");
+  expect(button("展开全文").getAttribute("aria-expanded")).toBe("false");
+ });
+});
+
+it("同页同词只保留首个弹窗入口，翻页后可在新页首处查看", async () => {
+ const first=concept("财政体制","首处",sourceRange(2,6,box(40,40,80,20)));
+ const second={...concept("财政体制","重复处",sourceRange(2,6,box(180,40,80,20))),key:"second"};
+ await render({documents:[{...props.documents[0],targets:[first,second]}]});
+ expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
+ await mouse(paragraph,"mousemove",190,50);expect(dialog()).toBeNull();
+ await mouse(paragraph,"click",190,50);expect(dialog()).toBeNull();
+ await mouse(paragraph,"mousemove",55,50);expect(dialog()?.textContent).toContain("首处");
+ geometries.set(first.range,[box(-200,40,80,20)]);
+ await act(async()=>window.dispatchEvent(new Event("resize")));await flushFrames();
+ expect(dialog()).toBeNull();expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
+ await mouse(paragraph,"mousemove",190,50);expect(dialog()?.textContent).toContain("重复处");
 });

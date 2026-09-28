@@ -5,6 +5,8 @@ export const EPUB_LIMITS = Object.freeze({
   total: 128 * 1024 * 1024, entries: 4096, ratio: 200, text: 2 * 1024 * 1024,
 });
 export interface ZipRecord { name: string; compressed: number; size: number; directory: boolean }
+// WHY：ZIP 规范中的 bit 4 是旧版增强 Deflate 标记，不代表加密或数据描述符；部分桌面阅读器生成的合法 EPUB 会携带它。
+export const ZIP_ALLOWED_FLAGS = 2048 | 8 | 6 | 16;
 
 export function assertPackagePath(path: string): string {
   if (!path || path.length > 1024 || /[\\%:#?\u0000-\u001f\u007f]/u.test(path) || path.startsWith('/'))
@@ -71,16 +73,20 @@ export async function inspectZip(blob: Blob, format: "epub" | "fbz" | "cbz" = "e
       throw new Error(`EPUB ZIP 重复路径：${name}`);
     const localNameLength = u16(local + 26), localExtra = u16(local + 28);
     const data = local + 30 + localNameLength + localExtra;
-    if (u16(pos + 34) || flags & 1 || ![0, 8].includes(method) || flags & ~(2048 | 8 | 6)
+    if (u16(pos + 34) || flags & 1 || ![0, 8].includes(method) || flags & ~ZIP_ALLOWED_FLAGS
         || u16(local + 6) !== flags || u16(local + 8) !== method || data + compressed > start
         || localNameLength !== nameLength || nameBytes.some((b, j) => b !== bytes[local + 30 + j]))
       throw new Error('EPUB ZIP 加密、压缩方法或本地文件头无效');
     if (!(flags & 8) && (u32(local + 18) !== compressed || u32(local + 22) !== size
         || u32(local + 14) !== u32(pos + 16))) throw new Error('EPUB ZIP 本地大小不一致');
     total += size;
-    if (size > EPUB_LIMITS.entry || total > EPUB_LIMITS.total || size > Math.max(1, compressed) * EPUB_LIMITS.ratio
-        || (directory && (size || compressed)) || (method === 0 && size !== compressed))
+    // WHY：客户端与导入预检采用相同的 EPUB 容量预算，不能把安全导入的高重复内容在阅读阶段误拒。
+    if (size > EPUB_LIMITS.entry) throw new Error(`EPUB ZIP 条目 ${name} 解压大小超过限制（单条目 24 MiB）`);
+    if (total > EPUB_LIMITS.total) throw new Error(`EPUB ZIP 条目 ${name} 使总解压大小超过限制（总量 128 MiB）`);
+    if (format !== 'epub' && size > Math.max(1, compressed) * EPUB_LIMITS.ratio)
       throw new Error('EPUB ZIP 解压大小或压缩比超过限制');
+    if ((directory && size) || (method === 0 && size !== compressed))
+      throw new Error('EPUB ZIP 目录或未压缩条目解压大小不一致');
     if (format === 'epub' && i === 0 && (name !== 'mimetype' || local !== 0 || method || localExtra || flags & 8))
       throw new Error('EPUB mimetype 必须是第一个未压缩、无额外字段的条目');
     ranges.push([local, data + compressed]);

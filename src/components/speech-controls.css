@@ -1,0 +1,14 @@
+.speech-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; min-width:0; padding:10px 18px; border-top:1px solid var(--reading-border,#d7e2e0); background:var(--reading-surface,#fff); color:var(--reading-text,#263238); font:12px/1.5 system-ui,sans-serif; }
+/* WHY：独占阅读列底部的一条常规网格轨道，不用 fixed/absolute，避免遮挡正文、翻页或聊天输入。 */
+.workspace-shell .workspace-main:has(> .speech-footer) { grid-template-rows:minmax(0,1fr) auto; }
+.workspace-main > .speech-footer { grid-area:2 / 1; }
+.speech-footer-info { display:flex; align-items:center; gap:10px; min-width:0; }
+.speech-footer-info strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:550; }
+.speech-footer-info [role="status"] { color:var(--reading-muted,#6b7778); white-space:nowrap; }
+.speech-footer-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.speech-footer button { padding:5px 9px; border:1px solid var(--reading-border,#d7e2e0); border-radius:7px; background:var(--reading-paper,#fffdf9); color:inherit; font:inherit; cursor:pointer; }
+.speech-footer button:focus-visible { outline:2px solid var(--reading-accent,#396e6a); outline-offset:3px; }
+.speech-footer-error { flex-basis:100%; margin:0; }
+.speech-settings-fields label { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid var(--reading-border,#d7e2e0); font-size:13px; }
+.speech-settings-fields textarea { width:min(100%,500px); }
+@media(max-width:620px) { .speech-settings-fields label { flex-wrap:wrap; } .speech-footer { padding:9px 12px; gap:7px; } .speech-footer-info { gap:7px; } }

@@ -112,6 +112,8 @@ html, body { height: 100%; overflow: hidden; }
 .assistant-readable p { margin: 0 0 12px; }
 .assistant-readable section { margin: 16px 0; }
 .assistant-readable h4 { margin: 0 0 8px; color: #507d7c; font-size: 11px; letter-spacing: .08em; font-weight: 600; }
+.assistant-readable [data-citation-origin] { margin: 8px 0 12px; }
+.assistant-readable h5 { margin: 0 0 5px; color: #6b8081; font-size: 11px; font-weight: 600; }
 .answer-row { display: grid; grid-template-columns: 78px 1fr; gap: 8px; padding: 7px 0; border-top: 1px solid #e4ecec; font-size: 12px; }
 .answer-row b { color: #456b6b; font-weight: 600; }
 .answer-note { color: #849496; font-size: 11px; }
@@ -305,8 +307,8 @@ body { background: var(--ui-bg); }
 .help-button { width: 25px; height: 25px; border: 0; border-radius: 50%; background: transparent; color: #8a9999; font-size: 12px; }
 .help-button:hover { background: #e1eceb; color: #315f60; }
 .reading-toolbar { display: flex; align-items: center; justify-content: space-between; }
-.concept-toggle { border: 1px solid #d7e4e3; border-radius: 6px; background: #f8fcfc; color: #65807f; padding: 5px 8px; font-size: 11px; }
-.concept-toggle[aria-pressed="true"] { background: #dceceb; color: #376c69; }
+.concept-toggle, .analysis-toggle { border: 1px solid #d7e4e3; border-radius: 6px; background: #f8fcfc; color: #65807f; padding: 5px 8px; font-size: 11px; }
+.concept-toggle[aria-pressed="true"], .analysis-toggle[aria-pressed="true"] { background: #dceceb; color: #376c69; }
 /* WHY：概念标记只强调原文中真实命中的术语。 */
 /* WHY：悬浮说明使用独立层，不改变正文行高。 */
 

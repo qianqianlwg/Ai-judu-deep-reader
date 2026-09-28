@@ -118,8 +118,10 @@ export function createConversationClient(fetcher: typeof fetch) {
   };
 }
 
-const PUBLIC_TOOLS = new Set(["search_book", "read_source", "save_reading_analysis", "mark_answer_emphasis"]);
-const TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts", "marked", "emphasis", "marks", "kind", "occurrence", "version"]);
+const PUBLIC_TOOLS = new Set(["search_book", "prefetch_book_context", "read_source", "save_reading_analysis", "mark_answer_emphasis", "search_openalex", "verify_crossref", "search_web", "read_external_source"]);
+const EXTERNAL_TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts", "source", "query", "results", "title", "url", "year", "doi", "snippet", "evidence", "durationMs", "matchType", "coverage", "crossref", "recordType", "venue", "readUrl", "xmlId", "provider", "status", "code", "message"]);
+const INTERNAL_TOOL_FIELDS = new Set(["ok", "saved", "analysisId", "locationAvailable", "sources", "channels", "result", "summary", "breakdown", "label", "text", "concepts", "name", "context", "uncertainty", "citations", "sourceId", "paragraphId", "chapterId", "chapterTitle", "quote", "messageId", "anchor", "startOffset", "endOffset", "selectedText", "invalidConcepts", "message", "marked", "emphasis", "marks", "kind", "occurrence", "version"]);
+const EXTERNAL_TOOLS = new Set(["search_openalex", "verify_crossref", "search_web", "read_external_source"]);
 type ToolDisplayJson = string | number | boolean | null | ToolDisplayJson[] | { [key: string]: ToolDisplayJson };
 export function conversationToolFromRow(value: unknown, editionId: string): { messageId: string; tool: ToolActivity } | undefined {
   if (!record(value) || typeof value.id !== "string" || typeof value.messageId !== "string" || typeof value.name !== "string" || (value.status !== "running" && value.status !== "completed" && value.status !== "error")) {
@@ -134,7 +136,10 @@ export function conversationToolFromRow(value: unknown, editionId: string): { me
   catch (error: unknown) { console.warn("读取历史工具结果失败", { id: value.id, reason: error instanceof Error ? error.name : "unknown" }); return finish({ message: "历史工具输出损坏，无法展示。" }); }
   if (!record(output)) return finish({ message: "工具未提供可安全展示的结构化结果。" });
   // WHY：错误文本可能包含内部异常或请求内容，历史只展示通用说明；绝不把审计输入/密钥/原始异常下发。
-  if ((output.ok === false || value.status === "error") && !(value.name === "search_book" && readRetrievalReport(output.retrieval))) return finish(publicToolFailure(output) ?? { ok: false, message: "此工具执行未成功；请查看原回复中的提示或重试。" });
+  if ((output.ok === false || value.status === "error") && !((value.name === "search_book" || value.name === "prefetch_book_context") && readRetrievalReport(output.retrieval))) return finish(publicToolFailure(output) ?? { ok: false, message: "此工具执行未成功；请查看原回复中的提示或重试。" });
+  // WHY：外部文献的展示字段不能扩大书内读取的白名单，也不能放行跨来源身份。
+  const externalTool = EXTERNAL_TOOLS.has(value.name);
+  const fields = externalTool ? EXTERNAL_TOOL_FIELDS : INTERNAL_TOOL_FIELDS;
   let limited = false;
   const clean = (item: unknown, depth = 0): ToolDisplayJson | undefined => {
     if (depth > 7) { limited = true; return; }
@@ -143,17 +148,17 @@ export function conversationToolFromRow(value: unknown, editionId: string): { me
     if (typeof item === "number") return Number.isFinite(item) ? item : undefined;
     if (Array.isArray(item)) { if (item.length > 24) limited = true; return item.slice(0, 24).flatMap((entry) => { const saved = clean(entry, depth + 1); return saved === undefined ? [] : [saved]; }); }
     if (!record(item)) return;
-    if ("sourceId" in item && (typeof item.sourceId !== "string" || typeof item.paragraphId !== "string" || item.sourceId !== "book:" + editionId + ":paragraph:" + item.paragraphId)) { limited = true; return; }
+    if ("sourceId" in item && (typeof item.sourceId !== "string" || !(typeof item.paragraphId === "string" && item.sourceId === "book:" + editionId + ":paragraph:" + item.paragraphId) && !(externalTool && /^external:(openalex|web):[a-f0-9]{24}$/u.test(item.sourceId)))) { limited = true; return; }
     const saved: { [key: string]: ToolDisplayJson } = {};
     for (const [key, entry] of Object.entries(item)) {
-      if (!TOOL_FIELDS.has(key)) continue;
+      if (!fields.has(key)) continue;
       const next = clean(entry, depth + 1);
       if (next !== undefined) saved[key] = next;
     }
     return saved;
   };
   // WHY：合法检索报告不等于任意失败正文可公开；失败只保留校验后的来源和报告。
-  const result = clean(output.ok === false || value.status === "error" ? { ok: false, sources: output.sources } : output);
-  const retrieval = value.name === "search_book" ? readRetrievalReport(output.retrieval) : undefined;
+  const result = clean(output.ok === false || value.status === "error" ? { ok: false, sources: output.sources, ...(value.name === "prefetch_book_context" ? { message: output.message } : {}) } : output);
+  const retrieval = (value.name === "search_book" || value.name === "prefetch_book_context") ? readRetrievalReport(output.retrieval) : undefined;
   return finish(record(result) ? { ...result, ...(retrieval ? { retrieval } : {}), ...(limited ? { displayLimited: true } : {}) } : { message: "没有可安全展示的工具字段。" });
 }

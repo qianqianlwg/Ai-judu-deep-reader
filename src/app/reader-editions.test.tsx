@@ -60,10 +60,9 @@ async function chooseEdition(edition: string) {
   await click(element('dialog [data-edition-id="' + edition + '"]'));
 }
 async function search() {
-  await click(element(".workspace-book-search summary"));
-  const input = element<HTMLInputElement>("#workspace-book-query");
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "承认"); input.dispatchEvent(new Event("input", { bubbles: true })); });
-  await act(async () => element(".workspace-book-search form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))); await settle();
+  await click(button("知识库"));
+  const input = element<HTMLInputElement>('.knowledge-library-search input');
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "承认"); input.dispatchEvent(new Event("input", { bubbles: true })); }); await settle();
 }
 async function selectSource(edition: string, start = 0, end = 10) {
   void start; void end;
@@ -76,8 +75,13 @@ async function selectSource(edition: string, start = 0, end = 10) {
   }); await settle();
 }
 function requestUrls(pathname: string) { return fetcher.mock.calls.map(([input]) => endpoint(input)).filter(url => url.pathname === pathname); }
-function searchResponse(edition: string) {
-  const start = 0; return Response.json({ results: [{ paragraphId: paragraphId(edition), chapterId: "chapter-" + edition, chapterTitle: edition, matchedText: texts[edition], startOffset: start, excerpt: texts[edition] }] });
+function searchResponse(edition: string,query = "承认") {
+  const record=knowledge(edition).records[0],book=books.find(item=>item.editions.some(version=>version.id===edition))!;
+  const source={bookId:book.id,editionId:edition,bookTitle:book.title,author:book.author,fileName:book.editions.find(version=>version.id===edition)!.fileName,fileType:".epub",createdAt:"2026-09-14",paragraphCount:1};
+  const ai={id:record.id,kind:"understanding",origin:"ai",title:"句读解释",body:record.summary,quote:record.excerpt,createdAt:record.createdAt,source,chapterTitle:record.chapterTitle,anchor:record.anchor,locationReason:null,concepts:record.concepts,conversation:{threadId:record.threadId,messageId:record.messageId}};
+  const passage={...ai,id:"passage:"+paragraphId(edition),kind:"passage",origin:"original",title:edition+"章",body:texts[edition],quote:"承认",conversation:null,concepts:[]};
+  const items=query?[ai,passage]:[ai];
+  return Response.json({version:1,scope:"current",editionId:edition,query,items,counts:{source:query?1:0,passage:query?1:0,excerpt:0,understanding:1},total:items.length,offset:0,limit:60,warnings:[]});
 }
 beforeEach(() => {
   // WHY：测试环境无原生dialog顶层，交互仍使用真实详情组件。
@@ -102,6 +106,7 @@ beforeEach(() => {
     if (url.pathname === "/api/annotations") return Response.json({ annotations: [] });
     if (url.pathname === "/api/reading-marks") return Response.json({ marks: [] });
     if (url.pathname === "/api/knowledge") return Response.json(knowledge(edition));
+    if (url.pathname === "/api/knowledge/materials") return delayedSearch&&url.searchParams.get("q")?delayedSearch.promise:searchResponse(edition,url.searchParams.get("q")??"");
     if (url.pathname === "/api/search/status") return Response.json({ backend: "sqlite", editionId: edition, paragraphCount: 1, indexedCount: 0, vectorIndexed: false, note: "测试" });
     if (url.pathname === "/api/search") return delayedSearch?.promise ?? searchResponse(edition);
     if (url.pathname === "/api/threads") return Response.json({ threads: [thread(edition)] });
@@ -149,16 +154,15 @@ describe("全部书籍和版本的页面入口", () => {
     await showVersions("book-main"); expect(element('dialog [data-edition-id="edition-new"]').getAttribute("aria-current")).toBe("true");
     await click(element('[aria-label="关闭书籍信息"]'));
     await click(button("知识库"));
-    expect(element('[data-concept-name="承认"]').textContent).toContain("edition-new的定义");
-    await click([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(item => item.textContent?.startsWith("句读记录"))!);
-    await click(button("打开对话"));
+    expect(element('.knowledge-library').textContent).toContain("edition-new的定义");
+    await click(button("打开句读"));
     expect(element('[data-message-id="assistant-edition-new"]').getAttribute("data-history-target")).toBe("true");
     expect(requestUrls("/api/threads/" + threadId("edition-new")).at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await click(button("打开原文"));
-    expect(element(".selection-actions").textContent).toContain("已选 2 / 1000 字");
-    await search(); await click(element(".search-results button")); expect(element(".selection-actions").textContent).toContain("已选");
+    expect(element(".selection-actions").textContent).toContain("已选 2 / 3000 字符");
+    await search(); await click(element<HTMLButtonElement>('.material-passage button[aria-label="打开原文"]')); expect(element(".selection-actions").textContent).toContain("已选");
     expect(requests).toHaveLength(0);
-    expect(requestUrls("/api/search").at(-1)?.searchParams.get("editionId")).toBe("edition-new");
+    expect(requestUrls("/api/knowledge/materials").at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await reload(); expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);
     await chooseEdition("edition-old");
     expect(element(".reader-sheet").textContent).toContain(texts["edition-old"]);
@@ -175,7 +179,7 @@ describe("全部书籍和版本的页面入口", () => {
   it("旧版搜索慢回包不能污染切换后的新版搜索或选区", async () => {
     delayedSearch = Promise.withResolvers<Response>(); await mount(); await search(); await chooseEdition("edition-new");
     await act(async () => delayedSearch?.resolve(searchResponse("edition-old"))); await settle();
-    expect(host.querySelector(".search-results button")).toBeNull();
+    expect(host.querySelector(".material-passage button")).toBeNull();
     expect(element(".selection-actions").textContent).toContain("选择一句或一段");
     expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);
   });

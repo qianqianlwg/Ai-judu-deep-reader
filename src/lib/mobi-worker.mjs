@@ -41,8 +41,8 @@ async function run(input) {
   const { initMobiFile, initKf8File } = await import("../../vendor/mobi/index.mjs");
   // WHY：候选库包含同步解压和文件写入；只在可被父进程终止的独立进程中调用，不阻塞Web主线程。
   const parser = await (input.kind === "kf8" ? initKf8File : initMobiFile)(input.bytes, input.resourceDir);
-  if (input.mode === "prepared-layout") return readMobiPreparedLayout(await prepareMobiLayoutMarkup(await buildMobiLayout(parser, input)));
-  if (input.mode === "layout") return readMobiLayoutSnapshot(await buildMobiLayout(parser, input));
+  if (input.mode === "prepared-layout") return readMobiPreparedLayout(await prepareMobiLayoutMarkup(await buildMobiLayout(parser, input, true)));
+  if (input.mode === "layout") return readMobiLayoutSnapshot(await buildMobiLayout(parser, input, true));
   const metadata = parser.getMetadata();
   const title = boundedString(metadata.title ?? "", 4096);
   if (!Array.isArray(metadata.author) || metadata.author.length > 256) throw new Error("MOBI作者列表无效");

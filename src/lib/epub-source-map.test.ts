@@ -65,11 +65,46 @@ it("双栏跨段包含脚注标号时按正文顺序保留全部来源",()=>{
  const range=doc.createRange();range.setStart(doc.querySelector('p')!.firstChild!,1);range.setEnd(doc.querySelectorAll('p')[2].firstChild!,3);
  expect(selectionFromEpubRange(range,maps)).toMatchObject({version:2,text:'是第一段正文⑴\n\n第二段正文继续\n\n最后一',fragments:[{paragraphId:'p0',startOffset:1,endOffset:8},{paragraphId:'p1',startOffset:0,endOffset:7},{paragraphId:'p2',startOffset:0,endOffset:3}]});
 });
-it("原版可见选区跨段限1000字，不只是截断请求文本",()=>{
- document.body.innerHTML='<p>'+"甲".repeat(600)+'</p><p>'+"乙".repeat(600)+'</p>';
- const maps=mapEpubDocument(document,chapter(["甲".repeat(600),"乙".repeat(600)])),range=document.createRange();range.selectNodeContents(document.body);
+it("原版可见选区跨段限3000字，不只是截断请求文本",()=>{
+ document.body.innerHTML='<p>'+"甲".repeat(1800)+'</p><p>'+"乙".repeat(1800)+'</p>';
+ const maps=mapEpubDocument(document,chapter(["甲".repeat(1800),"乙".repeat(1800)])),range=document.createRange();range.selectNodeContents(document.body);
  const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
- const snapshot=readLimitedEpubSelection(selection,maps);expect(snapshot?.text.length).toBe(1000);expect(snapshot?.fragments?.[1].endOffset).toBe(398);expect(selection.toString()).toBe("甲".repeat(600)+"乙".repeat(398));
+ const snapshot=readLimitedEpubSelection(selection,maps);expect(snapshot?.text.length).toBe(3000);expect(snapshot?.fragments?.[1].endOffset).toBe(1198);expect(selection.toString()).toBe("甲".repeat(1800)+"乙".repeat(1198));
  expect(selectionFromEpubRange(selection.getRangeAt(0),maps)).toEqual(snapshot);
  document.body.innerHTML='';
+});
+
+it("只剔除选区开头的标题，并将可见选区同步收缩到正文",()=>{
+ const doc=document;doc.body.innerHTML='<h1>第一章 <em>地方政府</em></h1><p>第一段正文</p><p>第二段正文</p>';
+ const maps=mapEpubDocument(doc,chapter(['第一段正文','第二段正文']));
+ const range=doc.createRange();range.setStart(doc.querySelector('h1')!.firstChild!,0);range.setEnd(doc.querySelectorAll('p')[1].firstChild!,3);
+ const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+ let omitted=false;
+ const snapshot=readLimitedEpubSelection(selection,maps,undefined,()=>{omitted=true});
+ expect(omitted).toBe(true);
+ expect(snapshot).toMatchObject({version:2,text:'第一段正文\n\n第二段'});
+ expect(selection.toString()).toBe('第一段正文第二段');
+ expect(selectionFromEpubRange(selection.getRangeAt(0),maps)).toEqual(snapshot);
+});
+
+it("倒向选区剔除标题后保持方向，并按正文限制可见选区",()=>{
+ const doc=document;doc.body.innerHTML='<h1>标题</h1><p>'+'甲'.repeat(3100)+'</p>';
+ const maps=mapEpubDocument(doc,chapter(['甲'.repeat(3100)]));
+ const heading=doc.querySelector('h1')!.firstChild!,body=doc.querySelector('p')!.firstChild!;
+ const selection=window.getSelection()!;selection.removeAllRanges();selection.setBaseAndExtent(body,3100,heading,0);
+ let limited=false,omittedLimited=false;
+ const snapshot=readLimitedEpubSelection(selection,maps,()=>{limited=true},wasLimited=>{omittedLimited=wasLimited});
+ expect(limited).toBe(true);expect(omittedLimited).toBe(true);
+ expect(snapshot?.text).toBe('甲'.repeat(3000));expect(selection.toString()).toBe('甲'.repeat(3000));
+ expect(selection.anchorNode).toBe(body);expect(selection.anchorOffset).toBe(3100);
+});
+
+it("未映射内容不属于开头标题时仍拒绝，不触发自动剔除",()=>{
+ for(const html of ['<aside>脚注</aside><h1>标题</h1><p>正文</p>','<h1>标题</h1><aside>脚注</aside><p>正文</p>','<h1>标题</h1><p>正文</p><aside>脚注</aside>']){
+  const doc=document;doc.body.innerHTML=html;const maps=mapEpubDocument(doc,chapter(['正文'])),range=doc.createRange();range.selectNodeContents(doc.body);
+  const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+  let omitted=false;
+  expect(readLimitedEpubSelection(selection,maps,undefined,()=>{omitted=true})).toBeNull();
+  expect(omitted).toBe(false);
+ }
 });

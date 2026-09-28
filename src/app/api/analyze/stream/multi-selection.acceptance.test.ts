@@ -146,20 +146,20 @@ afterEach(() => {
 });
 
 describe("多段流式句读独立后端验收：字数与来源校验", () => {
-  it("全选区 1001 字拒绝且不调用模型、不建会话、不分段执行", async () => {
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(499));
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("乙".repeat(500));
+  it("全选区 3001 字拒绝且不调用模型、不建会话、不分段执行", async () => {
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(1499));
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("乙".repeat(1500));
     const payload = body([part("p1"), part("p2")]);
-    expect(Array.from(String(payload.selectedText)).length).toBe(1001);
+    expect(Array.from(String(payload.selectedText)).length).toBe(3001);
     const result = await assertRejected(payload, 400, "selection_length");
-    expect(JSON.parse(result.text).error).toContain("1001");
+    expect(JSON.parse(result.text).error).toContain("3001");
   });
-  it("旧单段请求同样不能绕过 1001 字上限", async () => {
-    await assertRejected({ selectedText: "甲".repeat(1001), selectionAnchors: undefined }, 400, "selection_length");
+  it("旧单段请求同样不能绕过 3001 字上限", async () => {
+    await assertRejected({ selectedText: "甲".repeat(3001), selectionAnchors: undefined }, 400, "selection_length");
   });
-  it.each([999, 1000])("允许全选区恰好 %i 字（含分隔符），完整保存不截断", async length => {
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(499));
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("乙".repeat(length - 501));
+  it.each([2999, 3000])("允许全选区恰好 %i 字（含分隔符），完整保存不截断", async length => {
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(1499));
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("乙".repeat(length - 1501));
     const parts = [part("p1"), part("p2")];
     enqueueSuccess();
     const result = await call(body(parts));
@@ -169,19 +169,19 @@ describe("多段流式句读独立后端验收：字数与来源校验", () => {
     expect(saved().anchor).toEqual(expectedAnchor(parts));
     expect(saved()._request.input.selectedText).toHaveLength(length);
   });
-  it.each([1000, 1001])("%i 个 Unicode 字符按字数校验，emoji 位置仍按 UTF-16", async length => {
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("😀".repeat(499));
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("𠮷".repeat(length - 501));
+  it.each([3000, 3001])("%i 个 Unicode 字符按字数校验，emoji 位置仍按 UTF-16", async length => {
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("😀".repeat(1499));
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("𠮷".repeat(length - 1501));
     const parts = [part("p1"), part("p2")], payload = body(parts);
     expect(Array.from(String(payload.selectedText))).toHaveLength(length);
-    expect(String(payload.selectedText).length).toBeGreaterThan(1000);
-    if (length > 1000) await assertRejected(payload, 400, "selection_length");
+    expect(String(payload.selectedText).length).toBeGreaterThan(3000);
+    if (length > 3000) await assertRejected(payload, 400, "selection_length");
     else {
       enqueueSuccess();
       const result = await call(payload);
       expect(result.text).toContain("event: done");
       expect(saved().anchor).toEqual(expectedAnchor(parts));
-      expect(saved().anchor?.fragments?.[0].endOffset).toBe(998);
+      expect(saved().anchor?.fragments?.[0].endOffset).toBe(2998);
     }
   });
   it.each([null, [], [{ paragraphId: "p1" }]])("拒绝非法片段格式 %j", async selectionAnchors => {

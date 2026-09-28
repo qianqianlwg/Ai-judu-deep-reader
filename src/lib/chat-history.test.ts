@@ -60,3 +60,14 @@ it("会话回放只恢复当前正文中校验通过的强调，旧会话无标�
   expect(invalid.emphasis).toBeUndefined();
   expect(legacy.emphasis).toBeUndefined();
 });
+
+it('历史消息保留原始时间，缺失时间不伪造现在',()=>{
+ const items=hydrateChatHistory([{id:'u-time',role:'user',content:'问题',createdAt:'2026-09-26T04:00:00Z'},{id:'u-old',role:'user',content:'旧问题'}]);
+ expect(items[0].createdAt).toBe('2026-09-26T04:00:00Z');expect(items[1].createdAt).toBeUndefined();
+});
+
+it("刷新后恢复工具和句读记录的正文时间线",()=>{
+ const result=hydrateChatHistory([{id:"a",role:"assistant",content:"前段后段",tools:[{id:"save",name:"save_reading_analysis",status:"completed"}],structuredOutput:JSON.stringify({summary:"记录",breakdown:[],concepts:[],context:"",uncertainty:"",_request:{timeline:{tools:{save:2},analysis:2}}})}])[0];
+ expect(result.tools?.[0].contentOffset).toBe(2);
+ expect(result.analysisOffset).toBe(2);
+});

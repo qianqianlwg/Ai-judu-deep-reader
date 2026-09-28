@@ -1,0 +1,8 @@
+/* WHY：仅选用时才加载本地字体；保留可见期间的系统楷体回退，避免未选择时下载 25 MB 字体。 */
+@font-face {
+  font-family: "LXGW WenKai Reader";
+  src: url("/fonts/lxgw-wenkai/LXGWWenKai-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}

@@ -137,15 +137,15 @@ describe("FB2双向链接与精确正文来源", () => {
     const selected = selectionFromEpubRange(range, maps)!; expect(selected.version).toBe(2); expect(selected.fragments?.map(part => part.paragraphId)).toEqual(["p0-1", "p0-2"]);
     expect(selected.text).toContain("😀增补字符。重要概念");
   });
-  it.each([999, 1000, 1001])("FB2选择%d字沿用1000硬上限并限制可见原生Range", async count => {
+  it.each([999, 3000, 3001])("FB2选择%d字沿用3000硬上限并限制可见原生Range", async count => {
     const value = parseFb2Book(bytes(fixture.replace("重复正文用于验证版本定位。", "甲".repeat(count))));
     const doc = await create(value).sections[0].createDocument(), frame = document.createElement("iframe"); document.body.append(frame);
     try {
       const activeDoc = frame.contentDocument!; activeDoc.body.innerHTML = doc.body.innerHTML; const maps = mapEpubDocument(activeDoc, chapter(0, value), "[data-fb2-paragraph]");
       const map = maps.find(item => item.paragraph.text === "甲".repeat(count))!, range = activeDoc.createRange(); range.selectNodeContents(map.element);
       const selection = activeDoc.getSelection()!; selection.addRange(range); const limit = vi.fn(); const result = readLimitedEpubSelection(selection, maps, limit)!;
-      expect(Array.from(result.text)).toHaveLength(Math.min(count, 1000)); expect(selection.toString()).toBe(result.text);
-      expect(limit).toHaveBeenCalledTimes(count > 1000 ? 1 : 0);
+      expect(Array.from(result.text)).toHaveLength(Math.min(count, 3000)); expect(selection.toString()).toBe(result.text);
+      expect(limit).toHaveBeenCalledTimes(count > 3000 ? 1 : 0);
     } finally { frame.remove(); }
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { analysisHistoryMarkerIds } from "@/lib/analysis-history-markers";
 import React, { Fragment, useId, useRef, useState } from "react";
 import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type TextAnnotation } from "@/lib/annotations";
 import { AnnotationPopover } from "./annotation-popover";
@@ -14,8 +15,12 @@ type Props = {
   sourceEndOffset?: number;
   sourceText?: string;
   bookConcepts?: readonly ConceptDetail[];
+  highlightedConceptStarts?: ReadonlySet<number>;
+  historyMarkerIds?: ReadonlySet<string>;
   annotations: TextAnnotation[];
   showConcepts: boolean;
+  showAnalysisHints?: boolean;
+  analysisHintOpacity?: number;
   active?: boolean;
   onOpenAnnotation: (annotation: TextAnnotation) => void;
 };
@@ -23,8 +28,10 @@ type ActivePopover = { anchor: HTMLElement; pinned: boolean; key: string; sliceK
   { kind: "history"; annotations: TextAnnotation[] } | { kind: "concept"; concept: AnnotationConcept }
 );
 
-export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, sourceEndOffset = sourceStartOffset + text.length, sourceText, bookConcepts, annotations, showConcepts, active: activeSource = false, onOpenAnnotation }: Props) {
+export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, sourceEndOffset = sourceStartOffset + text.length, sourceText, bookConcepts, highlightedConceptStarts, historyMarkerIds, annotations, showConcepts, showAnalysisHints = true, analysisHintOpacity = 0.25, active: activeSource = false, onOpenAnnotation }: Props) {
   const segments = segmentAnnotatedText({ paragraphId, text, sourceStartOffset, sourceEndOffset, sourceText, bookConcepts, annotations, showConcepts });
+  const markerIds = historyMarkerIds ?? analysisHistoryMarkerIds(annotations, [paragraphId]);
+  const historyAt = (items: readonly TextAnnotation[]) => items.filter(item => markerIds.has(item.id));
   const [active, setActive] = useState<ActivePopover | null>(null);
   const ignoreFocus = useRef<HTMLElement | null>(null);
   const id = useId();
@@ -34,8 +41,8 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
   if (active?.sliceKey === sliceKey && active.anchor.isConnected) {
     const current = segments.find((segment) => active.key === (active.kind === "concept" ? "concept-" + segment.startOffset : "history-" + segment.endOffset));
     // WHY：字典/历史刷新后从当前片段取内容，不能让打开的浮层继续保存旧定义快照。
-    if (active.kind === "concept" && showConcepts && current?.concept?.name === active.concept.name) visible = { ...active, concept: current.concept };
-    if (active.kind === "history" && current?.endingAnnotations.length) visible = { ...active, annotations: current.endingAnnotations };
+    if (active.kind === "concept" && showConcepts && (highlightedConceptStarts === undefined || (current && highlightedConceptStarts.has(current.startOffset))) && current?.concept?.name === active.concept.name) visible = { ...active, concept: current.concept };
+    if (active.kind === "history" && current && historyAt(current.endingAnnotations).length) visible = { ...active, annotations: historyAt(current.endingAnnotations) };
   }
 
   function open(next: ActivePopover, isFocus = false) {
@@ -50,19 +57,21 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
     setActive(null);
   }
 
-  return <p className="judu-annotated-paragraph" data-active-source={activeSource} data-paragraph-id={paragraphId} data-source-start={sourceStartOffset} data-source-end={sourceEndOffset}>
+  return <p className="judu-annotated-paragraph" data-active-source={activeSource} data-show-analysis-hints={showAnalysisHints} style={{ "--analysis-hint-opacity": analysisHintOpacity } as React.CSSProperties} data-paragraph-id={paragraphId} data-source-start={sourceStartOffset} data-source-end={sourceEndOffset}>
     {segments.map((segment) => {
-      const concept = segment.concept;
+      // WHY：同页重复词按普通正文渲染，不留下悬停、焦点或点击弹窗入口。
+      const concept = highlightedConceptStarts === undefined || highlightedConceptStarts.has(segment.startOffset) ? segment.concept : undefined;
       const termKey = "concept-" + segment.startOffset;
+      const endingHistory = historyAt(segment.endingAnnotations);
       const historyKey = "history-" + segment.endOffset;
       const termOpen = (anchor: HTMLElement, pinned: boolean, isFocus = false) => {
         if (concept) open({ kind: "concept", concept, anchor, pinned, key: termKey, sliceKey }, isFocus);
       };
-      const historyOpen = (anchor: HTMLElement, pinned: boolean, isFocus = false) => open({ kind: "history", annotations: segment.endingAnnotations, anchor, pinned, key: historyKey, sliceKey }, isFocus);
+      const historyOpen = (anchor: HTMLElement, pinned: boolean, isFocus = false) => open({ kind: "history", annotations: endingHistory, anchor, pinned, key: historyKey, sliceKey }, isFocus);
       return <Fragment key={segment.startOffset}>
         <span data-reader-text="" data-source-start={segment.startOffset} data-source-end={segment.endOffset}
           style={segment.annotations.some(annotation => annotation.kind === "highlight") ? ({ "--mark-color": segment.annotations.find(annotation => annotation.kind === "highlight")?.markColor ?? "yellow" } as React.CSSProperties) : undefined}
-          className={[segment.annotations.some(annotation => annotation.kind !== "highlight") ? "judu-annotation-text" : "", segment.annotations.some(annotation => annotation.kind === "highlight") ? "judu-highlight-text" : ""].filter(Boolean).join(" ") || undefined}>
+          className={[segment.annotations.some(annotation => annotation.kind !== "highlight") ? "judu-annotation-text" : "", concept ? "judu-has-concept" : "", segment.annotations.some(annotation => annotation.kind === "highlight") ? "judu-highlight-text" : ""].filter(Boolean).join(" ") || undefined}>
           {concept ? <span className="judu-concept-term" role="button" tabIndex={0} data-concept-word={concept.name}
             aria-label={"查看概念：" + concept.name} aria-haspopup="dialog" aria-expanded={visible?.key === termKey}
             aria-controls={visible?.key === termKey ? id : undefined}
@@ -73,13 +82,11 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
             {segment.text}
           </span> : segment.text}
         </span>
-        {segment.endingAnnotations.length > 0 && <span className="judu-history-anchor" data-reader-decoration="" contentEditable={false}>
+        {endingHistory.length > 0 && <span className="judu-history-anchor" data-reader-decoration="" contentEditable={false}>
           {/* WHY：零宽锚点和绝对定位 SVG 不增加字数、行宽或行高，分页测量只包含原文。 */}
           <button type="button" className="judu-history-marker" data-reader-decoration="" data-annotation-end={segment.endOffset}
-            aria-label={"查看句读历史（" + segment.endingAnnotations.length + "条）"} aria-haspopup="dialog"
+            aria-label={"查看句读历史（" + endingHistory.length + "条）"} aria-haspopup="dialog"
             aria-expanded={visible?.key === historyKey} aria-controls={visible?.key === historyKey ? id : undefined}
-            onMouseEnter={(event) => { if(event.buttons===0) historyOpen(event.currentTarget, false); }}
-            onFocus={(event) => historyOpen(event.currentTarget, false, true)}
             onClick={(event) => { event.stopPropagation(); historyOpen(event.currentTarget, true); }}
             onMouseUp={(event) => event.stopPropagation()}>
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false"><path d="M4 3.5h12v9H9l-4 3v-3H4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M7 7h6M7 9.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>

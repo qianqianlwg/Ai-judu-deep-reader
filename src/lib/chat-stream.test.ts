@@ -32,3 +32,22 @@ it("重点元数据和正文是不同 SSE 事件，非法协议不会污染消�
   expect(() => decodeChatEvent({ event: "emphasis", data: JSON.stringify({ result: { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1, color: "red" }] } }) })).toThrow();
 });
 it("并行工具乱序完成时保持首次出现顺序，重复事件不追加卡片",()=>{let messages: ChatMessage[]= [{id:'a',role:'assistant' as const,content:''}];for(const id of ['first','second'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'running'}});for(const id of ['first','second','first'])messages=applyChatEvent(messages,'a',{type:'tool',tool:{id,name:'search_book',status:'completed'}});expect(messages[0].tools?.map(t=>t.id)).toEqual(['first','second']);});
+
+it("工具与句读记录固定在首次事件的正文偏移，完成后不漂移", () => {
+ let messages: ChatMessage[] = [{ id: "a", role: "assistant", content: "前段" }];
+ messages = applyChatEvent(messages, "a", { type: "tool", tool: { id: "save", name: "save_reading_analysis", status: "running" } });
+ messages = applyChatEvent(messages, "a", { type: "structured", result: { summary: "记录", breakdown: [], concepts: [], context: "", uncertainty: "" } });
+ messages = applyChatEvent(messages, "a", { type: "raw_delta", text: "后段" });
+ messages = applyChatEvent(messages, "a", { type: "tool", tool: { id: "save", name: "save_reading_analysis", status: "completed" } });
+ expect(messages[0].tools?.[0].contentOffset).toBe(2);
+ expect(messages[0].analysisOffset).toBe(2);
+});
+
+
+it("旧检索回放不根据当前正文推测工具位置，保持刷新与审计一致", () => {
+ const messages: ChatMessage[] = [{ id: "a", role: "assistant", content: "已经保存的正文", status: "completed" }];
+ const replayed = applyChatEvent(messages, "a", { type: "tool", tool: { id: "search", name: "search_book", status: "completed" } });
+ expect(replayed[0].tools?.[0].contentOffset).toBeUndefined();
+ const located = applyChatEvent(messages, "a", { type: "tool", tool: { id: "read", name: "read_source", status: "completed", contentOffset: 2 } });
+ expect(located[0].tools?.[0].contentOffset).toBe(2);
+});

@@ -1,0 +1,6 @@
+﻿LXGW WenKai Regular · unmodified TTF
+Source: https://github.com/lxgw/LxgwWenKai
+Source commit: 8bd6319350fb3ae1904c1cb1a41595ab15d21140
+Original path: fonts/TTF/LXGWWenKai-Regular.ttf
+License: SIL Open Font License 1.1 with additional permission; see OFL.txt.
+The font is self-hosted and only requested when selected as a reading font.

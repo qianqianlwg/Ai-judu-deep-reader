@@ -1,12 +1,12 @@
+import type { ReadingDetail } from "../reading-detail";
 import type { RetrievalReport } from "../retrieval-report";
 import { tool } from "langchain";
 import type { Analysis } from "../chat-stream";
 import { EMPTY_ANSWER_EMPHASIS, validateAnswerEmphasis, type AnswerEmphasis } from "../answer-emphasis";
-import type { ReadingAnchor } from "../reading-request";
-import { countReadingCharacters, readingAnswerBudget, normalizeReadingDetail, type ReadingDetail } from "../reading-detail";
+import { anchorParts, type ReadingAnchor } from "../reading-anchors";
 import { readSourceSchema, saveAnalysisSchema, searchBookSchema, markAnswerEmphasisSchema, type ReadSourceInput, type SearchBookInput } from "./schemas";
 
-export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; channels?: ("keyword" | "semantic")[]; excerpts?: string[] };
+export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; channels?: ("keyword" | "semantic")[]; excerpts?: string[]; origin?: "context" | "search" | "read"; evidence?: { text: string; origin: "context" | "search" | "read" }[] };
 export type SavedReadingAnalysis = Analysis & { anchor?: ReadingAnchor; emphasis?: AnswerEmphasis };
 export type ReadingToolDependencies = {
   messageId: string;
@@ -21,50 +21,51 @@ export type ReadingToolDependencies = {
   sources: Map<string, BookSource>;
 };
 export function createReadingTools(deps: ReadingToolDependencies) {
-  const register = (sources: BookSource[]) => {
+  const register = (sources: BookSource[], origin: "search" | "read") => {
     for (const source of sources) {
       const previous = deps.sources.get(source.sourceId);
       // WHY：同段后续检索片段不能抹掉之前真正提供过的证据；分片分别校验，禁止拼接出虚构引文。
-      const excerpts = [...new Set([...(previous?.excerpts ?? (previous ? [previous.text] : [])), source.text])];
-      deps.sources.set(source.sourceId, { ...source, excerpts });
+      const evidence = [...(previous?.evidence ?? (previous ? [{ text: previous.text, origin: previous.origin ?? "context" }] : [])), { text: source.text, origin }];
+      const excerpts = [...new Set(evidence.map(item => item.text))];
+      // WHY：按实际提供的片段分别记录渠道；同段新命中的内容不能被旧预加载片段冒名，也不能跨片段拼接引文。
+      deps.sources.set(source.sourceId, { ...source, origin: previous?.origin ?? origin, evidence, excerpts });
     }
     return { ok: true, sources };
   };
   return [
     tool(async (input) => {
       const result = await deps.search(input);
-      if (Array.isArray(result)) return register(result);
-      const registered = register(result.sources);
+      if (Array.isArray(result)) return register(result, "search");
+      const registered = register(result.sources, "search");
       return { ...registered, ok: result.retrieval.effectiveMode !== "none", retrieval: result.retrieval };
     }, { name: "search_book", description: "按需检索当前书籍：支持并行关键词、语义和最多两个补充查询，返回真实原文、来源及每路耗时/降级情况。需要书内事实、其他章节或证据时主动使用；已有上下文足够时不必检索。不能建索引或访问其他书籍。", schema: searchBookSchema }),
     tool(async (input) => {
       // WHY：只允许扩展本轮已经真实提供的来源，不准用模型猜出的 ID 读取其他版本。
       if (!deps.sources.has(input.sourceId)) return { ok: false, code: "unknown_source", error: "来源未在本轮检索中出现，请先调用 search_book" };
-      return register(await deps.read(input));
+      return register(await deps.read(input), "read");
     }, { name: "read_source", description: "读取已检索来源及相邻段落，理解前后文。不能读取其他书籍或任意 ID。", schema: readSourceSchema }),
     tool(async (input) => {
       if (!deps.selectedText.trim()) return { ok: false, code: "missing_selection", error: "本轮没有选文，不能保存句读。请自然回答用户。" };
-      const budget = readingAnswerBudget(deps.selectedText, normalizeReadingDetail(deps.detail));
-      // WHY：工具预算覆盖所有解释字段，防止短 readingText 通过后在其它字段塞入长篇模板。
-      const textFields = [input.readingText, input.summary, input.context, input.uncertainty,
-        ...input.breakdown.flatMap(item => [item.label, item.text]), ...input.concepts.flatMap(item => [item.name, item.text])];
-      const actualCharacters = textFields.reduce((sum, value) => sum + countReadingCharacters(value), 0);
-      if (actualCharacters > budget.maxCharacters) return { ok: false, code: "analysis_length_limit", error: "保存内容超过本次句读字数预算，请删除重复解释和非必要栏目，只保留完整释读。", actualCharacters, ...budget };
       const invalidConcepts = input.concepts.filter(c => !deps.selectedText.includes(c.name));
       if (invalidConcepts.length) return { ok: false, code: "invalid_concepts", error: "以下概念未逐字出现在选文中，请修正", invalidConcepts: invalidConcepts.map(c => c.name) };
       const citations: NonNullable<Analysis["citations"]> = [];
       for (const citation of input.citations) {
         const source = deps.sources.get(citation.sourceId);
         if (!source || !(source.excerpts ?? [source.text]).some(excerpt => excerpt.includes(citation.quote))) return { ok: false, code: "invalid_citation", error: "引用不是本轮真实来源中的逐字原文，请检索或修正", sourceId: citation.sourceId };
-        if (!citations.some(c => c.sourceId === citation.sourceId && c.quote === citation.quote)) citations.push({ ...citation, paragraphId: source.paragraphId, messageId: deps.messageId });
+        // WHY：仅经服务端校验的选区片段可标为选文依据，模型不能自行声明来源渠道。
+        const inSelection = deps.anchor && anchorParts(deps.anchor).some(part => part.paragraphId === source.paragraphId && part.selectedText.includes(citation.quote));
+        const evidence = source.evidence ?? [{ text: source.text, origin: source.origin ?? "context" }];
+        const matching = evidence.filter(item => item.text.includes(citation.quote));
+        const origin = inSelection ? "selection" : matching.some(item => item.origin !== "search") ? "context" : "search";
+        if (!citations.some(c => c.sourceId === citation.sourceId && c.quote === citation.quote)) citations.push({ ...citation, paragraphId: source.paragraphId, messageId: deps.messageId, origin });
       }
       const { emphasis: proposal, ...fields } = input;
       const emphasis = validateAnswerEmphasis(deps.getVisibleAnswer?.() ?? "", proposal);
-      const analysis = { ...fields, citations, ...(emphasis.marks.length ? { emphasis } : {}), ...(deps.anchor ? { anchor: deps.anchor } : {}) };
+      const analysis = { ...fields, provenanceVersion: 1 as const, citations, ...(emphasis.marks.length ? { emphasis } : {}), ...(deps.anchor ? { anchor: deps.anchor } : {}) };
       // WHY：消息、版本和原文锚点由服务器绑定；模型只能填写分析内容，不能指定保存到其他消息。
       await deps.save(analysis);
       return { ok: true, analysisId: deps.messageId, saved: true, locationAvailable: Boolean(deps.anchor), result: analysis };
-    }, { name: "save_reading_analysis", description: "保存选文的结构化句读和概念；emphasis 可填本轮可见回答中精确出现的少量关键词和一条关键句（无则空）。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮真实检索。保存后不要再重复回答。", schema: saveAnalysisSchema }),
+    }, { name: "save_reading_analysis", description: "保存选文的结构化句读和概念；emphasis 可填本轮可见回答中精确出现的少量关键词和一条关键句（无则空）。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮已提供的选文/邻段或 search_book/read_source 真实来源。先输出完整释读再保存；若先保存且尚无正文，则随后输出正文，已有正文不重复。", schema: saveAnalysisSchema }),
     tool(async (input) => {
       const answer = deps.getVisibleAnswer?.() ?? "";
       if (!answer.trim() || !deps.saveEmphasis) return { ok: false, code: "answer_unavailable", error: "需要先完整输出本轮正文，才能标注重点" };
