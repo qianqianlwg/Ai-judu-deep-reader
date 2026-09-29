@@ -11,6 +11,7 @@ import type { WorkspaceView } from "@/components/workspace-nav";
 type ConceptDetail = { name: string; text: string };
 type SelectionMarkColor = "yellow" | "green" | "blue" | "pink" | "orange";
 export type ReadingAnnotationsOptions = {
+  revision?:number;
   bookId: string; editionId?: string; sourceParagraphs: readonly PaginatedParagraph[]; bookConcepts: readonly ConceptDetail[]; selectionAnchor: ReadingSelection | null;
   setNotice: Dispatch<SetStateAction<string>>; setWorkspaceView: (view: WorkspaceView) => void; setSelected: (value: string) => void;
   setSelectionAnchor: (value: ReadingSelection | null) => void; setReadingAnchor: (value: ReadingAnchor) => void; setActiveSource: (value: string) => void;
@@ -41,7 +42,7 @@ function isSavedReadingMark(value: unknown): value is ReadingMark {
 }
 
 export function useReadingAnnotations(options: ReadingAnnotationsOptions): ReadingAnnotationsResult {
-  const { bookId, editionId, sourceParagraphs, bookConcepts, selectionAnchor, setNotice, setWorkspaceView, setSelected, setSelectionAnchor, setReadingAnchor, setActiveSource, setSelectionMenu, openConversation, openSourceConversation } = options;
+  const { revision, bookId, editionId, sourceParagraphs, bookConcepts, selectionAnchor, setNotice, setWorkspaceView, setSelected, setSelectionAnchor, setReadingAnchor, setActiveSource, setSelectionMenu, openConversation, openSourceConversation } = options;
   const [annotations, setAnnotations] = useState<TextAnnotation[]>([]); const [readingMarks, setReadingMarks] = useState<ReadingMark[]>([]);
   const annotationStorageKey = "judu:annotations:" + bookId + ":" + (editionId ?? "demo");
 
@@ -54,7 +55,7 @@ export function useReadingAnnotations(options: ReadingAnnotationsOptions): Readi
       .then((data) => { if (!disposed) setAnnotations(dedupeAnnotations(data.annotations ?? [])); })
       .catch((cause: unknown) => { console.error("加载标注请求失败", cause); fallback(); });
     return () => { disposed = true; };
-  }, [annotationStorageKey, editionId]);
+  }, [revision, annotationStorageKey, editionId]);
 
   useEffect(() => {
     if (!editionId) return;

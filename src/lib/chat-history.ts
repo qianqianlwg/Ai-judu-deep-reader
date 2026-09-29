@@ -1,3 +1,4 @@
+import { isSemanticReading } from './semantic-reading';
 import { isTokenUsage, type TokenUsage } from "./token-usage";
 import { inferAnswerEmphasis, readAnswerEmphasis } from "./answer-emphasis";
 import { isAnalysis, isRecord, type ChatMessage, type HistoricalToolActivity, type MessageAnchor, type ToolActivity } from "./chat-stream";
@@ -17,6 +18,8 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
   let value:unknown;
   if(message.structuredOutput){try{value=JSON.parse(message.structuredOutput);}catch(error:unknown){console.error("恢复消息结构失败",error);}}
   const analysis=isAnalysis(value)?value:undefined;
+  const semantic=isRecord(value)&&isSemanticReading(value.semantic)?structuredClone(value.semantic):undefined;
+  if(semantic&&(message.status==='streaming'||message.status==='error')){semantic.phase='interrupted';for(const unit of semantic.units)if(unit.status==='streaming'){unit.status='error';unit.error='上次生成中断，可继续此块。';}}
   let usage = isTokenUsage(message.usage) ? message.usage : undefined;
   const tools: ToolActivity[] = Array.isArray(message.tools) ? message.tools.flatMap(item => isRecord(item) && typeof item.id === "string" && typeof item.name === "string" && (item.status === "completed" || item.status === "error" || item.status === "running") ? [{ id: item.id, name: item.name, status: item.status === "running" ? "error" : item.status, result: item.result, contentOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && isRecord(value._request.timeline.tools) && Number.isSafeInteger(value._request.timeline.tools[item.id]) && (value._request.timeline.tools[item.id] as number) >= 0 && (value._request.timeline.tools[item.id] as number) <= message.content.length ? value._request.timeline.tools[item.id] as number : undefined }] : []) : [];
   const historicalTools = readHistoricalTools(message.historicalTools);
@@ -35,9 +38,11 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
    if(anchor&&typeof meta.clientUserMessageId==="string")sourceByUser.set(meta.clientUserMessageId,anchor);
   }
   // WHY：旧线程的最后选文不等于每一条消息的选文；缺少消息级位置时保持未知，禁止误跳。
-  return {id:message.id,role:message.role,content:message.content,createdAt:message.createdAt,analysis,analysisOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && Number.isSafeInteger(value._request.timeline.analysis) && (value._request.timeline.analysis as number) >= 0 && (value._request.timeline.analysis as number) <= message.content.length ? value._request.timeline.analysis as number : undefined,emphasis: message.role === "assistant" && message.status !== "streaming" && message.status !== "error" ? (isRecord(value) ? readAnswerEmphasis(message.content, value.emphasis) : undefined) ?? inferAnswerEmphasis(message.content) : undefined,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
+  return {id:message.id,role:message.role,content:message.content,semantic,createdAt:message.createdAt,analysis,analysisOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && Number.isSafeInteger(value._request.timeline.analysis) && (value._request.timeline.analysis as number) >= 0 && (value._request.timeline.analysis as number) <= message.content.length ? value._request.timeline.analysis as number : undefined,emphasis: message.role === "assistant" && message.status !== "streaming" && message.status !== "error" ? (isRecord(value) ? readAnswerEmphasis(message.content, value.emphasis) : undefined) ?? inferAnswerEmphasis(message.content) : undefined,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
  });
- return result.map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??"")}:message);
+ // WHY：子消息保留数据库中的独立知识与来源身份，但在会话里归入父任务展示，避免重复回答。
+ const childIds=new Set(result.flatMap(message=>message.semantic?.units.map(unit=>unit.id)??[]));
+ return result.filter(message=>!childIds.has(message.id??'')).map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??"")}:message);
 }
 
 export type HistoricalRequestMetadata = {

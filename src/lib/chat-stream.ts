@@ -1,3 +1,4 @@
+import { isSemanticReading, type SemanticReading } from './semantic-reading';
 import { isTokenUsage, type TokenUsage } from "./token-usage";
 export type { TokenUsage } from "./token-usage";
 import type { StreamEvent } from "./sse";
@@ -9,8 +10,9 @@ export type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 import type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown; contentOffset?:number };
 export type HistoricalToolActivity = ToolActivity & { attemptId: string | null; auditId: string };
-export type ChatMessage = { emphasis?: AnswerEmphasis; createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
+export type ChatMessage = { semantic?: SemanticReading; emphasis?: AnswerEmphasis; createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
 export type ChatEvent =
+  | { type: 'semantic'; result: SemanticReading; content: string }
   | { type: "meta"; threadId: string; messageId?: string; outputFormat?: "text" | "legacy-json" }
   | { type: "raw_delta"; text: string }
   | {type:"usage";usage:TokenUsage}
@@ -46,6 +48,7 @@ export function decodeChatEvent(event: StreamEvent): ChatEvent | null {
   const data: unknown = JSON.parse(event.data);
   if (!isRecord(data)) throw new Error("聊天流返回了无效的数据");
   if (event.event === "meta" && typeof data.threadId === "string") return { type: "meta", threadId: data.threadId, messageId: typeof data.messageId === "string" ? data.messageId : undefined, ...(data.outputFormat === "text" || data.outputFormat === "legacy-json" ? { outputFormat: data.outputFormat } : {}) };
+  if (event.event === 'semantic' && isSemanticReading(data.result) && typeof data.content === 'string') return {type:'semantic',result:data.result,content:data.content};
   if (event.event === "usage" && isTokenUsage(data.usage)) return {type:"usage",usage:data.usage};
   if (event.event === "warning" && typeof data.message === "string") return {type:"warning",message:data.message};
   if (event.event === "tool" && isRecord(data.tool) && typeof data.tool.id === "string" && typeof data.tool.name === "string" && ["running","completed","error"].includes(String(data.tool.status))) return {type:"tool",tool:data.tool as ToolActivity};
@@ -62,6 +65,7 @@ export function applyChatEvent(messages: ChatMessage[], assistantId: string, eve
   return messages.map((message) => {
     if (message.id !== assistantId || message.role !== "assistant") return message;
     switch (event.type) {
+      case 'semantic': return {...message,semantic:event.result,content:event.content};
       case "usage": return {...message,usage:event.usage};
       case "tool": {
         // WHY：并行工具乱序完成时原位更新，避免用户展开的检索详情随状态变化跳到另一位置。

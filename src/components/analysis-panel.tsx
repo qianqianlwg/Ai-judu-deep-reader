@@ -1,5 +1,6 @@
 "use client";
 
+import {SemanticReadingResult} from './semantic-reading-result';
 import { useRef, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -22,6 +23,7 @@ import { ExternalResearchActivity } from "./external-research-activity";
 export type { Analysis, ChatMessage } from "@/lib/chat-stream";
 export type PanelMessage = ChatMessage;
 type Props = {
+  onReadUnit?: (anchor:MessageAnchor)=>void;
   readingPreferences?: ReadingPreferences; onReadingPreferencesChange?: (value: ReadingPreferences) => void;
   id?: string;
   className?: string; selected: string; analysis: Analysis | null; loading: boolean; error?: string;
@@ -210,7 +212,7 @@ function UsageFooter({ modelName, usage }: { modelName?: string; usage?: TokenUs
   </div>;
 }
 
-export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch, onBookContextPrefetchChange }: Props) {
+export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch, onBookContextPrefetchChange, onReadUnit }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const generating = loading || messages.some((message) => message.status === "streaming");
   const interactionLocked = generating || conversationsLoading;
@@ -234,8 +236,8 @@ export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, 
             const anchor = messageAnchor(message);
             return <article data-message-id={message.id} className={"chat-message " + message.role + " " + styles.messageGroup} key={message.id ?? message.role + "-" + index}>
               <div className={message.role === "user" ? styles.srOnly : "message-role"}>{message.role === "user" ? "你" : "句读"}</div>
-              {message.role === "user" ? <MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage}><ReadableText content={message.content}/></MessageActions> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><ExternalResearchActivity message={message} /><AssistantMessage message={message} onOpenCitation={onOpenCitation} /></>}
-              {anchor && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
+              {message.role === "user" ? <MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage}><ReadableText content={message.content}/></MessageActions> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><ExternalResearchActivity message={message} />{message.semantic?<SemanticReadingResult state={message.semantic} disabled={interactionLocked} onOpenCitation={onOpenCitation} onDiscussUnit={onOpenSource?anchor=>{onOpenSource(anchor);textareaRef.current?.focus();}:undefined} onOpenSource={onOpenSource} onReadUnit={onReadUnit} onRetry={message.id===lastAssistant?.id?onRetry:undefined}/>:<AssistantMessage message={message} onOpenCitation={onOpenCitation} />}</>}
+              {anchor && !message.semantic && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
             </article>;
           })}
           {/* WHY：失败属于对话状态，跟随消息滚动，不能挤占输入区或让长错误撑破短视口。 */}

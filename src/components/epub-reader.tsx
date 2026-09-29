@@ -1,4 +1,5 @@
 "use client";
+import {EpubSectionActions} from './epub-section-actions';
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LibraryBookContent, LibraryChapter } from "@/lib/library";
 import type { TextAnnotation, ConceptDetail } from "@/lib/annotations";
@@ -26,6 +27,7 @@ type EpubBook = Awaited<ReturnType<typeof loadEpub>>;
 type LoadedDocument = { doc: Document; index: number; maps: EpubParagraphMap[]; cleanup(): void; paintCleanup(): void };
 type Session = { sourceBook: LibraryBookContent; artifact: ConvertedEpubArtifact | null; view: View; book: EpubBook; documents: Map<number, LoadedDocument>; anchor: ReadingAnchor | null; shouldSave: boolean; navigating: number; closed: boolean; stop():void; signal:AbortSignal; operations:ReturnType<typeof createReaderOperationQueue> };
 export type EpubReaderProps = {
+  onStartSection?:(selection:ReadingSelection,chapterId:string)=>void; sectionReadingDisabled?:boolean; onOpenSection?:(chapterId:string)=>undefined|(()=>void);
   book: LibraryBookContent; anchor: ReadingAnchor | null; appearance: ReadingAppearancePreferences;
   annotations: readonly TextAnnotation[]; concepts: readonly ConceptDetail[]; showAnalysisHints?: boolean; analysisHintOpacity?: number; disabled?: boolean; selectionDisabled?: boolean; navigationDisabled?: boolean;
   onSelect(selection: ReadingSelection, box: {left:number;top:number}): void;
@@ -269,6 +271,7 @@ export function EpubReader(props:EpubReaderProps) {
     {error&&<div className="epub-error" role="alert"><p>{error}</p><button onClick={()=>setRetry(x=>x+1)}>重试{modeLabel}</button><button onClick={props.onFallback}>切回精读</button></div>}
     {conversionState.kind==="ready"&&<div className="epub-conversion-notice" role="note"><span>UMD → EPUB 转换版 · 保留原文，不代表原文件版式</span><a href={conversionState.artifact.originalUrl} download aria-label="下载 UMD 原件（未经转换）">下载 UMD 原件</a></div>}
     <nav className="epub-navigation" aria-label={modeLabel+"翻页"}><button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("prev")}>{modeLabel}上一页</button><span>{progress || (converted?"转换章节":"原书布局")}</span>{toc.length>0&&<select aria-label="原书目录" value="" disabled={!ready||props.disabled} onChange={event=>void openToc(event.target.value)}><option value="" disabled>原书目录</option>{toc.map((item,index)=><option key={index} value={item.href}>{item.label}</option>)}</select>}<button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("next")}>{modeLabel}下一页</button></nav>
+    {session&&!session.closed&&!error&&props.onStartSection&&<EpubSectionActions host={host} documents={documents} book={props.book} changes={session.view} disabled={props.sectionReadingDisabled||props.disabled} onStart={props.onStartSection} onOpenExisting={props.onOpenSection}/>}
     {session&&!session.closed&&!error&&<EpubInteractionLayer host={host} documents={documents} view={session.view} book={session.book} annotations={props.annotations} concepts={props.concepts} historyMarkerIds={historyMarkerIds} disabled={props.disabled} onOpenAnnotation={props.onOpenAnnotation} onJump={jumpPreview} onNotice={props.onNotice}/>}
   </section>;
 }

@@ -1,3 +1,4 @@
+import { interruptSemanticReading, isSemanticReading, type ReadingStyle, type SemanticReading } from './semantic-reading';
 import { readAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 import { decodeChatEvent, isAnalysis, isRecord, type Analysis, type ChatEvent, type ChatMessage, type ToolActivity, type TokenUsage } from "./chat-stream";
 import { DEFAULT_CONTEXT_SETTINGS, MAX_CONTEXT_INPUT_TOKENS, type ContextMessage, type ContextSettings } from "./context-compaction";
@@ -21,6 +22,7 @@ export function withRetryContextSettings(state: ReadingRequestState, value: Retr
   return { ...state, payload: { ...state.payload, retryContextSettings: readRetryContextSettings(value) } };
 }
 export type ReadingRequestInput = {
+  readingStyle?: ReadingStyle; sectionId?: string; forceRead?: boolean;
   model?: string;
   externalPermissions?: ExternalPermissions;
   bookContextPrefetch?: boolean;
@@ -120,6 +122,7 @@ export type ReadingRequestState = {
   tools?: ToolActivity[];
   warnings?: string[];
   outputFormat?: "text" | "legacy-json";
+  semantic?: SemanticReading;
 };
 
 export function createReadingRequest(input: ReadingRequestInput, makeId = () => crypto.randomUUID()): ReadingRequestState {
@@ -146,8 +149,8 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   const failure = isRecord(meta.failure) ? meta.failure : undefined;
   const status = message.status === "completed" && message.content.trim() ? "completed" : failure?.code === "cancelled" ? "cancelled" : "error";
   return {
-    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, model: optionalString(input.model), externalPermissions: readExternalPermissions(input.externalPermissions), bookContextPrefetch: input.bookContextPrefetch === true, detail: normalizeReadingDetail(input.detail), difficulty: normalizeReadingDifficulty(input.difficulty), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
-    status, attempt: 1, content: message.content, analysis: isAnalysis(saved) ? saved : undefined, emphasis: readAnswerEmphasis(message.content, saved.emphasis),
+    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, ...(input.readingStyle === 'semantic' ? {readingStyle: 'semantic' as const, sectionId: optionalString(input.sectionId), forceRead: input.forceRead === true} : {}), model: optionalString(input.model), externalPermissions: readExternalPermissions(input.externalPermissions), bookContextPrefetch: input.bookContextPrefetch === true, detail: normalizeReadingDetail(input.detail), difficulty: normalizeReadingDifficulty(input.difficulty), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
+    status, attempt: 1, content: message.content, semantic: isSemanticReading(saved.semantic) ? saved.semantic : undefined, analysis: isAnalysis(saved) ? saved : undefined, emphasis: readAnswerEmphasis(message.content, saved.emphasis),
     error: status === "completed" ? undefined : typeof failure?.message === "string" ? failure.message : "上次生成未完成，可以重试",
   };
 }
@@ -210,7 +213,7 @@ export function applyReadingRequest(messages: ChatMessage[], state: ReadingReque
     return message.id === userId && !sameAnchor ? { ...message, anchor } : message;
   });
   if (!user) next.push({ id: userId, createdAt: new Date().toISOString(), role: "user", kind: "chat", anchor, content: question, status: "completed" });
-  const replacement: ChatMessage = { id: assistantId, anchor, role: "assistant", kind: mode === "analyze" ? "analysis" : "chat", content: state.content, analysis: state.analysis, emphasis: state.emphasis, outputFormat: state.outputFormat ?? "text", usage: state.usage, tools: state.tools, warnings: state.warnings, status: state.status === "completed" ? "completed" : state.status === "streaming" ? "streaming" : "error" };
+  const replacement: ChatMessage = { id: assistantId, anchor, role: "assistant", kind: mode === "analyze" ? "analysis" : "chat", content: state.content, semantic: state.semantic, analysis: state.analysis, emphasis: state.emphasis, outputFormat: state.outputFormat ?? "text", usage: state.usage, tools: state.tools, warnings: state.warnings, status: state.status === "completed" ? "completed" : state.status === "streaming" ? "streaming" : "error" };
   const index = next.findIndex((message) => message.id === assistantId);
   // WHY：只替换原助手消息；后续对话的位置和原用户消息不动，也不把旧的半截回答拼进重试结果。
   if (index >= 0) next[index] = replacement;
@@ -228,13 +231,14 @@ export function reduceReadingRequest(state: ReadingRequestState, event: ChatEven
     case "meta":
       if (event.threadId !== state.payload.threadId || (event.messageId && event.messageId !== state.payload.clientAssistantMessageId)) throw new Error("服务端返回了其他请求的消息 ID");
       return event.outputFormat ? { ...state, outputFormat: event.outputFormat } : state;
+    case 'semantic': return {...state,semantic:event.result,content:event.content};
     case "raw_delta": return { ...state, content: state.content + event.text };
     case "structured": return { ...state, analysis: event.result };
     case "emphasis": return { ...state, emphasis: readAnswerEmphasis(state.content, event.result) };
     case "usage": return { ...state, usage: event.usage };
     case "tool": return { ...state, tools: [...(state.tools ?? []).filter(tool => tool.id !== event.tool.id), event.tool] };
     case "warning": return { ...state, warnings: [...(state.warnings ?? []), event.message] };
-    case "error": return { ...state, status: "error", error: event.message, tools: endPendingTools(state.tools) };
+    case "error": return { ...state, semantic:interruptSemanticReading(state.semantic,event.message), status: "error", error: event.message, tools: endPendingTools(state.tools) };
     case "done": {
       const content = event.content ?? state.content;
       return content.trim() ? { ...state, content, status: "completed" } : { ...state, status: "error", error: "模型没有返回内容，请重试" };
@@ -255,7 +259,7 @@ export async function executeReadingRequest(started: ReadingRequestState, option
   const publish = (next: ReadingRequestState) => { state = next; options.onState?.(state); };
   const cancelled = () => {
     if (state.status !== "streaming") return;
-    publish({ ...state, status: "cancelled", error: "已停止生成，可以重试", tools: endPendingTools(state.tools) });
+    publish({ ...state, semantic:interruptSemanticReading(state.semantic,"已停止，可继续此块。"), status: "cancelled", error: "已停止生成，可以重试", tools: endPendingTools(state.tools) });
     void reader?.cancel().catch((error: unknown) => console.error("取消聊天流失败", error));
   };
   const consume = (events: ReturnType<SseDecoder["push"]>) => {
@@ -289,10 +293,10 @@ export async function executeReadingRequest(started: ReadingRequestState, option
       if (chunk.done) { consume(decoder.finish()); break; }
       consume(decoder.push(chunk.value));
     }
-    if (state.status === "streaming") publish({ ...state, status: "error", error: "消息流中断，未收到完成确认，请重试", tools: endPendingTools(state.tools) });
+    if (state.status === "streaming") publish({ ...state, semantic:interruptSemanticReading(state.semantic,"本次生成中断，可继续未完成部分。"), status: "error", error: "消息流中断，未收到完成确认，请重试", tools: endPendingTools(state.tools) });
   } catch (error: unknown) {
     if (options.signal?.aborted) cancelled();
-    else { console.error("阅读请求失败", error); publish({ ...state, status: "error", error: error instanceof Error ? error.message : "生成失败，请重试", tools: endPendingTools(state.tools) }); }
+    else { console.error("阅读请求失败", error); publish({ ...state, semantic:interruptSemanticReading(state.semantic,"本次生成中断，可继续未完成部分。"), status: "error", error: error instanceof Error ? error.message : "生成失败，请重试", tools: endPendingTools(state.tools) }); }
   } finally {
     options.signal?.removeEventListener("abort", cancelled);
     if (reader) {

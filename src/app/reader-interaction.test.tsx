@@ -639,3 +639,19 @@ it("生成中导入只加入书库，不切换当前书籍或结束生成", asyn
   expect(host.textContent).toContain("未切换阅读书籍");
   expect(first.closed).toBe(false); expect(pendingStreams).toHaveLength(1); await complete(first);
 });
+
+it("句读方式默认细读，可切回原有模式且持久化到下一次选文", async () => {
+  await loadA();await selectOriginal();
+  const control=element<HTMLSelectElement>('[aria-label="句读方式"]');expect(control.value).toBe('semantic');
+  await act(async()=>{control.value='whole';control.dispatchEvent(new Event('change',{bubbles:true}));});
+  await click(button('句读一下'));expect(pendingStreams[0].payload.readingStyle).toBe('whole');await complete(pendingStreams[0]);
+  await selectOriginal();expect(element<HTMLSelectElement>('[aria-label="句读方式"]').value).toBe('whole');
+});
+it("语义结果逐块显示且不由页面重复发布整段标注", async () => {
+  await loadA();await selectOriginal();await click(button('句读一下'));
+  const stream=pendingStreams[0];expect(stream.payload.readingStyle).toBe('semantic');
+  const before=fetcher.mock.calls.filter(([input,init])=>endpoint(input).pathname==='/api/annotations'&&init?.method==='POST').length;
+  await act(async()=>{event(stream,'semantic',{result:{version:1,phase:'completed',units:[{id:'semantic-child',label:'一个完整意思',action:'read',reason:'',status:'completed',content:'精确对应原文的解释',anchor:{paragraphId:'paragraph-A',startOffset:0,endOffset:bodyText.length,selectedText:bodyText}}]},content:'精确对应原文的解释'});event(stream,'done',{content:'精确对应原文的解释'});stream.controller.close();stream.closed=true;});await settle();
+  expect(element('[data-message-id="semantic-child"]').textContent).toContain('精确对应原文的解释');
+  expect(fetcher.mock.calls.filter(([input,init])=>endpoint(input).pathname==='/api/annotations'&&init?.method==='POST')).toHaveLength(before);
+});
