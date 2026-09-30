@@ -15,10 +15,11 @@ const runtime = (process as unknown as { getBuiltinModule(name: string): { Datab
 const encoder = new TextEncoder();
 const fetcher = vi.fn<typeof fetch>();
 const payload = { threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", mode: "chat", question: "测试", selectedText: "这是十字原文用来句读", selectionStart: 2, selectionEnd: 12 };
-const analysis = { readingText: "原文啊", summary: "解释", breakdown: [], concepts: "\u65e0", context: "上下文", uncertainty: "", citations: [] };
+const analysis = { emphasis: "无", readingText: "原文啊", summary: "解释", breakdown: [], concepts: "\u65e0", context: "上下文", uncertainty: "", citations: [] };
 const block = (data: unknown, event?: string) => (event ? "event: " + event + "\n" : "") + "data: " + (typeof data === "string" ? data : JSON.stringify(data)) + "\n\n";
 const delta = (content: string) => block({ id: "text-step", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
-const done = () => block({ id: "text-step", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }) + block("[DONE]");
+// WHY：成功模拟必须由模拟模型明确提交“无”；另保留只结束不提交的失败样本。
+const done = (submit=true, name="mark_answer_emphasis") => block({ id: "text-step", choices: [{ index: 0, delta: submit ? {tool_calls:[{index:0,id:"call-none",type:"function",function:{name,arguments:JSON.stringify(name==="save_reading_analysis"?analysis:{emphasis:"无"})}}]} : {}, finish_reason: submit ? "tool_calls" : "stop" }] }) + block("[DONE]");
 const toolResponse = (args: unknown = analysis, name = "save_reading_analysis") => upstream(block({ id: "tool-step", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call-save", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
 function upstream(...chunks: string[]) { return new Response(new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(encoder.encode(chunk)); controller.close(); } }), { headers: { "Content-Type": "text/event-stream" } }); }
 function request(overrides: Record<string, unknown> = {}, signal?: AbortSignal) { return new NextRequest("http://localhost/api/analyze/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, ...overrides }), signal }); }
@@ -46,7 +47,7 @@ beforeEach(() => {
     INSERT INTO chapters VALUES ('chapter-1', 'edition-1', '导论', 0), ('chapter-2', 'edition-2', '另一版', 0);
     INSERT INTO paragraphs VALUES ('p1', 'chapter-1', '前言这是十字原文用来句读后文', 0), ('p2', 'chapter-2', '前言这是十字原文用来句读后文', 0);
   `);
-  fetcher.mockReset().mockImplementation(async () => upstream(delta("你好"), delta("，世界"), done()));
+  fetcher.mockReset().mockImplementation(async (_url,init) => { const body=JSON.parse(String(init?.body)); const save=JSON.stringify(body.tools).includes("save_reading_analysis"); return upstream(delta("你好"),delta("，世界"),done(true,save?"save_reading_analysis":"mark_answer_emphasis")); });
   vi.stubGlobal("fetch", fetcher);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
@@ -90,7 +91,7 @@ describe("流式 Provider 路由集成", () => {
   });
   it("Claude system、鉴权、CRLF 分片与 message_stop", async () => {
     setProvider("claude");
-    const wire = block({ type: "message_start", message: { id: "claude-test", role: "assistant", type: "message", model: "test-model", content: [], usage: { input_tokens: 10, output_tokens: 0 } } }, "message_start") + block({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }, "content_block_start") + block({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "你好" } }, "content_block_delta") + block({ type: "content_block_stop", index: 0 }, "content_block_stop") + block({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } }, "message_delta") + block({ type: "message_stop" }, "message_stop");
+    const wire = block({ type: "message_start", message: { id: "claude-test", role: "assistant", type: "message", model: "test-model", content: [], usage: { input_tokens: 10, output_tokens: 0 } } }, "message_start") + block({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }, "content_block_start") + block({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "你好" } }, "content_block_delta") + block({ type: "content_block_stop", index: 0 }, "content_block_stop") + block({type:"content_block_start",index:1,content_block:{type:"tool_use",id:"claude-none",name:"mark_answer_emphasis",input:{}}},"content_block_start") + block({type:"content_block_delta",index:1,delta:{type:"input_json_delta",partial_json:JSON.stringify({emphasis:"无"})}},"content_block_delta") + block({type:"content_block_stop",index:1},"content_block_stop") + block({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } }, "message_delta") + block({ type: "message_stop" }, "message_stop");
     const crlf = wire.replace(/\n/g, "\r\n");
     fetcher.mockResolvedValueOnce(upstream(...Array.from(crlf)));
     const result = await call();
@@ -156,7 +157,7 @@ describe("服务端失败重试的原消息幂等闭环", () => {
     expect(count()).toBe(2);
   });
   it.each([
-    ["空输出", [done()], "empty_output", ""],
+    ["空输出", [done(false)], "empty_output", ""],
     ["中途 EOF", [delta("半截")], "interrupted", "半截"],
     ["上游错误事件", [delta("半截"), block({ error: { message: "失败" } }, "error")], "upstream_failed", "半截"],
     ["OpenAI 内嵌错误", [delta("半截"), block({ error: { message: "失败" } })], "upstream_failed", "半截"],
@@ -298,7 +299,7 @@ describe("成功 Analysis 的服务端合法锚点", () => {
     fetcher.mockResolvedValueOnce(toolResponse());
     const result = await call({ mode: "analyze" });
     expect(result.text).toContain('"messageId":"assistant-1"');
-    expect(stored()).toMatchObject({ ...analysis, concepts: [], anchor: { paragraphId: "p1", startOffset: 2, endOffset: 12, selectedText: "这是十字原文用来句读" } });
+    expect(stored()).toMatchObject({ ...analysis, readingText:"你好，世界", emphasis: { version: 1, marks: [] }, concepts: [], anchor: { paragraphId: "p1", startOffset: 2, endOffset: 12, selectedText: "这是十字原文用来句读" } });
     const replay = await call({ mode: "analyze" });
     expect(replay.text).toContain('"anchor":{"paragraphId":"p1"');
     expect(replay.text).not.toContain("_request");
@@ -439,9 +440,9 @@ describe("完整SDK的旧工具迟到与新attempt交错",()=>{
     const oldAttempt=stored()._request.attemptId;expect((await call()).text).toContain("event: done");expect(stored()._request.attemptId).not.toBe(oldAttempt);
     release();await ended;await new Promise(resolve=>setTimeout(resolve,10));
     expect(row()).toMatchObject({status:"completed",content:"你好，世界"});expect(count()).toBe(2);
-    expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM agent_tool_runs").get()).toEqual({count:0});expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM agent_tool_runs WHERE attempt_id=?").get(oldAttempt)).toEqual({count:0});expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"save_reading_analysis"');expect(replay.text).toContain('"contentOffset":0');const timeline=JSON.parse(row().structured_output) as {_request:{timeline:{tools:Record<string,number>;analysis:number}}};expect(timeline._request.timeline.tools["call-save"]).toBe(0);expect(timeline._request.timeline.analysis).toBe(0);expect(fetcher).toHaveBeenCalledTimes(number);expect(count()).toBe(2);});
+  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"save_reading_analysis"');expect(replay.text).toContain('"contentOffset":0');const timeline=JSON.parse(row().structured_output) as {_request:{timeline:{tools:Record<string,number>;analysis:number}}};expect(timeline._request.timeline.tools["call-save"]).toBe(0);expect(timeline._request.timeline.analysis).toBe("你好，世界".length);expect(fetcher).toHaveBeenCalledTimes(number);expect(count()).toBe(2);});
 });
 
 it.each([{threadId:"thread-1\n"},{clientAssistantMessageId:"assistant-1\n"},{editionId:"edition-1\n"}])("流式入口也拒绝尾换行ID，不再制造不可打开的新会话 %j",async input=>{expect((await call(input)).status).toBe(400);expect(count()).toBe(0);expect(fetcher).not.toHaveBeenCalled();});

@@ -27,7 +27,7 @@ import { isTokenUsage, type TokenUsage } from "@/lib/token-usage";
 import {readModelChoices,selectRequestModel} from "@/lib/model-choices";
 import type { ProviderConfig, ProviderMessage } from "@/lib/ai-provider";
 import { isAnalysis, isRecord } from "@/lib/chat-stream";
-import { inferAnswerEmphasis, readAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
+import { readAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
 import { captureReadingContext, readReadingContextSnapshot, readRetryContextSettings, type RetryContextSettings, type ReadingAnchor, type ReadingContextSnapshot } from "@/lib/reading-request";
 import { normalizeReadingDifficulty, type ReadingDifficulty } from "@/lib/reading-preferences";
 import { normalizeReadingDetail, readingAnswerBudget, readingSelectionError, type ReadingDetail } from "@/lib/reading-detail";
@@ -118,11 +118,11 @@ function persistAssistant(db: Db, threadId: string, meta: RequestMeta, raw: stri
   // WHY：attemptId 是写入栅栏；已取消的旧请求不能覆盖后来重试成功的同一条消息。
   const fields: Record<string, unknown> = { ...analysis, ...(meta.semantic ? {semantic:meta.semantic} : {}) };
   delete fields.emphasis;
-  const verified = readAnswerEmphasis(raw, emphasis ?? analysis?.emphasis) ?? (status === "completed" ? inferAnswerEmphasis(raw) : undefined);
+  const verified = readAnswerEmphasis(raw, emphasis ?? analysis?.emphasis);
   // WHY：完成消息与待更新事件同事务提交；旧 attempt 的完成不能发布导读，流式中间结果不入队。
   if (status === "completed") db.exec("BEGIN IMMEDIATE");
   try {
-  db.prepare("UPDATE chat_messages SET content = ?, raw_content = ?, structured_output = ?, status = ?, usage_json = ? WHERE id = ? AND thread_id = ? AND json_extract(structured_output, '$._request.attemptId') = ?").run(raw, raw, JSON.stringify({ ...fields, ...(verified ? { emphasis: verified } : {}), outputFormat: "text", _request: { ...meta, semantic:undefined, failure } }), status, usage ? JSON.stringify(usage) : null, meta.clientAssistantMessageId, threadId, meta.attemptId);
+  db.prepare("UPDATE chat_messages SET content = ?, raw_content = ?, structured_output = ?, status = ?, usage_json = ? WHERE id = ? AND thread_id = ? AND json_extract(structured_output, '$._request.attemptId') = ?").run(raw, raw, JSON.stringify({ ...fields, ...(verified ? { emphasis: verified, emphasisSource: "agent" } : {}), outputFormat: "text", _request: { ...meta, semantic:undefined, failure } }), status, usage ? JSON.stringify(usage) : null, meta.clientAssistantMessageId, threadId, meta.attemptId);
     if (status === "completed") {
       const current = db.prepare("SELECT id FROM chat_messages WHERE id=? AND status='completed' AND json_extract(structured_output,'$._request.attemptId')=?").get(meta.clientAssistantMessageId, meta.attemptId);
       if (current && meta.input.mode === "analyze" && !meta.semantic) enqueueGuideSource(db, meta.clientAssistantMessageId);
@@ -153,12 +153,13 @@ function replayMessage(db: Db, threadId: string, meta: RequestMeta, row: Message
     controller.enqueue(encode("raw_delta", { text: row.content }));
     if(isSemanticReading(saved.semantic)) controller.enqueue(encode("semantic", {result:saved.semantic,content:row.content}));
     for (const event of toolReplayEvents(db, { threadId, messageId: row.id, editionId: meta.input.editionId })) controller.enqueue(encode("tool", { tool: { ...event.tool, contentOffset: offsets[event.tool.id] } }));
-    const emphasis = readAnswerEmphasis(row.content, saved.emphasis);
+    const emphasis = saved.emphasisSource === "agent" ? readAnswerEmphasis(row.content, saved.emphasis) : undefined;
     if (emphasis) controller.enqueue(encode("emphasis", { result: emphasis, messageId: row.id }));
     if (isAnalysis(saved)) {
       const result: Record<string, unknown> = { ...saved };
       delete result._request;
       delete result.outputFormat;
+      if (saved.emphasisSource !== "agent") delete result.emphasis;
       controller.enqueue(encode("structured", { result, messageId: row.id, contentOffset: timeline.analysis }));
     }
     if (row.usage_json) { const usage: unknown = JSON.parse(row.usage_json); if (isTokenUsage(usage)) controller.enqueue(encode("usage", { usage })); }
@@ -377,23 +378,10 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
           if (terminal) return;
           assertCurrentAttempt();
           raw = result.text; usage = result.usage;
-          // WHY：模型可能具备普通文本能力但省略可选标注工具；服务端提供保守兜底，保证 B 方案不会因一次工具遗漏完全失效。
-          if (!emphasis) {
-            emphasis = inferAnswerEmphasis(raw);
-            if (emphasis) send("emphasis", { result: emphasis, messageId: meta.clientAssistantMessageId });
-          }
+          // WHY：程序不能替 Agent 补交标注或伪造保存工具成功；正文已保留，缺字段由用户重试。
+          if (!emphasis) throw new Error("Agent 未提交必填标注字段；程序不会自动补标注。");
+          if (meta.input.mode === "analyze" && !analysis) throw new Error("Agent 未调用保存句读工具；程序不会自动生成句读记录。");
           logAgentEvent("info", "agent_completed", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, textLength: raw.length, hasAnalysis: Boolean(analysis), inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
-          if (meta.input.mode === "analyze" && !analysis) {
-            // WHY：兼容网关省略工具调用时，自动保存仍须绑定同一组已核验来源，不能让成功正文丢失回跳位置。
-            const anchor=verifiedAnchor(db,meta.input);
-            analysis = { provenanceVersion: 1, readingText: raw.trim(), summary: "", breakdown: [], concepts: [], context: "", uncertainty: "", citations: [], ...(anchor ? {anchor} : {}) };
-            logAgentEvent("warn", "analysis_tool_fallback", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, readingTextLength: analysis.readingText?.length ?? 0 });
-            persistAssistant(db, threadId, meta, raw, "streaming", analysis, undefined, usage, emphasis);
-            meta.timeline!.analysis = raw.length;
-            send("structured", { result: analysis, messageId: meta.clientAssistantMessageId, contentOffset: raw.length });
-            meta.timeline!.tools["fallback-save-" + meta.clientAssistantMessageId] = raw.length;
-            send("tool", { tool: { id: "fallback-save-" + meta.clientAssistantMessageId, name: "save_reading_analysis", status: "completed", contentOffset: raw.length, result: "句读正文已保存（兼容网关未发送结构化工具调用）" } });
-          }
           persistAssistant(db, threadId, meta, raw, "completed", analysis, undefined, usage, emphasis);
           terminal = true;
           send("done", { content: raw, messageId: meta.clientAssistantMessageId });

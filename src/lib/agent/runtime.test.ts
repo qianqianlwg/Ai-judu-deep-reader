@@ -54,7 +54,7 @@ async function mockProvider(provider: "openai" | "claude", steps: Step[]) {
   const address = server.address(); if (!address || typeof address === "string") throw new Error("missing test address");
   return { requests, config: { provider, baseUrl: "http://127.0.0.1:" + address.port + (provider === "openai" ? "/v1" : "/v1"), apiKey: "test-key", model: "test-model" } satisfies ProviderConfig };
 }
-const analysis = { readingText: "认识改变对象啊啊", summary: "认识并不是外在工具。", breakdown: [], concepts: [{ name: "认识", text: "认识活动" }], context: "导论", uncertainty: "", citations: [] };
+const analysis = { emphasis: "无", readingText: "认识改变对象啊啊", summary: "认识并不是外在工具。", breakdown: [], concepts: [{ name: "认识", text: "认识活动" }], context: "导论", uncertainty: "", citations: [] };
 function fixture() {
   const events: ChatEvent[] = [];
   const tools: ReadingToolDependencies = { messageId: "assistant", selectedText: "认识改变对象而不是保持原来形态，这需要根据原文来理解。", detail: "standard", sources: new Map(), search: vi.fn(async () => []), read: vi.fn(async () => []), save: vi.fn(async () => undefined) };
@@ -82,7 +82,7 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
       { name: "search_openalex", args: { query: "ethics" } },
       { name: "verify_crossref", args: { query: "10.1000/abc" } },
       { name: "search_web", args: { query: "ethics 2026" } },
-      { text: ["已取得三个来源的条目，请核验链接及证据级别。"] },
+      { text: ["已取得三个来源的条目，请核验链接及证据级别。"], name: "save_reading_analysis", args: analysis },
     ]);
     const f = fixture();
     const search = vi.fn(async (source: "openalex" | "crossref" | "web", query: string) => ({
@@ -94,7 +94,7 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
     expect(JSON.stringify(requests[0].body.tools)).toContain("verify_crossref");
     expect(JSON.stringify(requests[0].body.tools)).toContain("search_web");
     expect(search.mock.calls.map(call => call.slice(0, 2))).toEqual([["openalex", "ethics"], ["crossref", "10.1000/abc"], ["web", "ethics 2026"]]);
-    expect(f.audit).toHaveBeenCalledTimes(3);
+    expect(f.audit).toHaveBeenCalledTimes(4);
     expect(f.audit).toHaveBeenCalledWith(expect.objectContaining({ name: "search_web", status: "completed", output: expect.objectContaining({ source: "web", query: "ethics 2026", results: expect.any(Array) }) }));
     expect(f.events).toContainEqual(expect.objectContaining({ type: "tool", tool: expect.objectContaining({ name: "search_web", status: "completed", result: expect.objectContaining({ results: expect.any(Array) }) }) }));
     expect(result.text).not.toContain("example.org");
@@ -105,7 +105,7 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
     const { config, requests } = await mockProvider("openai", [
       { name: "search_web", args: { query: "Kant antinomy" } },
       { name: "read_external_source", args: { sourceId } },
-      { text: ["所读页面相关段落指出：理性有自己的界限；仍需核对原文上下文。"] },
+      { text: ["所读页面相关段落指出：理性有自己的界限；仍需核对原文上下文。"], name: "save_reading_analysis", args: analysis },
     ]);
     const f = fixture();
     const search = vi.fn(async (source: "openalex" | "crossref" | "web", query: string) => ({ ok: true as const, source, query, results: [{ title: "Source", url, evidence: "snippet" as const }], evidence: "snippet" as const, durationMs: 1 }));
@@ -118,7 +118,7 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
     expect(result.text).toContain("仍需核对");
   });
   it("没有外部授权时不向模型暴露第三方工具", async () => {
-    const { config, requests } = await mockProvider("openai", [{ text: ["只回答书内内容。"] }]);
+    const { config, requests } = await mockProvider("openai", [{ text: ["只回答书内内容。"], name: "save_reading_analysis", args: analysis }]);
     await runReadingAgent({ ...fixture(), config });
     const tools = JSON.stringify(requests[0].body.tools);
     for (const name of ["search_openalex", "verify_crossref", "search_web", "read_external_source"]) expect(tools).not.toContain(name);
@@ -131,8 +131,8 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
     expect(f.events).toContainEqual(expect.objectContaining({ type: "tool", tool: expect.objectContaining({ status: "error" }) }));
   });
   it("普通回复夹杂代码或花括号不做 JSON.parse", async () => {
-    const { config } = await mockProvider("openai", [{ text: ["不是每条消息都解析：", "\n\n示例 {并非 JSON}。"] }]);
-    const f = fixture(); const result = await runReadingAgent({ ...f, config });
+    const { config } = await mockProvider("openai", [{ text: ["不是每条消息都解析：", "\n\n示例 {并非 JSON}。"], name: "mark_answer_emphasis", args: { emphasis: "无" } }]);
+    const f = fixture(); f.tools.selectedText = ""; f.tools.saveEmphasis = vi.fn(async () => undefined); const result = await runReadingAgent({ ...f, config });
     expect(result.text).toContain("{并非 JSON}"); expect(f.tools.save).not.toHaveBeenCalled();
   });
   it("输出截断和 EOF 中断不误报成功", async () => {
@@ -153,14 +153,14 @@ describe("真实 LangChain + HTTP 双协议闭环", () => {
     expect(requests).toHaveLength(0);
   });
   it("普通聊天不绑定保存句读工具", async () => {
-    const { config, requests } = await mockProvider("openai", [{ text: ["自然回答"] }]);
-    const f = fixture(); f.tools.selectedText = "";
+    const { config, requests } = await mockProvider("openai", [{ text: ["自然回答"], name: "mark_answer_emphasis", args: { emphasis: "无" } }]);
+    const f = fixture(); f.tools.selectedText = ""; f.tools.saveEmphasis = vi.fn(async () => undefined);
     await runReadingAgent({ ...f, config });
     expect(JSON.stringify(requests[0].body.tools)).not.toContain("save_reading_analysis");
   });
 
   it("多步自然回复之间留段落边界，Markdown标题不粘连", async () => {
-    const { config } = await mockProvider("openai", [{ text: ["我先检查原文。"], name: "search_book", args: { query: "认识" } }, { text: ["### 解释\n认识不是外在工具。"] }]);
+    const { config } = await mockProvider("openai", [{ text: ["我先检查原文。"], name: "search_book", args: { query: "认识" } }, { text: ["### 解释\n认识不是外在工具。"], name: "save_reading_analysis", args: analysis }]);
     const result = await runReadingAgent({ ...fixture(), config });
     expect(result.text).toBe("我先检查原文。\n\n### 解释\n认识不是外在工具。");
   });
@@ -188,4 +188,17 @@ it("正常长度只是目标，输出和保存超出目标仍完成且保存后�
   expect(requests).toHaveLength(1);
   expect(f.tools.save).toHaveBeenCalledOnce();
   expect(f.events.some(event => event.type === "tool" && event.tool.name === "save_reading_analysis" && event.tool.status === "completed")).toBe(true);
+});
+
+it("双协议不提交必填标注不能完成，正文流仍保留且不假装调用工具", async () => {
+  for (const provider of ["openai","claude"] as const) {
+    const {config}=await mockProvider(provider,[{text:["完整回答但故意漏填标注。"]}]);
+    const f=fixture();f.tools.selectedText="";
+    let failure:unknown;
+    try{await runReadingAgent({...f,config});}catch(error:unknown){failure=error;}
+    expect(readingAgentFailure(failure)?.code).toBe("emphasis_missing");
+    expect(f.audit).not.toHaveBeenCalled();
+    expect(f.tools.save).not.toHaveBeenCalled();
+    expect(f.events).toContainEqual({type:"raw_delta",text:"完整回答但故意漏填标注。"});
+  }
 });

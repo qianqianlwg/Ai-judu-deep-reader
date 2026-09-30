@@ -52,7 +52,7 @@ it("会话回放只恢复当前正文中校验通过的强调，旧会话无标�
   const content = "先看影响范围，再确定协调责任。";
   const emphasis = { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1 }] };
   const [restored, invalid, legacy] = hydrateChatHistory([
-    { id: "good", role: "assistant", content, structuredOutput: JSON.stringify({ outputFormat: "text", emphasis }) },
+    { id: "good", role: "assistant", content, structuredOutput: JSON.stringify({ outputFormat: "text", emphasis, emphasisSource: "agent" }) },
     { id: "invalid", role: "assistant", content: "不同正文", structuredOutput: JSON.stringify({ outputFormat: "text", emphasis }) },
     { id: "legacy", role: "assistant", content: "旧回答" },
   ]);
@@ -70,4 +70,11 @@ it("刷新后恢复工具和句读记录的正文时间线",()=>{
  const result=hydrateChatHistory([{id:"a",role:"assistant",content:"前段后段",tools:[{id:"save",name:"save_reading_analysis",status:"completed"}],structuredOutput:JSON.stringify({summary:"记录",breakdown:[],concepts:[],context:"",uncertainty:"",_request:{timeline:{tools:{save:2},analysis:2}}})}])[0];
  expect(result.tools?.[0].contentOffset).toBe(2);
  expect(result.analysisOffset).toBe(2);
+});
+
+it("没有 Agent 来源证明的旧兜底标注不再显示，正文原样保留", () => {
+  const content="这就是**价值**。";
+  const [message]=hydrateChatHistory([{id:"legacy",role:"assistant",content,status:"completed",structuredOutput:JSON.stringify({outputFormat:"text",emphasis:{version:1,marks:[{kind:"term",quote:"这就是",occurrence:1}]}})}]);
+  expect(message.content).toBe(content);
+  expect(message.emphasis).toBeUndefined();
 });

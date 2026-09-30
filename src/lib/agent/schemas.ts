@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { answerEmphasisSchema } from "../answer-emphasis";
+import { answerEmphasisInputSchema } from "../answer-emphasis";
 import { externalSources, type ExternalPermissions } from "./external-permissions";
 import { externalSearchSchema, readExternalSchema } from "./external-tool-schemas";
 
@@ -25,9 +25,9 @@ export const saveAnalysisSchema = z.object({
   context: z.string().max(6000).default(""),
   uncertainty: z.string().max(2000).default(""),
   citations: z.array(z.object({ sourceId: z.string().min(1).max(240), quote: z.string().trim().min(1).max(4000) }).strict()).max(16).default([]),
-  emphasis: answerEmphasisSchema.default({ version: 1, marks: [] }),
+  emphasis: answerEmphasisInputSchema,
 }).strict();
-export const markAnswerEmphasisSchema = answerEmphasisSchema;
+export const markAnswerEmphasisSchema = z.object({ emphasis: answerEmphasisInputSchema }).strict();
 export type AnalysisInput = z.infer<typeof saveAnalysisSchema>;
 export type SearchBookInput = z.infer<typeof searchBookSchema>;
 export type ReadSourceInput = z.infer<typeof readSourceSchema>;

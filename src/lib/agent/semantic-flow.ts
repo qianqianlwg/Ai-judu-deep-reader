@@ -45,7 +45,9 @@ export async function executeSemanticFlow(o:SemanticFlowOptions){
     audit:run=>o.audit({...run,id:unit.id+":"+run.id,input:{unitId:unit.id,arguments:run.input}}),
     emit:event=>{if(event.type==='raw_delta'){raw+=event.text;if(Date.now()-last>120){onText(raw);last=Date.now();}}else if(event.type==='usage')onUsage(addSemanticUsage(base,event.usage));else if(event.type==='tool')o.emit({...event,tool:{...event.tool,id:unit.id+':'+event.tool.id}});},
    });
-   analysis={...(analysis??{summary:'',breakdown:[],concepts:[],context:'',uncertainty:'',citations:[]}),readingText:result.text,provenanceVersion:1,emphasis:analysis?.emphasis};
+   // WHY：每块的内容和标注只能来自 Agent 保存工具，不用空概念记录冒充成功。
+   if(!analysis)throw new Error('Agent 未保存当前块的必填概念和标注，请重试此块；程序不会自动补齐。');
+   analysis={...analysis,readingText:result.text,provenanceVersion:1};
    onUsage(addSemanticUsage(base,result.usage));return {text:result.text,analysis,usage:result.usage};
   },
  });

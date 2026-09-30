@@ -4,7 +4,7 @@ it("默认释读不附带固定分析栏目，预算约束完整可见答案和�
   const prompt=readingSystemPrompt("analyze", "字".repeat(338), "standard");
   expect(prompt).toContain("目标约338字"); expect(prompt).toContain("禁止惯例性追加");
   expect(prompt).toContain("允许留空");expect(prompt).not.toContain("先输出一个标题");
-  expect(prompt).toContain("保存成功后不要再输出");expect(READING_PROMPT_VERSION).toBe("v16-required-local-concepts");
+  expect(prompt).toContain("保存成功后不要再输出");expect(READING_PROMPT_VERSION).toBe("v17-agent-only-required-emphasis");
 });
 it("追問不注入句读详细程度或保存模板", () => {
   const prompt=readingSystemPrompt("chat", "字".repeat(338), "detailed");
@@ -41,5 +41,13 @@ it("句读与追问都采用本地元数据方案，不要求 Markdown 符号作
     expect(prompt).not.toContain("**关键词**");
     expect(prompt).not.toContain("*关键句正文*");
     expect(prompt).toContain(mode === "analyze" ? "emphasis" : "mark_answer_emphasis");
+  }
+});
+
+it("明确要求 AI 提交完整标注或无，不依赖程序猜重点", () => {
+  for(const mode of ["chat","analyze"] as const){
+    const prompt=readingSystemPrompt(mode,"选文","standard");
+    for(const text of ["必填 emphasis","完整术语","完整意思","不可省略或传空数组","没有任何本地算法"])expect(prompt).toContain(text);
+    expect(prompt).not.toContain("emphasis 可标注");
   }
 });

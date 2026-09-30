@@ -4,7 +4,7 @@ import {SemanticReadingResult} from './semantic-reading-result';
 import { useRef, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { inferAnswerEmphasis, readAnswerEmphasis, remarkAnswerEmphasis, sliceAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
+import { readAnswerEmphasis, remarkAnswerEmphasis, sliceAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
 import { isTokenUsage, type TokenUsage } from "@/lib/token-usage";
 import type { ConversationSummary } from "@/lib/conversations";
 import { ConversationControls, type ConversationControlsProps } from "./conversation-controls";
@@ -71,7 +71,7 @@ function StructuredAnswer({ analysis, rawContent, messageId, onOpenCitation }: {
     { origin: "unknown", label: "来源未标记的原文" },
   ] as const;
   return <div className="message-content assistant-readable">
-    {analysis.readingText && <section><h4>句读文本 <SpeechButton text={analysis.readingText} label="AI句读正文" /></h4><div className="reading-text-result"><MarkdownText content={analysis.readingText} emphasis={readAnswerEmphasis(analysis.readingText, analysis.emphasis) ?? inferAnswerEmphasis(analysis.readingText)} /></div></section>}
+    {analysis.readingText && <section><h4>句读文本 <SpeechButton text={analysis.readingText} label="AI句读正文" /></h4><div className="reading-text-result"><MarkdownText content={analysis.readingText} emphasis={readAnswerEmphasis(analysis.readingText, analysis.emphasis)} /></div></section>}
     {analysis.summary && <p className="assistant-summary">{analysis.summary}</p>}
     {analysis.breakdown.length > 0 && <section><h4>句子拆解</h4>{analysis.breakdown.map((item, index) => <div className="answer-row" key={index}><b>{item.label}</b><span>{item.text}</span></div>)}</section>}
     {analysis.concepts.length > 0 && <section><h4>关键概念</h4>{analysis.concepts.map((item, index) => <div className="answer-row" key={index}><b>{item.name}</b><span>{item.text}</span></div>)}</section>}
@@ -151,7 +151,7 @@ function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds,
 }
 // WHY：首次收到工具/句读记录时固定正文偏移；完成事件只更新卡片，不把它们推到答案末尾。
 function TimedAnswer({ message, onOpenCitation }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"] }) {
-  const emphasis = message.status === "completed" ? readAnswerEmphasis(message.content, message.emphasis) ?? inferAnswerEmphasis(message.content) : undefined;
+  const emphasis = message.status === "completed" ? readAnswerEmphasis(message.content, message.emphasis) : undefined;
   const timed = [
     ...(message.tools ?? []).filter(tool => Number.isSafeInteger(tool.contentOffset) && tool.contentOffset! >= 0 && tool.contentOffset! <= message.content.length && !["search_book", "read_source", "search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name)).map(tool => ({ offset: tool.contentOffset!, id: tool.id, analysis: false })),
     ...(isAnalysis(message.analysis) && Number.isSafeInteger(message.analysisOffset) && message.analysisOffset! >= 0 && message.analysisOffset! <= message.content.length ? [{ offset: message.analysisOffset!, id: "", analysis: true }] : []),

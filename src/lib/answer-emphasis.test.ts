@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
 import { describe, expect, it } from "vitest";
 import remarkGfm from "remark-gfm";
-import { inferAnswerEmphasis, readAnswerEmphasis, sliceAnswerEmphasis, remarkAnswerEmphasis, validateAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
+import { readAnswerEmphasis, sliceAnswerEmphasis, remarkAnswerEmphasis, validateAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 
 const sample = "关键不在于层级越高越好，而在于协调范围能否覆盖影响范围。\n\n先看影响范围，再看协调责任。";
 const marks: AnswerEmphasis = { version: 1, marks: [
@@ -44,11 +44,9 @@ describe("回答重点标注协议", () => {
 });
 
 
-it("模型没有调用标注工具时，兜底仍只标注正文中的完整句子", () => {
-  const inferred = inferAnswerEmphasis("先看影响范围，再确定协调责任。\n\n协调责任不能脱离实际影响范围。\n\n`影响范围` 不应被标注。");
-  expect(inferred?.marks.some(mark => mark.kind === "key_sentence")).toBe(true);
-  expect(inferred?.marks.every(mark => mark.quote !== "影响范围" || mark.kind !== "term")).toBe(true);
-  expect(inferred?.marks.some(mark => mark.kind === "term")).toBe(true);
+it("缺少标注元数据时不根据正文生成重点", () => {
+  expect(readAnswerEmphasis("先看影响范围，再确定协调责任。", undefined)).toBeUndefined();
+  expect(readAnswerEmphasis(sample, { version: 1, marks: [] })).toEqual({ version: 1, marks: [] });
 });
 
 

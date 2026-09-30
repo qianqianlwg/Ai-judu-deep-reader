@@ -8,10 +8,10 @@ export type ReadingStyle = 'semantic' | 'whole';
 export const READING_STYLE_KEY = 'judu:reading-style';
 export function readReadingStyle(value: unknown): ReadingStyle { return value === 'whole' ? 'whole' : 'semantic'; }
 export const MAX_SECTION_CHARACTERS = 30000;
-export const SEMANTIC_PROMPT_VERSION = 'semantic-v3-agent-units';
+export const SEMANTIC_PROMPT_VERSION = 'semantic-v4-required-source-emphasis';
 export type SemanticSource = ReadingAnchorPart;
 export const semanticPlanSchema = z.object({ units: z.array(z.object({
-  sourceEmphasis: z.array(sourceMarkProposalSchema).max(16).optional(),
+  sourceEmphasis: z.union([z.literal("无"),z.array(sourceMarkProposalSchema).min(1).max(16)]).describe("必填：当前块原文重点；确实没有时填写字符串‘无’，不得省略或传空数组"),
   label: z.string().trim().min(1).max(80),
   action: z.enum(['read', 'skip']),
   reason: z.string().trim().max(300).describe('skip 时说明无需解释的原因；read 可为空'),
@@ -61,7 +61,10 @@ export function resolveSemanticPlan(value: unknown, sources: readonly SemanticSo
       if (end === source.selectedText.length) { paragraph++; offset = 0; }
     }
     if (parts.some(p => !p.selectedText.trim())) throw new Error('不能把纯空白作为独立句读片段，请并入相邻原文');
-    return { sourceEmphasis:resolveSourceEmphasis(unit.sourceEmphasis??[],parts), id: makeId(), label: unit.label, action: unit.action, reason: unit.reason, anchor: makeReadingAnchor(parts), status: unit.action === 'skip' ? 'skipped' : 'pending', content: '' };
+    const proposals=unit.sourceEmphasis==="无"?[]:unit.sourceEmphasis;
+    const sourceEmphasis=resolveSourceEmphasis(proposals,parts);
+    if(sourceEmphasis.length!==proposals.length)throw new Error('原文标注没有全部精确匹配当前块，请修正sourceEmphasis；确实没有重点填“无”。');
+    return { sourceEmphasis, id: makeId(), label: unit.label, action: unit.action, reason: unit.reason, anchor: makeReadingAnchor(parts), status: unit.action === 'skip' ? 'skipped' : 'pending', content: '' };
   });
   if (paragraph !== sources.length || offset !== 0) throw new Error('分块未覆盖原文末尾；无需解释的内容也应标为 skip，不能遗漏');
   return units;

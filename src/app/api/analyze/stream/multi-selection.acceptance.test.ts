@@ -19,7 +19,7 @@ const runtime = (process as unknown as {
 const fetcher = vi.fn<typeof fetch>();
 const responses: (() => Response)[] = [];
 const encoder = new TextEncoder();
-const analysis = { readingText: "连续选文需要结合上下文理解。", summary: "", breakdown: [], concepts: "\u65e0", context: "", uncertainty: "", citations: [] };
+const analysis = { emphasis: "无", readingText: "连续选文需要结合上下文理解。", summary: "", breakdown: [], concepts: "\u65e0", context: "", uncertainty: "", citations: [] };
 const sourceRows = [
   ["p1", "chapter-1", "第一段正文用于验收多段句读完整来源。", 0],
   ["p2", "chapter-1", "第二段正文应完整包含在这次选择中。", 1],
@@ -284,17 +284,16 @@ describe("多段流式句读独立后端验收：保存、重放和重试", () =
     expect(row().structured_output).toBe(before);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it("兼容网关未调用保存工具时，自动保存及幂等重放也必须保留 v2 来源", async () => {
+  it("网关未调用保存工具时明确失败，保留请求来源但绝不造句读记录", async () => {
     responses.push(textResponse);
     const result = await call();
-    expect(result.text).toContain("event: done");
-    expect(row().status).toBe("completed");
-    expect.soft(saved().anchor).toEqual(expectedAnchor());
-    expect.soft(structuredResults(result.text)).toContainEqual(expect.objectContaining({ anchor: expectedAnchor() }));
-    const replay = await call();
-    expect(replay.text).toContain("event: done");
-    expect.soft(structuredResults(replay.text)).toContainEqual(expect.objectContaining({ anchor: expectedAnchor() }));
-    expect.soft(restore().analysis?.anchor).toEqual(expectedAnchor());
+    expect(result.text).toContain("emphasis_missing");
+    expect(row().status).toBe("error");
+    expect(saved().anchor).toBeUndefined();
+    expect(structuredResults(result.text)).toHaveLength(0);
+    expect(restore().analysis).toBeUndefined();
+    expect(saved()._request.input.selectionAnchors).toEqual(expectedAnchor().fragments);
+    expect(result.text).not.toContain("fallback-save");
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(count("chat_messages")).toBe(2);
   });

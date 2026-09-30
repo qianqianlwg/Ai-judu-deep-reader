@@ -61,6 +61,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
   let stepHasText = false;
   let finishedModel = false;
   let savedAfterVisibleText = false;
+  let emphasisSubmitted = false;
   let toolCount = 0, lastToolStarted = 0;
   let lastPreview = 0;
   const announcedTools = new Set<string>();
@@ -102,7 +103,10 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       signal.throwIfAborted();
       const output = toolResult(result);
       const status = isRecord(output) && output.ok === false ? "error" : "completed";
-      if (name === "save_reading_analysis" && status === "completed" && text.trim()) savedAfterVisibleText = true;
+      if ((name === "save_reading_analysis" || name === "mark_answer_emphasis") && status === "completed" && isRecord(output) && output.ok === true) {
+        emphasisSubmitted = true;
+        if (text.trim()) savedAfterVisibleText = true;
+      }
       logAgentEvent(status === "error" ? "warn" : "info", "tool_finished", { id, name, messageId: options.tools.messageId, status, code: isRecord(output) && typeof output.code === "string" ? output.code : undefined });
       // WHY：审计失败不能伪装为工具成功，交给上层请求保存失败状态。
       try { await options.audit({ id, name, startedAt, input: request.toolCall.args, output, status }); } catch (error: unknown) { logAgentEvent("error", "tool_audit_failed", { id, name, errorName: error instanceof Error ? error.name : "UnknownError", code: "tool_audit_failed" }); throw error; }
@@ -163,5 +167,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
   }
   if (!finishedModel) throw new ReadingAgentError("interrupted", "模型流中断，未收到完成确认，请重试");
   if (!text.trim()) throw new ReadingAgentError("empty_output", "模型未返回正常聊天文本，请重试");
+  // WHY：缺标注必须由 Agent 重试补交，不把规则生成的重点伪装成完成结果。
+  if (!emphasisSubmitted) throw new ReadingAgentError("emphasis_missing", "Agent 未提交必填标注字段 emphasis（无重点也须填写‘无’）。正文已保留，请重试；程序不会自动补标注。");
   return { text, usage: usage ?? estimatedUsage(stepInput, text, options.contextWindow) };
 }

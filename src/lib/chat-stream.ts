@@ -5,7 +5,7 @@ import type { StreamEvent } from "./sse";
 import { answerEmphasisSchema, readAnswerEmphasis, type AnswerEmphasis } from "./answer-emphasis";
 
 export type Citation = { sourceId: string; paragraphId: string; quote: string; messageId?: string; origin?: "selection" | "context" | "search" };
-export type Analysis = { emphasis?: AnswerEmphasis; provenanceVersion?: 1; readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
+export type Analysis = { emphasisSource?: "agent"; emphasis?: AnswerEmphasis; provenanceVersion?: 1; readingText?: string; summary: string; breakdown: { label: string; text: string }[]; concepts: { name: string; text: string }[]; context: string; uncertainty: string; citations?: Citation[] };
 export type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 import type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown; contentOffset?:number };

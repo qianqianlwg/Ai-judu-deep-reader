@@ -10,7 +10,7 @@ export const SEMANTIC_PLAN_PROMPT = '请使用提供的工具规划目标原文�
 export const SEMANTIC_TOOL_DESCRIPTION = `将原文划分为可分别解读的连续内容块。readingStyle为semantic时，以句子为最小单位，可合并共同表达一个意思的连续句子；为whole时，以自然段为最小单位，可合并紧密关联的连续自然段。最小单位不代表必须单独成块，具体边界由你判断。不要先按句号机械拆分，也不要仅因主题相同合并不同意思。
 例如“政策规定了目标。地方负责落实这一目标。另一项改革改变了财政分配。”按句意可把前两句合成一块，第三句另起一块。这只是示例，不规定字数、句数或块数。
 每块提交label、action(read/skip)、reason和endParagraphId/endQuote。endQuote是块末尾唯一的逐字引文；起点自动接续上一块。也可用fragments提交完整逐字片段。所有输入正文必须且只能覆盖一次，不改字不漏字。直白且无需解释的内容可skip并说明原因，forceRead为true时不略过。
-可用sourceEmphasis标记原文中少量关键词(term)和关键句(key_sentence)，提供paragraphId、逐字quote和从1开始的occurrence；没有合适重点就留空。不要推测图片。
+sourceEmphasis必填，用于标记原文中少量关键词(term)和关键句(key_sentence)，提供paragraphId、逐字quote和从1开始的occurrence；确实没有合适重点时填写字符串“无”，不得省略或传空数组。不要推测图片。
 units直接使用JSON数组，不要编码成字符串。`;
 export type SemanticPlannerOptions = { config: ProviderConfig; sources: readonly SemanticSource[]; readingStyle?: 'semantic'|'whole'; context: string; forceRead?: boolean; maxInputTokens: number; maxOutputTokens: number; signal: AbortSignal; makeId: () => string; onUsage: (usage: TokenUsage) => void; audit: (args: unknown, result: unknown, ok: boolean) => Promise<void> };
 export async function planSemanticReading(o: SemanticPlannerOptions): Promise<SemanticUnit[]> {
@@ -39,7 +39,7 @@ export async function planSemanticReading(o: SemanticPlannerOptions): Promise<Se
     if(!call)throw new SemanticPlanError('当前模型未返回分块工具结果，请换用支持工具调用的模型。本次尚未生成句读块。');
     let units:SemanticUnit[];
     try {units=resolveSemanticPlan(decodeSemanticPlan(call.args),o.sources,o.makeId);if(o.forceRead&&units.some(u=>u.action==='skip'))throw new Error('用户明确要求全部释读，不能 skip。');}
-    catch(error:unknown){correction=error instanceof z.ZodError?'分块工具格式不正确：units必须为数组，每块需要label、action、reason及endParagraphId/endQuote。请直接输出JSON对象，不要字符串化数组。':error instanceof Error?error.message:'分块格式无效';await o.audit(call.args,{error:correction},false);continue;}
+    catch(error:unknown){correction=error instanceof z.ZodError?'分块工具格式不正确：units必须为数组，每块需要label、action、reason、必填sourceEmphasis（无重点填“无”）及endParagraphId/endQuote。请直接输出JSON对象，不要字符串化数组。':error instanceof Error?error.message:'分块格式无效';await o.audit(call.args,{error:correction},false);continue;}
     await o.audit(call.args,{unitCount:units.length,skipped:units.filter(u=>u.action==='skip').length},true);return units;
   }
   throw new SemanticPlanError('本次细读未开始：Agent 分块三次未通过格式或原文核验。原有句读线不是本次结果；请重试或换用工具调用更稳定的模型。原因：'+correction);

@@ -11,7 +11,7 @@ type Props={state:SemanticReading;disabled?:boolean;onOpenSource?:(a:ReadingAnch
 export function SemanticReadingResult({state,disabled,onOpenSource,onReadUnit,onRetry,onDiscussUnit,onOpenCitation}:Props){
  const label=state.readingStyle==='whole'?'整段句读':'按句意细读';
  const read=state.units.filter(u=>u.action==='read'),skipped=state.units.filter(u=>u.action==='skip');
- const emphasis=(unit:SemanticUnit)=>readAnswerEmphasis(unit.content??'',unit.analysis?.emphasis);
+ const emphasis=(unit:SemanticUnit)=>unit.analysis?.emphasisSource==='agent'?readAnswerEmphasis(unit.content??'',unit.analysis.emphasis):undefined;
  const completed=read.filter(u=>u.status==='completed').length;
  function source(u:SemanticUnit){return <details className='semantic-source'><summary>原文 · {anchorParts(u.anchor).length} 段来源</summary><blockquote>{anchorParts(u.anchor).map((p,i)=><span key={p.paragraphId+':'+p.startOffset}>{i>0?'\n\n':''}<EnhancedSourceExcerpt text={p.selectedText} ranges={(u.sourceEmphasis??[]).filter(m=>m.paragraphId===p.paragraphId&&m.startOffset>=p.startOffset&&m.endOffset<=p.endOffset&&p.selectedText.slice(m.startOffset-p.startOffset,m.endOffset-p.startOffset)===m.quote).map(m=>({start:m.startOffset-p.startOffset,end:m.endOffset-p.startOffset,kind:m.kind}))}/></span>)}</blockquote></details>;}
  return <section className='semantic-reading' aria-label={label+"结果"}>

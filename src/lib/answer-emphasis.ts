@@ -13,6 +13,11 @@ export const answerEmphasisSchema = z.object({
     occurrence: z.number().int().min(1).max(99),
   }).strict()).max(4),
 }).strict();
+// WHY：有无重点由 Agent 明确决定；缺省或空数组不能代替必填的“无”。
+export const answerEmphasisInputSchema = z.union([
+  z.literal("无"),
+  answerEmphasisSchema.extend({ marks: answerEmphasisSchema.shape.marks.min(1) }),
+]).describe("必填。填写本轮正文中的精确标注；确实没有重点时填写字符串‘无’，不得省略或传空数组");
 export type AnswerEmphasis = z.infer<typeof answerEmphasisSchema>;
 export const EMPTY_ANSWER_EMPHASIS: AnswerEmphasis = { version: 1, marks: [] };
 
@@ -67,71 +72,10 @@ export function validateAnswerEmphasis(markdown: string, proposal: unknown): Ans
 }
 
 
-function paragraphTextNodes(tree: Root): Text[] {
-  const nodes: Text[] = [];
-  visit(tree, "text", (node, _index, parent) => { if (parent?.type === "paragraph") nodes.push(node); });
-  return nodes;
-}
-
-function sentenceCandidates(nodes: Text[]): Array<{ quote: string; node: Text }> {
-  const candidates: Array<{ quote: string; node: Text }> = [];
-  for (const node of nodes) {
-    for (const match of node.value.matchAll(/[^。！？!?；;\n]{8,160}[。！？!?；;]/gu)) {
-      const quote = match[0].trim();
-      if (quote.length >= 8 && quote.length <= 160) candidates.push({ quote, node });
-    }
-    const fallback = node.value.trim();
-    if (!/[。！？!?；;]$/u.test(fallback) && Array.from(fallback).length >= 8 && Array.from(fallback).length <= 160) {
-      candidates.push({ quote: fallback, node });
-    }
-  }
-  return candidates;
-}
-
-function sentenceScore(quote: string): number {
-  const cjk = (quote.match(/[\u3400-\u9fff]/gu) ?? []).length;
-  const length = Array.from(quote).length;
-  // WHY：服务端兜底只挑一条自然完整的句子，不把整段正文涂满；适度偏向包含解释信息的中文句子。
-  return cjk * 3 + Math.min(length, 72) + (/[，、]/u.test(quote) ? 8 : 0) - (length > 120 ? 24 : 0);
-}
-
-function inferredTerms(nodes: Text[], keySentence: string): string[] {
-  const commonPrefix = /^(?:而且|但是|所以|因此|如果|因为|由于|通过|可以|能够|应当|应该|先看|再看|再确定|需要|这是|这就|主要是|也就是)/u;
-  const commonSuffix = /(?:的是|就是|起来|方面)$/u;
-  const candidates = new Map<string, number>();
-  for (const node of nodes) {
-    for (const raw of node.value.split(/[，,、；;：:。！？!?\n]/u)) {
-      let phrase = raw.trim().replace(commonPrefix, "").replace(commonSuffix, "");
-      if (phrase.length < 2 || phrase.length > 16 || keySentence.includes(phrase)) continue;
-      if (!/[\u3400-\u9fff]/u.test(phrase)) continue;
-      phrase = phrase.replace(/^[的了着过在与和及或把被对从向为于]+/u, "").replace(/[的了着过在与和及或把被对从向为于]+$/u, "");
-      if (Array.from(phrase).length < 2) continue;
-      candidates.set(phrase, (candidates.get(phrase) ?? 0) + 1);
-    }
-  }
-  return [...candidates.entries()]
-    .sort((a, b) => b[1] - a[1] || Array.from(b[0]).length - Array.from(a[0]).length)
-    .slice(0, 2)
-    .map(([quote]) => quote);
-}
-
-export function inferAnswerEmphasis(markdown: string): AnswerEmphasis | undefined {
-  if (!markdown.trim()) return undefined;
-  const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown);
-  const nodes = paragraphTextNodes(tree);
-  const sentences = sentenceCandidates(nodes).sort((a, b) => sentenceScore(b.quote) - sentenceScore(a.quote));
-  const key = sentences[0];
-  if (!key) return undefined;
-  const terms = inferredTerms(nodes, key.quote).map((quote) => ({ kind: "term" as const, quote, occurrence: 1 }));
-  const verified = validateAnswerEmphasis(markdown, { version: 1, marks: [
-    ...terms,
-    { kind: "key_sentence" as const, quote: key.quote, occurrence: 1 },
-  ] });
-  return verified.marks.length ? verified : undefined;
-}
-
 export function readAnswerEmphasis(markdown: string, value: unknown): AnswerEmphasis | undefined {
   if (value === undefined) return undefined;
+  const parsed = answerEmphasisSchema.safeParse(value);
+  if (parsed.success && parsed.data.marks.length === 0) return EMPTY_ANSWER_EMPHASIS;
   const verified = validateAnswerEmphasis(markdown, value);
   return verified.marks.length ? verified : undefined;
 }

@@ -16,6 +16,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - TypeScript 必须使用严格类型检查，避免 `any`；必要的运行时边界使用显式类型守卫。
 - IO 操作优先使用异步 API；只有数据库事务等明确需要同步语义的操作才可使用同步 API，并在代码中说明原因。
 - 异常必须记录或上抛，不能静默吞掉；用户可恢复的错误要有明确界面反馈。
+- AI 内容、概念、分块和重点标注必须由 Agent 明确提交；禁止用本地规则、打分或关键词截取替 Agent 自动生成、补齐或伪造工具成功。相关标注字段必填，无合适内容时由 Agent 明确填写“无”。程序只做协议、权限、逐字来源与位置校验；不合格时报错或交回 Agent 修正。
 - 关键设计决策使用中文 `// WHY：` 注释说明原因。
 - commit message 使用中文，并包含测试说明、决策和 Task footer：
 

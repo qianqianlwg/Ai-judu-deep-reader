@@ -12,7 +12,7 @@ const runtime = (process as unknown as { getBuiltinModule(name: string): { Datab
 const encoder = new TextEncoder();
 const fetcher = vi.fn<typeof fetch>();
 const payload = { threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", mode: "chat", question: "测试", selectedText: "这是十字原文用来句读", selectionStart: 2, selectionEnd: 12 };
-const analysis = { readingText: "原文啊", summary: "解释", breakdown: [], concepts: "\u65e0", context: "上下文", uncertainty: "", citations: [] };
+const analysis = { emphasis: "无", readingText: "原文啊", summary: "解释", breakdown: [], concepts: "\u65e0", context: "上下文", uncertainty: "", citations: [] };
 const block = (data: unknown, event?: string) => (event ? "event: " + event + "\n" : "") + "data: " + (typeof data === "string" ? data : JSON.stringify(data)) + "\n\n";
 const delta = (content: string) => block({ id: "text-step", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
 const done = () => block({ id: "text-step", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }) + block("[DONE]");
@@ -52,14 +52,16 @@ describe("语义重点标注的 SSE、落库和幂等回放", () => {
   function firstStep(name: string, args: unknown): Response {
     return upstream(delta(answer), block({ id: "tool-step", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-emphasis", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
   }
-  it("模型省略标注工具时，服务端自动补充可验证重点", async () => {
+  it("模型省略必填标注时报错并保留正文，绝不补造标注", async () => {
     fetcher.mockReset().mockResolvedValueOnce(upstream(delta(answer), done()));
     const result = await call();
-    expect(result.text).toContain('event: emphasis');
-    expect(stored().emphasis).toMatchObject({ version: 1, marks: [expect.objectContaining({ kind: "key_sentence", quote: answer })] });
+    expect(result.text).not.toContain('event: emphasis');
+    expect(result.text).toContain('emphasis_missing');
+    expect(stored().emphasis).toBeUndefined();
+    expect(row()).toMatchObject({content:answer,status:"error"});
   });
   it("追问先流式输出无符号正文，再校验独立标注并可刷新回放", async () => {
-    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", emphasis)).mockResolvedValueOnce(upstream(done()));
+    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", { emphasis })).mockResolvedValueOnce(upstream(done()));
     const result = await call();
     expect(result.text).toContain('event: raw_delta\ndata: {"text":"' + answer + '"}');
     expect(result.text).toContain('event: emphasis\ndata: {"result":');
@@ -80,10 +82,43 @@ describe("语义重点标注的 SSE、落库和幂等回放", () => {
   });
   it("模型提出正文不存在的词不能保存，原回答照常保留", async () => {
     const wrong = { version: 1, marks: [{ kind: "term", quote: "不存在", occurrence: 1 }] };
-    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", wrong)).mockResolvedValueOnce(upstream(done()));
+    fetcher.mockReset().mockResolvedValueOnce(firstStep("mark_answer_emphasis", { emphasis: wrong })).mockResolvedValueOnce(upstream(done()));
     const result = await call();
-    expect(result.text).toContain('event: emphasis');
-    expect(JSON.stringify(stored().emphasis)).not.toContain("不存在");
+    expect(result.text).not.toContain('event: emphasis');
+    expect(stored().emphasis).toBeUndefined();
+    expect(row().status).toBe("error");
     expect(row().content).toBe(answer);
   });
+});
+
+it("显式无被保存及回放，省略保存工具不能出现兼容伪成功", async () => {
+  fetcher.mockReset().mockResolvedValueOnce(upstream(delta("已经说明。"),block({id:"none",choices:[{index:0,delta:{tool_calls:[{index:0,id:"none",type:"function",function:{name:"mark_answer_emphasis",arguments:JSON.stringify({emphasis:"无"})}}]},finish_reason:"tool_calls"}]}),block("[DONE]")));
+  const result=await call();
+  expect(row().status).toBe("completed");
+  expect(stored().emphasis).toEqual({version:1,marks:[]});
+  expect(stored().emphasisSource).toBe("agent");
+  expect(result.text).toContain('event: emphasis');
+});
+it("句读省略保存工具不生成 concepts 和伪工具成功", async () => {
+  fetcher.mockReset().mockResolvedValueOnce(upstream(delta("自然释读正文。"),done()));
+  const result=await call({mode:"analyze"});
+  expect(row().status).toBe("error");
+  expect(stored().concepts).toBeUndefined();
+  expect(result.text).not.toContain("fallback-save");
+  expect(result.text).not.toContain("event: structured");
+});
+
+it("旧自动标注即使已落库，幂等回放也不冒充 AI 标注", async () => {
+  fetcher.mockReset().mockResolvedValueOnce(upstream(delta("自然释读正文。"),block({id:"save",choices:[{index:0,delta:{tool_calls:[{index:0,id:"save",type:"function",function:{name:"save_reading_analysis",arguments:JSON.stringify({...analysis,readingText:"自然释读正文。"})}}]},finish_reason:"tool_calls"}]}),block("[DONE]")));
+  await call({mode:"analyze"});
+  const saved=stored();delete saved.emphasisSource;
+  saved.emphasis={version:1,marks:[{kind:"term",quote:"释读",occurrence:1}]};
+  fixture.db!.prepare("UPDATE chat_messages SET structured_output=? WHERE id='assistant-1'").run(JSON.stringify(saved));
+  const replay=await call({mode:"analyze"});
+  expect(replay.text).not.toContain('event: emphasis');
+  const structuredBlock=replay.text.split("\n\n").find(block=>block.startsWith("event: structured\n"));
+  expect(structuredBlock).toBeDefined();
+  const data=JSON.parse(structuredBlock!.split("\ndata: ")[1]);
+  expect(data.result.emphasis).toBeUndefined();
+  expect(row().content).toBe("自然释读正文。");
 });

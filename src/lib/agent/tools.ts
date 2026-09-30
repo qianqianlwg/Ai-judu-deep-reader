@@ -7,7 +7,7 @@ import { anchorParts, type ReadingAnchor } from "../reading-anchors";
 import { readSourceSchema, saveAnalysisSchema, searchBookSchema, markAnswerEmphasisSchema, type ReadSourceInput, type SearchBookInput } from "./schemas";
 
 export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; channels?: ("keyword" | "semantic")[]; excerpts?: string[]; origin?: "context" | "search" | "read"; evidence?: { text: string; origin: "context" | "search" | "read" }[] };
-export type SavedReadingAnalysis = Analysis & { anchor?: ReadingAnchor; emphasis?: AnswerEmphasis };
+export type SavedReadingAnalysis = Analysis & { anchor?: ReadingAnchor; emphasis: AnswerEmphasis; emphasisSource: "agent" };
 export type ReadingToolDependencies = {
   messageId: string;
   selectedText: string;
@@ -61,23 +61,23 @@ export function createReadingTools(deps: ReadingToolDependencies) {
         if (!citations.some(c => c.sourceId === citation.sourceId && c.quote === citation.quote)) citations.push({ ...citation, paragraphId: source.paragraphId, messageId: deps.messageId, origin });
       }
       const { emphasis: proposal, ...fields } = input;
-      const emphasis = validateAnswerEmphasis(deps.getVisibleAnswer?.() ?? "", proposal);
-      const analysis = { ...fields, concepts, provenanceVersion: 1 as const, citations, ...(emphasis.marks.length ? { emphasis } : {}), ...(deps.anchor ? { anchor: deps.anchor } : {}) };
+      const emphasis = proposal === "无" ? EMPTY_ANSWER_EMPHASIS : validateAnswerEmphasis(deps.getVisibleAnswer?.() ?? "", proposal);
+      if (proposal !== "无" && emphasis.marks.length !== proposal.marks.length) return { ok: false, code: "no_valid_emphasis", error: "标注必须全部精确匹配本轮正文，请只修正工具参数；确实没有重点时填写 emphasis：无" };
+      const analysis = { ...fields, concepts, provenanceVersion: 1 as const, citations, emphasis, emphasisSource: "agent" as const, ...(deps.anchor ? { anchor: deps.anchor } : {}) };
       // WHY：消息、版本和原文锚点由服务器绑定；模型只能填写分析内容，不能指定保存到其他消息。
       await deps.save(analysis);
       return { ok: true, analysisId: deps.messageId, saved: true, locationAvailable: Boolean(deps.anchor), result: analysis };
-    }, { name: "save_reading_analysis", description: "保存选文的结构化句读和概念。concepts 是必填字段：有核心概念时填写名称及本段定义；没有时填写字符串‘无’，不可省略。emphasis 可填本轮可见回答中精确出现的少量关键词和一条关键句（无则空）。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮已提供的选文/邻段或 search_book/read_source 真实来源。先输出完整释读再保存；若先保存且尚无正文，则随后输出正文，已有正文不重复。", schema: saveAnalysisSchema }),
+    }, { name: "save_reading_analysis", description: "保存选文的结构化句读和概念。concepts 是必填字段：有核心概念时填写名称及本段定义；没有时填写字符串‘无’，不可省略。emphasis 同样必填：填写本轮可见回答中精确出现的少量关键词和一条完整关键句；确实没有时填写字符串‘无’。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮已提供的选文/邻段或 search_book/read_source 真实来源。先输出完整释读再保存；若先保存且尚无正文，则随后输出正文，已有正文不重复。", schema: saveAnalysisSchema }),
     tool(async (input) => {
       const answer = deps.getVisibleAnswer?.() ?? "";
       if (!answer.trim() || !deps.saveEmphasis) return { ok: false, code: "answer_unavailable", error: "需要先完整输出本轮正文，才能标注重点" };
-      const verified = validateAnswerEmphasis(answer, input);
-      if (!verified.marks.length) {
-        // WHY：空数组表示模型判断没有合适重点，不应制造失败工具卡；服务端仍会按保守规则兜底。
-        if (input.marks.length === 0) return { ok: true, marked: 0, emphasis: EMPTY_ANSWER_EMPHASIS };
-        return { ok: false, code: "no_valid_emphasis", error: "标注未能精确匹配本轮正文；不必强行标注，请直接完成回答" };
+      // WHY：显式“无”是 Agent 的选择，也要保存；不允许代码生成、替换或补齐标注。
+      const verified = input.emphasis === "无" ? EMPTY_ANSWER_EMPHASIS : validateAnswerEmphasis(answer, input.emphasis);
+      if (input.emphasis !== "无" && verified.marks.length !== input.emphasis.marks.length) {
+        return { ok: false, code: "no_valid_emphasis", error: "标注未全部精确匹配本轮正文，请修正工具参数；确实没有重点时填写 emphasis：无" };
       }
       await deps.saveEmphasis(verified);
       return { ok: true, marked: verified.marks.length };
-    }, { name: "mark_answer_emphasis", description: "普通追问可选：完整回答后标注正文中的 1-3 个关键词和最多 1 条关键句。只提交精确文本及出现次数；不指定颜色、不改写正文。已标注后不要再输出重复回答。", schema: markAnswerEmphasisSchema }),
+    }, { name: "mark_answer_emphasis", description: "普通追问必用：完整回答后提交必填 emphasis，填写正文中的 1-3 个完整关键词和最多 1 条完整关键句；确实没有时填写字符串‘无’，不可省略或传空数组。只提交精确文本及出现次数；不指定颜色、不改写正文。已标注后不要再输出重复回答。", schema: markAnswerEmphasisSchema }),
   ] as const;
 }

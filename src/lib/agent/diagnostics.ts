@@ -1,4 +1,4 @@
-import { readSourceSchema, saveAnalysisSchema, searchBookSchema } from "./schemas";
+import { readSourceSchema, saveAnalysisSchema, searchBookSchema, markAnswerEmphasisSchema } from "./schemas";
 const MESSAGES = {
   missing_selection: "本轮没有选文，不能保存句读。",
   unknown_source: "来源未在本轮检索中登记，请先检索再读取。",
@@ -30,7 +30,7 @@ export function publicToolFailure(value: unknown): { ok: false; code: string; me
   return { ok: false, code, message: MESSAGES[code as keyof typeof MESSAGES] };
 }
 export function diagnoseToolException(name: string, input: unknown) {
-  const schema = name === "save_reading_analysis" ? saveAnalysisSchema : name === "read_source" ? readSourceSchema : name === "search_book" ? searchBookSchema : undefined;
+  const schema = name === "mark_answer_emphasis" ? markAnswerEmphasisSchema : name === "save_reading_analysis" ? saveAnalysisSchema : name === "read_source" ? readSourceSchema : name === "search_book" ? searchBookSchema : undefined;
   const result = schema?.safeParse(input);
   const fields = result && !result.success ? [...new Set(result.error.issues.flatMap(issue => typeof issue.path[0] === "string" ? [issue.path[0]] : []))] : [];
   const code = result && !result.success ? "tool_schema_invalid" : "tool_execution_failed";
