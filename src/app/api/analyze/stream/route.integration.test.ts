@@ -449,7 +449,7 @@ it("本轮解读方式和长度传入模型并保存；下轮替换不改已有�
   const first = await call({ detail: "gist", difficulty: "accessible" });
   expect(first.text).toContain("event: done");
   const firstModel = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
-  expect(JSON.stringify(firstModel.messages)).toContain("面向初学者");
+  expect(JSON.stringify(firstModel.messages)).toContain("使用日常语言解释");
   expect(JSON.stringify(firstModel.messages)).toContain("当前回复长度：大意");
   const original = row().structured_output;
   expect(JSON.parse(original)._request.input).toMatchObject({ detail: "gist", difficulty: "accessible" });

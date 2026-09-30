@@ -1,3 +1,4 @@
+import {saveSourceEmphasis} from "./source-enhancement-store";
 import type { getDb } from './db';
 import { createAnnotation } from './annotations';
 import { anchorParts, joinAnchorText } from './reading-anchors';
@@ -36,6 +37,7 @@ export function commitSemanticUnit(db:Db,input:{threadId:string;editionId:string
    const a=createAnnotation({id:`semantic-${unit.id}-${part.paragraphId}-${part.startOffset}`,paragraphId:part.paragraphId,startOffset:part.startOffset,endOffset:part.endOffset,threadId:input.threadId,messageId:unit.id,summary:unit.analysis.summary.trim()||unit.content,concepts:unit.analysis.concepts.map(c=>c.name),conceptDetails:unit.analysis.concepts,createdAt:now},row.text);
    db.prepare('INSERT INTO annotations(id,paragraph_id,start_offset,end_offset,text_hash,thread_id,summary,concepts,created_at,concept_details,message_id) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING').run(a.id,a.paragraphId,a.startOffset,a.endOffset,a.textHash,a.threadId,a.summary,JSON.stringify(a.concepts),a.createdAt,JSON.stringify(a.conceptDetails??[]),unit.id);
   }
+  saveSourceEmphasis(db,input.editionId,unit.sourceEmphasis??[]);
   saveParent();db.exec('COMMIT');
  }catch(error:unknown){db.exec('ROLLBACK');throw error;}
 }

@@ -1,7 +1,6 @@
 "use client";
 
-import { READING_DETAIL_OPTIONS, normalizeReadingDetail, readingDetailSpec } from "@/lib/reading-detail";
-import { READING_DIFFICULTY_OPTIONS, READING_DIFFICULTY_LABELS, normalizeReadingDifficulty, type ReadingPreferences } from "@/lib/reading-preferences";
+import type { ReadingPreferences } from "@/lib/reading-preferences";
 import { useState } from "react";
 import styles from "./composer-options.module.css";
 import { ExternalPermissionsMenu } from "./external-permissions";
@@ -36,7 +35,7 @@ function OptionIcon({ kind }: { kind: "plugin" | "quote" }) {
     {kind === "plugin" ? <><path d="M5 4h5v4a2 2 0 1 0 4 0V4h5v6h-3a2 2 0 0 0 0 4h3v6H5v-6h3a2 2 0 0 0 0-4H5z"/></> : <><path d="M10 5H5v6h5v7H4v-7a6 6 0 0 1 6-6ZM20 5h-5v6h5v7h-6v-7a6 6 0 0 1 6-6Z"/></>}
   </svg>;
 }
-export function ComposerOptions({ readingPreferences, onReadingPreferencesChange, disabled = false, generating = false, modelName, modelOptions = [], selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch = false, onBookContextPrefetchChange }: ComposerOptionsProps) {
+export function ComposerOptions({ disabled = false, generating = false, modelName, modelOptions = [], selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch = false, onBookContextPrefetchChange }: ComposerOptionsProps) {
   const [open, setOpen] = useState(false);
   const [localModel, setLocalModel] = useState(selectedModel ?? modelName ?? "");
   const [localReasoning, setLocalReasoning] = useState<ReasoningEffort>(reasoningEffort ?? "medium");
@@ -61,15 +60,7 @@ export function ComposerOptions({ readingPreferences, onReadingPreferencesChange
         <button type="button" className={styles.option} role="menuitem" disabled={disabled} onClick={chooseCitation}><span className={styles.optionIcon}><OptionIcon kind="quote" /></span><span className={styles.optionText}><strong>引用</strong><small>文献引用 · 未接通</small></span><span className={styles.optionChevron} aria-hidden="true">›</span></button>
       </div>
 
-      {readingPreferences && onReadingPreferencesChange && <div className={styles.section}>
-        <span className={styles.sectionTitle}>仅本书 · 下次回复生效 · 不修改当前回复</span>
-        <label className={styles.field}>解读方式<select aria-label="解读方式" value={readingPreferences.difficulty} onChange={event => onReadingPreferencesChange({ ...readingPreferences, difficulty: normalizeReadingDifficulty(event.target.value) })}>
-          {READING_DIFFICULTY_OPTIONS.map(value => <option key={value} value={value}>{READING_DIFFICULTY_LABELS[value]}</option>)}
-        </select></label>
-        <label className={styles.field}>回复长度<select aria-label="回复长度" value={readingPreferences.detail} onChange={event => onReadingPreferencesChange({ ...readingPreferences, detail: normalizeReadingDetail(event.target.value) })}>
-          {READING_DETAIL_OPTIONS.map(value => <option key={value} value={value}>{readingDetailSpec(value).label}（约 {readingDetailSpec(value).ratio * 100}%）</option>)}
-        </select></label>
-      </div>}
+
       {onBookContextPrefetchChange && <label className={styles.prefetch}><input type="checkbox" checked={bookContextPrefetch} disabled={disabled} onChange={event => onBookContextPrefetchChange(event.target.checked)} />句读前关联本书原文<small>仅已建索引；裁剪选文发送至向量服务，不回注当前段落</small></label>}
       {externalPermissions && onExternalPermissionsChange && <ExternalPermissionsMenu permissions={externalPermissions} onChange={onExternalPermissionsChange} disabled={disabled} />}
       <label className={styles.field}>思考强度<select aria-label="选择思考强度" value={activeReasoning} disabled={disabled} onChange={event => changeReasoning(event.target.value as ReasoningEffort)}>

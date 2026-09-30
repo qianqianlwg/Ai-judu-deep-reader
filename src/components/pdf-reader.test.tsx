@@ -497,3 +497,11 @@ it("生成中仅放行PDF文字选择，导航仍维持禁用", async () => {
   expect(props.onSelect).toHaveBeenCalledOnce();
   expect(button("上一页").disabled).toBe(true);
 });
+
+it('PDF原文增强独立开关，不改写文字层或影响选文',async()=>{
+ h=fixture(1,()=> '权责关系。地方政府承担公共服务，并在行政层级之间协调资源和职责。');loader.openPdf.mockReturnValue(h.task);loader.indexPdfPages.mockResolvedValue(h.pages);
+ await render({book:h.book,sourceEmphasis:[{paragraphId:"p1",startOffset:0,endOffset:4,quote:"权责关系",kind:"term"},{paragraphId:"p1",startOffset:5,endOffset:35,quote:"地方政府承担公共服务，并在行政层级之间协调资源和职责。",kind:"key_sentence"}],appearance:{...DEFAULT_READING_APPEARANCE,sourceTerms:true,sourceSentences:true}});
+ const node=textNode();expect(highlights.get('judu-pdf-enhance-term')?.ranges.length).toBeGreaterThan(0);expect(highlights.get('judu-pdf-enhance-sentence')?.ranges.length).toBeGreaterThan(0);
+ await render({appearance:{...DEFAULT_READING_APPEARANCE,sourceSentences:true}});expect(highlights.get('judu-pdf-enhance-term')?.ranges).toHaveLength(0);expect(highlights.get('judu-pdf-enhance-sentence')?.ranges.length).toBeGreaterThan(0);expect(textNode()).toBe(node);
+ await render({appearance:DEFAULT_READING_APPEARANCE});expect(highlights.get('judu-pdf-enhance-sentence')?.ranges).toHaveLength(0);expect(textNode()).toBe(node);
+});

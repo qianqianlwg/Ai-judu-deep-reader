@@ -1,0 +1,9 @@
+import {expect,it} from 'vitest';
+import {resolveSourceEmphasis,sourceEmphasisRanges,sourceEmphasisSegments} from './source-enhancement';
+const text='权责关系。地方政府承担公共服务，并协调资源。';
+const sources=[{paragraphId:'p',startOffset:0,endOffset:text.length,selectedText:text}];
+it('仅采用Agent给定重点，不本地推测；重复词按occurrence定位',()=>{expect(sourceEmphasisRanges(text,'p')).toEqual([]);const marks=resolveSourceEmphasis([{paragraphId:'p',kind:'term',quote:'权责关系',occurrence:1},{paragraphId:'p',kind:'key_sentence',quote:text.slice(5),occurrence:1},{paragraphId:'p',kind:'term',quote:'不存在',occurrence:1}],sources);expect(marks).toHaveLength(2);const ranges=sourceEmphasisRanges(text,'p',marks);expect(sourceEmphasisSegments(text,0,ranges).map(p=>p.text).join('')).toBe(text);expect(resolveSourceEmphasis([{paragraphId:'p',kind:'term',quote:'同词',occurrence:2}],[{...sources[0],selectedText:'同词与同词',endOffset:5}])[0].startOffset).toBe(3);});
+it('拒绝跨来源或错位显示，分页片段不改变原文',()=>{const marks=resolveSourceEmphasis([{paragraphId:'p',kind:'key_sentence',quote:text.slice(5),occurrence:1}],sources);expect(sourceEmphasisRanges('原文被编辑','p',marks)).toEqual([]);expect(sourceEmphasisRanges(text,'q',marks)).toEqual([]);expect(sourceEmphasisSegments(text.slice(10),10,sourceEmphasisRanges(text,'p',marks)).map(p=>p.text).join('')).toBe(text.slice(10));});
+it('同一来源重点重叠时不叠加两种渲染',()=>{expect(resolveSourceEmphasis([{paragraphId:'p',kind:'term',quote:'权责',occurrence:1},{paragraphId:'p',kind:'term',quote:'权责关系',occurrence:1}],sources)).toHaveLength(1);});
+
+it('原文标记不能拆开Unicode字符，也不能反转范围',async()=>{const {sourceEmphasisSchema}=await import('./source-enhancement');expect(sourceEmphasisSchema.safeParse({paragraphId:'p',kind:'term',quote:'字',startOffset:3,endOffset:2}).success).toBe(false);expect(resolveSourceEmphasis([{paragraphId:'p',kind:'term',quote:'\ud83d',occurrence:1}],[{paragraphId:'p',startOffset:0,endOffset:3,selectedText:'😀。'}])).toEqual([]);});

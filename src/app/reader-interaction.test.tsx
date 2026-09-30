@@ -154,6 +154,7 @@ beforeEach(() => {
   localStorage.clear(); localStorage.setItem("judu:thread:A", "thread-A");
   fetcher.mockImplementation(async (input, init) => {
     const url = endpoint(input);
+    if (url.pathname === "/api/reading-emphasis") return Response.json({marks:[]});
     if (url.pathname === "/api/settings/ai") return Response.json({ model: "workspace-test-model", hasApiKey: true });
     if (url.pathname === "/api/external-sources") return Response.json({ available: { openalex: true, crossref: true, web: true } });
     if (url.pathname === "/api/library") return Response.json([book("A"), book("B")]);
@@ -201,7 +202,7 @@ describe("阅读器主页面交互回归", () => {
   it("每书解读设置在生成中可改，下一轮使用新值且切书不串用", async () => {
     await loadA(); await selectOriginal(); await click(button("句读一下"));
     expect(pendingStreams[0].payload).toMatchObject({ difficulty: "normal", detail: "standard" });
-    await click(element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'));
+    await click(element<HTMLButtonElement>('[aria-label="句读选项"]'));
     const length = element<HTMLSelectElement>('[aria-label="回复长度"]');
     const difficulty = element<HTMLSelectElement>('[aria-label="解读方式"]');
     expect(length.disabled).toBe(false); expect(difficulty.disabled).toBe(false);
@@ -212,11 +213,11 @@ describe("阅读器主页面交互回归", () => {
     await complete(pendingStreams[0]); await selectOriginal(); await click(button("句读一下"));
     expect(pendingStreams[1].payload).toMatchObject({ difficulty: "accessible", detail: "gist" });
     await complete(pendingStreams[1]); await openShelfBook("B");
-    await click(element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'));
+    await click(element<HTMLButtonElement>('[aria-label="句读选项"]'));
     expect(element<HTMLSelectElement>('[aria-label="回复长度"]').value).toBe("standard");
     expect(element<HTMLSelectElement>('[aria-label="解读方式"]').value).toBe("normal");
     await openShelfBook("A");
-    if (!host.querySelector('[aria-label="回复长度"]')) await click(element<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]'));
+    if (!host.querySelector('[aria-label="回复长度"]')) await click(element<HTMLButtonElement>('[aria-label="句读选项"]'));
     expect(element<HTMLSelectElement>('[aria-label="回复长度"]').value).toBe("gist");
     expect(element<HTMLSelectElement>('[aria-label="解读方式"]').value).toBe("accessible");
   });
@@ -642,10 +643,10 @@ it("生成中导入只加入书库，不切换当前书籍或结束生成", asyn
 
 it("句读方式默认细读，可切回原有模式且持久化到下一次选文", async () => {
   await loadA();await selectOriginal();
-  const control=element<HTMLSelectElement>('[aria-label="句读方式"]');expect(control.value).toBe('semantic');
+  await click(element<HTMLButtonElement>('[aria-label="句读选项"]'));const control=element<HTMLSelectElement>('[aria-label="句读方式"]');expect(control.value).toBe('semantic');
   await act(async()=>{control.value='whole';control.dispatchEvent(new Event('change',{bubbles:true}));});
   await click(button('句读一下'));expect(pendingStreams[0].payload.readingStyle).toBe('whole');await complete(pendingStreams[0]);
-  await selectOriginal();expect(element<HTMLSelectElement>('[aria-label="句读方式"]').value).toBe('whole');
+  await selectOriginal();if(!host.querySelector('[aria-label="句读方式"]'))await click(element<HTMLButtonElement>('[aria-label="句读选项"]'));expect(element<HTMLSelectElement>('[aria-label="句读方式"]').value).toBe('whole');
 });
 it("语义结果逐块显示且不由页面重复发布整段标注", async () => {
   await loadA();await selectOriginal();await click(button('句读一下'));

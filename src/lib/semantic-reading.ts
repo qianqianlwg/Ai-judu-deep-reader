@@ -1,3 +1,4 @@
+import {sourceEmphasisSchema,sourceMarkProposalSchema,resolveSourceEmphasis,type SourceEmphasis} from "./source-enhancement";
 import { z } from 'zod';
 import { makeReadingAnchor, readReadingAnchor, splitsReadingCharacter, type ReadingAnchor, type ReadingAnchorPart } from './reading-anchors';
 import type { Analysis } from './chat-stream';
@@ -7,22 +8,23 @@ export type ReadingStyle = 'semantic' | 'whole';
 export const READING_STYLE_KEY = 'judu:reading-style';
 export function readReadingStyle(value: unknown): ReadingStyle { return value === 'whole' ? 'whole' : 'semantic'; }
 export const MAX_SECTION_CHARACTERS = 30000;
-export const SEMANTIC_PROMPT_VERSION = 'semantic-v1-agent-ranges';
+export const SEMANTIC_PROMPT_VERSION = 'semantic-v3-agent-units';
 export type SemanticSource = ReadingAnchorPart;
 export const semanticPlanSchema = z.object({ units: z.array(z.object({
+  sourceEmphasis: z.array(sourceMarkProposalSchema).max(16).optional(),
   label: z.string().trim().min(1).max(80),
   action: z.enum(['read', 'skip']),
-  reason: z.string().trim().max(300).describe('skip 时必须说明无需解释的具体原因；read 可为空'),
+  reason: z.string().trim().max(300).describe('skip 时说明无需解释的原因；read 可为空'),
   endParagraphId: z.string().min(1).optional().describe('推荐：此块终点所在原文段落ID；起点自动沿用上一块终点'),
   endQuote: z.string().min(1).max(240).optional().describe('推荐：块末尾逐字原文，通常8至40字，必须在目标段落剩余部分唯一；不计算偏移'),
   fragments: z.array(z.object({ paragraphId: z.string().min(1), text: z.string().min(1) }).strict()).min(1).max(256).optional().describe('可选的完整逐字片段；与 endParagraphId/endQuote 二选一'),
 }).strict()).min(1).max(128) }).strict();
 export type SemanticPlan = z.infer<typeof semanticPlanSchema>;
-export type SemanticUnit = { id: string; label: string; action: 'read' | 'skip'; reason: string; anchor: ReadingAnchor; status: 'pending' | 'streaming' | 'completed' | 'skipped' | 'error'; content: string; analysis?: Analysis; error?: string; usage?: TokenUsage };
-export type SemanticReading = { version: 1; phase: 'planning' | 'reading' | 'completed' | 'interrupted'; units: SemanticUnit[] };
+export type SemanticUnit = { sourceEmphasis?:SourceEmphasis[]; id: string; label: string; action: 'read' | 'skip'; reason: string; anchor: ReadingAnchor; status: 'pending' | 'streaming' | 'completed' | 'skipped' | 'error'; content: string; analysis?: Analysis; error?: string; usage?: TokenUsage };
+export type SemanticReading = { version: 1; readingStyle?: ReadingStyle; phase: 'planning' | 'reading' | 'completed' | 'interrupted'; units: SemanticUnit[] };
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 export function isSemanticReading(v: unknown): v is SemanticReading {
-  return record(v) && v.version === 1 && ['planning','reading','completed','interrupted'].includes(String(v.phase)) && Array.isArray(v.units) && v.units.length <= 128 && v.units.every(u => record(u) && typeof u.id === 'string' && typeof u.label === 'string' && typeof u.content === 'string' && typeof u.reason === 'string' && ['read','skip'].includes(String(u.action)) && ['pending','streaming','completed','skipped','error'].includes(String(u.status)) && !!readReadingAnchor(u.anchor));
+  return record(v) && v.version === 1 && (v.readingStyle===undefined||v.readingStyle==='semantic'||v.readingStyle==='whole') && ['planning','reading','completed','interrupted'].includes(String(v.phase)) && Array.isArray(v.units) && v.units.length <= 128 && v.units.every(u => record(u) && typeof u.id === 'string' && typeof u.label === 'string' && typeof u.content === 'string' && typeof u.reason === 'string' && (u.sourceEmphasis===undefined||(Array.isArray(u.sourceEmphasis)&&u.sourceEmphasis.every(m=>sourceEmphasisSchema.safeParse(m).success))) && ['read','skip'].includes(String(u.action)) && ['pending','streaming','completed','skipped','error'].includes(String(u.status)) && !!readReadingAnchor(u.anchor));
 }
 
 // WHY：语义边界完全由 Agent 提交；程序仅逐字核验连续覆盖，不预切句子、不猜相似原文。
@@ -59,8 +61,7 @@ export function resolveSemanticPlan(value: unknown, sources: readonly SemanticSo
       if (end === source.selectedText.length) { paragraph++; offset = 0; }
     }
     if (parts.some(p => !p.selectedText.trim())) throw new Error('不能把纯空白作为独立句读片段，请并入相邻原文');
-    if (Array.from(parts.map(p=>p.selectedText).join('\n\n')).length > 3000) throw new Error(`第 ${index + 1} 块超过 3000 字符，请由你按完整语义进一步划分`);
-    return { id: makeId(), label: unit.label, action: unit.action, reason: unit.reason, anchor: makeReadingAnchor(parts), status: unit.action === 'skip' ? 'skipped' : 'pending', content: '' };
+    return { sourceEmphasis:resolveSourceEmphasis(unit.sourceEmphasis??[],parts), id: makeId(), label: unit.label, action: unit.action, reason: unit.reason, anchor: makeReadingAnchor(parts), status: unit.action === 'skip' ? 'skipped' : 'pending', content: '' };
   });
   if (paragraph !== sources.length || offset !== 0) throw new Error('分块未覆盖原文末尾；无需解释的内容也应标为 skip，不能遗漏');
   return units;

@@ -230,3 +230,13 @@ describe("霞鹜文楷字体选项", () => {
     expect(getReadingAppearanceLayoutKey(selected)).not.toBe(getReadingAppearanceLayoutKey(defaults));
   });
 });
+
+it('旧外观静默迁移增强开关，独立持久化且不影响分页键',()=>{
+ const old:Record<string,unknown>={...defaults};delete old.sourceTerms;delete old.sourceSentences;delete old.semanticTerms;delete old.semanticSentences;
+ const parsed=parseReadingAppearance(JSON.stringify(old));expect(parsed.issues).toEqual([]);expect(parsed.preferences).toMatchObject({sourceTerms:false,sourceSentences:false,semanticTerms:true,semanticSentences:true});
+ const enabled={...defaults,sourceTerms:true,sourceSentences:true,semanticTerms:false,semanticSentences:false};
+ expect(parseReadingAppearance(serializeReadingAppearance(enabled)).preferences).toEqual(enabled);
+ expect(getReadingAppearanceLayoutKey(enabled)).toBe(getReadingAppearanceLayoutKey(defaults));
+ expect(getReadingAppearanceVariables(enabled)).toMatchObject({'--reading-source-term-background':'var(--reading-term-background)','--reading-source-sentence-line':'underline','--reading-semantic-term-background':'transparent','--reading-semantic-sentence-line':'none'});
+ expect(normalizeReadingAppearance({...defaults,sourceTerms:'true',semanticTerms:0})).toMatchObject({sourceTerms:false,semanticTerms:true});
+});

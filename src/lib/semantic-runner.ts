@@ -3,14 +3,14 @@ import { semanticSummary, type SemanticReading, type SemanticUnit } from './sema
 import type { Analysis } from './chat-stream';
 import type { TokenUsage } from './token-usage';
 export type SemanticRunnerDependencies = {
- previous?: SemanticReading; signal:AbortSignal; plan:()=>Promise<SemanticUnit[]>;
+ readingStyle?: 'semantic'|'whole'; previous?: SemanticReading; signal:AbortSignal; plan:()=>Promise<SemanticUnit[]>;
  read:(unit:SemanticUnit,onText:(text:string)=>void)=>Promise<{text:string;analysis:Analysis;usage?:TokenUsage}>;
  publish:(state:SemanticReading,content:string)=>void;
  commit:(unit:SemanticUnit,state:SemanticReading)=>void;
 };
 // WHY：把计划/恢复/逐块提交独立于模型和数据库，失败不重跑已完成块，也不把略过算成解释完成。
 export async function runSemanticUnits(d:SemanticRunnerDependencies):Promise<SemanticReading>{
- const state:SemanticReading=d.previous?structuredClone(d.previous):{version:1,phase:'planning',units:[]};
+ const state:SemanticReading=d.previous?structuredClone(d.previous):{version:1,readingStyle:d.readingStyle??'semantic',phase:'planning',units:[]};
  const publish=()=>d.publish(structuredClone(state),semanticSummary(state));
  try {
   if(!state.units.length){state.phase='planning';publish();state.units=await d.plan();d.signal.throwIfAborted();}

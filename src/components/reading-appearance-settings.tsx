@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, type CSSProperties } from "react";
+import { ReadingEnhancementControl } from "./reading-enhancement-control";
 import { ANSWER_EMPHASIS_PALETTES } from "@/lib/answer-emphasis-palette";
 import {
   DEFAULT_READING_APPEARANCE, READING_APPEARANCE_LIMITS, READING_COLUMN_WIDTHS, READING_FONTS,
@@ -102,7 +103,7 @@ export function ReadingAppearanceSettings({ value, onChange, ready = true, disab
       </fieldset>
       <fieldset className={styles.paletteField} disabled={blocked}>
         <legend>句读重点配色</legend>
-        <p className={styles.paletteHint}>只影响右侧回答，不改变原书标亮与书页主题。选择后即时应用。</p>
+        <p className={styles.paletteHint}>用于右侧回答、细分句读和已开启的原文增强；不改变手动标注与书页主题。</p>
         <div className={styles.palettes}>
           {ANSWER_EMPHASIS_PALETTES.map((palette) => <label className={styles.paletteOption} key={palette.id}
             style={getReadingThemeVariables(preferences.theme, palette.id) as CSSProperties}>
@@ -117,6 +118,7 @@ export function ReadingAppearanceSettings({ value, onChange, ready = true, disab
           </label>)}
         </div>
       </fieldset>
+      <ReadingEnhancementControl value={preferences} onChange={update} disabled={blocked}/>
       <div className={styles.layout}>
         <fieldset className={styles.controls} disabled={blocked}>
           <legend>文字与版式</legend>

@@ -18,3 +18,5 @@ it('终点同文不唯一时要求Agent消歧，不猜首个命中',()=>{const s
 it('跨段终点自动生成连续来源，不能漏中间原文',()=>{const sources=[{paragraphId:'p',startOffset:0,endOffset:2,selectedText:'甲。'},{paragraphId:'q',startOffset:0,endOffset:2,selectedText:'乙。'}];expect(resolveSemanticPlan({units:[{label:'甲乙',action:'read',reason:'',endParagraphId:'q',endQuote:'乙。'}]},sources,()=> 'u')[0].anchor.fragments).toHaveLength(2);});
 
 it('停止时只中断活动块，不改变已完成及略过状态',()=>{const units=resolveSemanticPlan({units:[unit('甲的意思。'),unit('乙句。')]},source,()=> 'id');units[0].status='completed';units[1].status='streaming';const saved=interruptSemanticReading({version:1,phase:'reading',units},'已停止');expect(saved?.phase).toBe('interrupted');expect(saved?.units.map(u=>u.status)).toEqual(['completed','error']);expect(units[1].status).toBe('streaming');});
+
+it('历史重点数据格式损坏不进入可渲染结果',async()=>{const {isSemanticReading}=await import('./semantic-reading');const units=resolveSemanticPlan({units:[unit(source[0].selectedText)]},source,()=> 'u');expect(isSemanticReading({version:1,phase:'completed',units})).toBe(true);expect(isSemanticReading({version:1,phase:'completed',units:[{...units[0],sourceEmphasis:'invalid'}]})).toBe(false);});

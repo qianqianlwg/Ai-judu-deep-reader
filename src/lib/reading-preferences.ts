@@ -1,16 +1,16 @@
 import { normalizeReadingDetail, type ReadingDetail } from "./reading-detail";
 
-export const READING_DIFFICULTY_OPTIONS = ["accessible", "normal", "advanced"] as const;
+export const READING_DIFFICULTY_OPTIONS = ["beginner", "accessible", "normal", "advanced"] as const;
 export type ReadingDifficulty = typeof READING_DIFFICULTY_OPTIONS[number];
 export type ReadingPreferences = { difficulty: ReadingDifficulty; detail: ReadingDetail };
 export const DEFAULT_READING_PREFERENCES: ReadingPreferences = { difficulty: "normal", detail: "standard" };
-export const READING_DIFFICULTY_LABELS = { accessible: "通俗", normal: "正常", advanced: "深入" } as const;
+export const READING_DIFFICULTY_LABELS = { beginner: "小白", accessible: "通俗", normal: "正常", advanced: "深入" } as const;
 export function normalizeReadingDifficulty(value: unknown): ReadingDifficulty {
-  return value === "accessible" || value === "advanced" ? value : "normal";
+  return value === "beginner" || value === "accessible" || value === "advanced" ? value : "normal";
 }
 export function readingDifficultyPrompt(value: unknown): string {
   const difficulty = normalizeReadingDifficulty(value);
-  const guidance = { accessible: "面向初学者，用日常语言解释，必要术语随文说明；不假定读者已有背景知识。", normal: "易懂与准确兼顾，保留必要术语。", advanced: "重视概念边界、论证关系与容易混淆的区别，不堆砌专业词。" };
+  const guidance = { beginner: "假设读者没有相关背景。先补齐理解原文所必需的基础常识，解释术语，再用具体例子说明；不幼稚化，不牺牲准确性。", accessible: "使用日常语言解释，减少术语并随文说明；不必从零补齐所有背景。", normal: "易懂与准确兼顾，保留必要术语。", advanced: "重视概念边界、论证关系与容易混淆的区别，不堆砌专业词。" };
   return "当前解读方式：" + READING_DIFFICULTY_LABELS[difficulty] + "。" + guidance[difficulty] + "解读方式与回复长度独立；通俗不等于简短，深入不等于冗长。";
 }
 export function readReadingPreferences(storage: Pick<Storage, "getItem">, bookId: string): ReadingPreferences {

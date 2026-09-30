@@ -28,7 +28,7 @@ it("两种模式尊重试查意图，保持查询简洁与证据边界", () => {
 
 it("方式贯通句读和追问，追问只沿用长度倾向", () => {
   expect(readingSystemPrompt("analyze", "字".repeat(1000), "gist", "accessible")).toContain("回答目标约200字");
-  expect(readingSystemPrompt("analyze", "字".repeat(1000), "gist", "accessible")).toContain("面向初学者");
+  expect(readingSystemPrompt("analyze", "字".repeat(1000), "gist", "accessible")).toContain("使用日常语言解释");
   const chat = readingSystemPrompt("chat", "字".repeat(1000), "expanded", "advanced");
   expect(chat).toContain("概念边界"); expect(chat).toContain("当前回复长度：展开");
   expect(chat).not.toContain("回答目标约");

@@ -79,3 +79,16 @@ it("概念只增加首处黄底，不挖掉首次和重复词的句读下横线"
  expect(document.querySelector('[data-judu-decoration]')?.textContent).toContain('judu-concept){background:#fff0a388;}');
  cleanup();vi.unstubAllGlobals();
 });
+
+it('原文增强两层可独立开关，原书节点及手动标记不受影响',async()=>{
+ const {DEFAULT_READING_APPEARANCE}=await import('./reading-appearance');
+ const text='权责关系。地方政府承担公共服务，并在行政层级之间协调资源和职责。';document.body.innerHTML='<p>'+text+'</p>';const node=document.querySelector('p')!.firstChild;
+ const registry=new Map<string,Range[]>();vi.stubGlobal('CSS',{highlights:registry});vi.stubGlobal('Highlight',class {constructor(...ranges:Range[]){return ranges;}});
+ const maps=mapEpubDocument(document,{id:'c',title:'章',paragraphs:[{id:'p',text}]});
+ const annotations=[{id:'a',paragraphId:'p',startOffset:0,endOffset:2,textHash:'h',threadId:'t',summary:'s',concepts:[],createdAt:'now',kind:'highlight' as const,markColor:'green' as const}];
+ for(const [terms,sentences] of [[true,true],[true,false],[false,true],[false,false]]){
+  const clean=paintEpubAnnotations(document,maps,annotations,[],undefined,undefined,{...DEFAULT_READING_APPEARANCE,sourceTerms:terms,sourceSentences:sentences},[{paragraphId:"p",startOffset:0,endOffset:4,quote:text.slice(0,4),kind:"term"},{paragraphId:"p",startOffset:5,endOffset:text.length,quote:text.slice(5),kind:"key_sentence"}]);
+  expect(Boolean(registry.get('judu-enhance-term')?.length)).toBe(terms);expect(Boolean(registry.get('judu-enhance-sentence')?.length)).toBe(sentences);expect(registry.get('judu-green')?.[0].toString()).toBe('权责');expect(document.querySelector('p')!.firstChild).toBe(node);expect(document.querySelector('p')!.textContent).toBe(text);clean();expect(registry.size).toBe(0);
+ }
+ vi.unstubAllGlobals();
+});

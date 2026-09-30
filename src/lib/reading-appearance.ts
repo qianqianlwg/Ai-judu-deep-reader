@@ -15,6 +15,10 @@ export interface ReadingAppearancePreferences {
   version: 1;
   theme: ReadingThemeId;
   emphasisPalette: AnswerEmphasisPaletteId;
+  sourceTerms: boolean;
+  sourceSentences: boolean;
+  semanticTerms: boolean;
+  semanticSentences: boolean;
   font: ReadingFontId;
   fontSize: number;
   lineHeight: number;
@@ -30,6 +34,7 @@ export interface ReadingAppearancePreferences {
 export const DEFAULT_READING_APPEARANCE: Readonly<ReadingAppearancePreferences> = Object.freeze({
   version: 1, theme: "gray", emphasisPalette: DEFAULT_ANSWER_EMPHASIS_PALETTE, font: "song", fontSize: 16, lineHeight: 2,
   letterSpacing: 0, columnWidth: 650, textAlign: "left", language: "zh-CN",
+  sourceTerms: false, sourceSentences: false, semanticTerms: true, semanticSentences: true,
   originalBodyFontOverride: false, showAnalysisHints: true, analysisHintOpacity: 0.25,
 });
 export const READING_APPEARANCE_LIMITS = Object.freeze({
@@ -101,6 +106,10 @@ export function normalizeReadingAppearance(value: unknown): ReadingAppearancePre
     version: 1,
     theme: READING_THEMES.find((theme) => theme.id === item.theme)?.id ?? DEFAULT_READING_APPEARANCE.theme,
     emphasisPalette: isAnswerEmphasisPaletteId(item.emphasisPalette) ? item.emphasisPalette : DEFAULT_ANSWER_EMPHASIS_PALETTE,
+    sourceTerms: typeof item.sourceTerms === "boolean" ? item.sourceTerms : DEFAULT_READING_APPEARANCE.sourceTerms,
+    sourceSentences: typeof item.sourceSentences === "boolean" ? item.sourceSentences : DEFAULT_READING_APPEARANCE.sourceSentences,
+    semanticTerms: typeof item.semanticTerms === "boolean" ? item.semanticTerms : DEFAULT_READING_APPEARANCE.semanticTerms,
+    semanticSentences: typeof item.semanticSentences === "boolean" ? item.semanticSentences : DEFAULT_READING_APPEARANCE.semanticSentences,
     font: READING_FONTS.find((font) => font.id === item.font)?.id ?? DEFAULT_READING_APPEARANCE.font,
     fontSize: numeric(item.fontSize, "fontSize"), lineHeight: numeric(item.lineHeight, "lineHeight"),
     letterSpacing: numeric(item.letterSpacing, "letterSpacing"),
@@ -115,7 +124,7 @@ export function normalizeReadingAppearance(value: unknown): ReadingAppearancePre
 export function isReadingAppearance(value: unknown): value is ReadingAppearancePreferences {
   const item = record(value);
   const normalized = normalizeReadingAppearance(value);
-  const keys = ["version", "theme", "emphasisPalette", "font", "fontSize", "lineHeight", "letterSpacing", "columnWidth", "textAlign", "language", "originalBodyFontOverride", "showAnalysisHints", "analysisHintOpacity"];
+  const keys = ["sourceTerms", "sourceSentences", "semanticTerms", "semanticSentences", "version", "theme", "emphasisPalette", "font", "fontSize", "lineHeight", "letterSpacing", "columnWidth", "textAlign", "language", "originalBodyFontOverride", "showAnalysisHints", "analysisHintOpacity"];
   return Object.keys(item).every((key) => keys.includes(key)) && keys.every((key) => item[key] === normalized[key as keyof ReadingAppearancePreferences]);
 }
 export interface LegacyReadingAppearance { theme?: string | null; fontScale?: string | null }
@@ -146,8 +155,8 @@ export function parseReadingAppearance(raw: string | null, legacy: LegacyReading
       } else {
         const preferences = normalizeReadingAppearance({ ...migrateReadingAppearance(legacy), ...item });
         const corrected = !isReadingAppearance(parsed);
-        // WHY：旧版完整偏好仅缺新增的重点色字段，自动迁移而不误报损坏；其余缺失或非法字段仍告知用户。
-        const paletteOnlyMigration = item.emphasisPalette === undefined && isReadingAppearance({ ...item, emphasisPalette: DEFAULT_ANSWER_EMPHASIS_PALETTE });
+        // WHY：旧版完整偏好缺新增的配色或增强字段，自动迁移而不误报损坏；其余缺失或非法字段仍告知用户。
+        const paletteOnlyMigration = isReadingAppearance({ sourceTerms: false, sourceSentences: false, semanticTerms: true, semanticSentences: true, emphasisPalette: DEFAULT_ANSWER_EMPHASIS_PALETTE, ...item });
         if (corrected && !paletteOnlyMigration) issues.push("阅读外观包含缺失或非法值，已补全并校正到可用范围。");
         return { preferences, source: "stored", needsMigration: corrected, issues };
       }
@@ -222,6 +231,10 @@ export function getReadingAppearanceVariables(value: ReadingAppearancePreference
   const preferences = normalizeReadingAppearance(value);
   const style = getReadingTextStyle(preferences);
   return { ...getReadingThemeVariables(preferences.theme, preferences.emphasisPalette),
+    "--reading-source-term-background": preferences.sourceTerms ? "var(--reading-term-background)" : "transparent",
+    "--reading-source-sentence-line": preferences.sourceSentences ? "underline" : "none",
+    "--reading-semantic-term-background": preferences.semanticTerms ? "var(--reading-term-background)" : "transparent",
+    "--reading-semantic-sentence-line": preferences.semanticSentences ? "underline" : "none",
     "--reading-font-family": String(style.fontFamily), "--reading-font-size": String(style.fontSize),
     "--reading-line-height": String(style.lineHeight), "--reading-letter-spacing": String(style.letterSpacing),
     "--reading-column-width": String(style.maxWidth), "--reading-text-align": String(style.textAlign),
@@ -234,6 +247,7 @@ export function getReadingAppearanceLayoutKey(value: ReadingAppearancePreference
   const layout: Partial<ReadingAppearancePreferences> = { ...normalizeReadingAppearance(value) };
   delete layout.theme;
   delete layout.emphasisPalette;
+  delete layout.sourceTerms; delete layout.sourceSentences; delete layout.semanticTerms; delete layout.semanticSentences;
   // WHY：换色不影响分页；所有影响字形/换行的值必须触发重新测量，不能只依赖字号。
   return JSON.stringify(layout);
 }

@@ -5,10 +5,10 @@ import type {ReadingSelection} from '@/lib/reader-selection';
 import type {EpubInteractionDocument} from './epub-interaction-layer';
 import {epubRectToHost,clipReaderRect} from '@/lib/reader-interactions';
 import {SectionReadingAction} from './section-reading-action';
-type Props={host:RefObject<HTMLDivElement|null>;documents:readonly EpubInteractionDocument[];book:LibraryBookContent;changes:EventTarget;disabled?:boolean;onStart:(selection:ReadingSelection,chapterId:string)=>void;onOpenExisting?:(chapterId:string)=>undefined|(()=>void)};
+type Props={readingStyle?:'semantic'|'whole';host:RefObject<HTMLDivElement|null>;documents:readonly EpubInteractionDocument[];book:LibraryBookContent;changes:EventTarget;disabled?:boolean;onStart:(selection:ReadingSelection,chapterId:string)=>void;onOpenExisting?:(chapterId:string)=>undefined|(()=>void)};
 type Positioned={chapter:LibraryChapter;left:number;top:number};
 // WHY：标题入口在应用覆盖层定位；不向原书插入节点，不改写 CFI、分页或 shadow root。
-export function EpubSectionActions({host,documents,book,changes,disabled,onStart,onOpenExisting}:Props){
+export function EpubSectionActions({readingStyle,host,documents,book,changes,disabled,onStart,onOpenExisting}:Props){
  const [positions,setPositions]=useState<Positioned[]>([]);
  useEffect(()=>{let frame=0;
   const update=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
@@ -29,5 +29,5 @@ export function EpubSectionActions({host,documents,book,changes,disabled,onStart
   const observer=typeof ResizeObserver==='undefined'?undefined:new ResizeObserver(update);if(host.current)observer?.observe(host.current);
   return()=>{cancelAnimationFrame(frame);changes.removeEventListener('relocate',update);window.removeEventListener('resize',update);observer?.disconnect();};
  },[host,documents,book,changes]);
- return <>{positions.map(item=><SectionReadingAction key={item.chapter.id} chapter={item.chapter} disabled={disabled} className='epub-section-action' style={{left:item.left,top:item.top}} onStart={onStart} onOpenExisting={onOpenExisting?.(item.chapter.id)}/>)}</>;
+ return <>{positions.map(item=><SectionReadingAction readingStyle={readingStyle} key={item.chapter.id} chapter={item.chapter} disabled={disabled} className='epub-section-action' style={{left:item.left,top:item.top}} onStart={onStart} onOpenExisting={onOpenExisting?.(item.chapter.id)}/>)}</>;
 }

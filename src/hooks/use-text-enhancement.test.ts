@@ -1,0 +1,12 @@
+// @vitest-environment jsdom
+import {afterEach,expect,it,vi} from 'vitest';
+import {paintTextEnhancement} from './use-text-enhancement';
+const text='权责关系。地方政府承担公共服务，并在行政层级之间协调资源和职责。';
+const marks=[{paragraphId:'p',startOffset:0,endOffset:4,quote:'权责关系',kind:'term' as const},{paragraphId:'p',startOffset:5,endOffset:text.length,quote:text.slice(5),kind:'key_sentence' as const}];
+const registry=new Map<string,Range[]>();
+function setup(start=0){vi.stubGlobal('CSS',{highlights:registry});vi.stubGlobal('Highlight',class{constructor(...ranges:Range[]){return ranges;}});const root=document.createElement('div');root.innerHTML='<p data-paragraph-id="p" data-source-start="'+start+'" data-source-end="'+text.length+'"><span data-reader-text></span><span data-reader-decoration>历史</span></p>';root.querySelector('[data-reader-text]')!.textContent=text.slice(start);document.body.append(root);return root;}
+afterEach(()=>{vi.unstubAllGlobals();document.body.innerHTML='';registry.clear();document.getSelection()?.removeAllRanges();});
+it('两层独立开关和清理都不改变原生选区、文本节点及其它高亮',()=>{const root=setup(),node=root.querySelector('[data-reader-text]')!.firstChild!,selection=document.getSelection()!;selection.setBaseAndExtent(node,2,node,12);const original=selection.toString();registry.set('manual',[]);for(const [terms,sentences] of [[true,true],[false,true],[true,false],[false,false]]){const clean=paintTextEnhancement(root,[{id:'p',text}],terms,sentences,marks);expect(Boolean(registry.get('judu-source-term')?.length)).toBe(terms);expect(Boolean(registry.get('judu-source-sentence')?.length)).toBe(sentences);expect(selection.toString()).toBe(original);expect(root.querySelector('[data-reader-text]')!.firstChild).toBe(node);clean();expect(registry.has('manual')).toBe(true);}});
+it('分页片段使用完整原段落坐标，不把历史装饰计入偏移',()=>{const root=setup(10),clean=paintTextEnhancement(root,[{id:'p',text}],true,true,marks);expect(registry.get('judu-source-sentence')?.map(r=>r.toString()).join('')).toBe(text.slice(10));clean();});
+it('概念重绘后重建Range，无法核验的DOM不标',async()=>{const root=setup(),clean=paintTextEnhancement(root,[{id:'p',text}],true,true,marks);root.querySelector('[data-reader-text]')!.textContent='不匹配原文';await Promise.resolve();expect(registry.get('judu-source-term')).toEqual([]);expect(registry.get('judu-source-sentence')).toEqual([]);clean();});
+it('缺Highlight能力安全退化，不替换原文',()=>{const root=setup();vi.stubGlobal('CSS',{});const before=root.innerHTML;paintTextEnhancement(root,[{id:'p',text}],true,true)();expect(root.innerHTML).toBe(before);});

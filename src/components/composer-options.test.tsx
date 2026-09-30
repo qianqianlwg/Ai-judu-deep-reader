@@ -58,25 +58,7 @@ describe("聊天输入框选项", () => {
   });
 });
 
-it("加号菜单提供三种方式和五档长度，生成中可调整下一轮", async () => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  const container = document.createElement("div"), app = createRoot(container);
-  const change = vi.fn();
-  try {
-    await act(() => app.render(<ComposerOptions disabled readingPreferences={{ difficulty: "normal", detail: "standard" }} onReadingPreferencesChange={change} />));
-    await act(() => container.querySelector<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]')!.click());
-    const difficulty = container.querySelector<HTMLSelectElement>('[aria-label="解读方式"]')!;
-    const length = container.querySelector<HTMLSelectElement>('[aria-label="回复长度"]')!;
-    expect(difficulty.options).toHaveLength(3); expect(length.options).toHaveLength(5);
-    expect(difficulty.disabled).toBe(false); expect(length.disabled).toBe(false);
-    await act(() => { length.value = "gist"; length.dispatchEvent(new Event("change", { bubbles: true })); });
-    expect(change).toHaveBeenLastCalledWith({ difficulty: "normal", detail: "gist" });
-    await act(() => app.render(<ComposerOptions disabled readingPreferences={{ difficulty: "normal", detail: "gist" }} onReadingPreferencesChange={change} />));
-    await act(() => { difficulty.value = "accessible"; difficulty.dispatchEvent(new Event("change", { bubbles: true })); });
-    expect(change).toHaveBeenLastCalledWith({ difficulty: "accessible", detail: "gist" });
-    expect(container.textContent).toContain("下次回复生效");
-  } finally { await act(() => app.unmount()); }
-});
+it("加号菜单不再重复提供已迁移的解读设置",async()=>{await act(async()=>root.render(<ComposerOptions readingPreferences={{difficulty:'normal',detail:'standard'}} onReadingPreferencesChange={()=>{}}/>));await clickLabel('打开插件和引用菜单');expect(host.querySelector('[aria-label="解读方式"]')).toBeNull();expect(host.querySelector('[aria-label="回复长度"]')).toBeNull();});
 
 it("生成中可以调整下一轮模型，提示设置不影响当前轮", async () => {
   const onModelChange = vi.fn();

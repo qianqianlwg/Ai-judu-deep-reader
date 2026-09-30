@@ -1,5 +1,4 @@
 "use client";
-import {ReadingStyleControl} from './reading-style-control';
 import type {ReadingStyle} from '@/lib/semantic-reading';
 import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { countReadingCharacters, MAX_READING_SELECTION } from "@/lib/reading-detail";
@@ -8,7 +7,7 @@ import { SpeechButton } from "./speech-controls";
 import "./selection-actions.css";
 const COLORS = [{id:"yellow",label:"黄色"},{id:"green",label:"绿色"},{id:"blue",label:"蓝色"},{id:"pink",label:"粉色"},{id:"orange",label:"橙色"}] as const;
 export type SelectionActionsProps = { readingStyle?:ReadingStyle; onReadingStyleChange?:(v:ReadingStyle)=>void; left:number; top:number; disabled?:boolean; speechDisabled?:boolean; analyzeDisabled?:boolean; reason?:string; selectedText?:string; paragraphCount?:number; onExtend?:()=>void; onClose?:()=>void; onAnalyze:()=>void; onHighlight:(color:ReadingMarkColor)=>void; onFavorite:()=>void; onNote:(text:string)=>void };
-export function SelectionActions({readingStyle="semantic",onReadingStyleChange,left,top,disabled=false,speechDisabled=disabled,analyzeDisabled=false,reason,selectedText,paragraphCount=1,onExtend,onClose,onAnalyze,onHighlight,onFavorite,onNote}:SelectionActionsProps){
+export function SelectionActions({left,top,disabled=false,speechDisabled=disabled,analyzeDisabled=false,reason,selectedText,paragraphCount=1,onExtend,onClose,onAnalyze,onHighlight,onFavorite,onNote}:SelectionActionsProps){
   const ref=useRef<HTMLDivElement>(null), [noteOpen,setNoteOpen]=useState(false), [draft,setDraft]=useState("");
   useLayoutEffect(()=>{
     const fit=()=>{const el=ref.current;if(!el)return;const width=el.getBoundingClientRect().width,height=el.getBoundingClientRect().height;
@@ -20,7 +19,6 @@ export function SelectionActions({readingStyle="semantic",onReadingStyleChange,l
   // WHY：生成锁住再次句读和标注，但朗读只消费当前选文，不会改写生成请求快照。
   return <div ref={ref} className="selection-actions-popover" role="toolbar" aria-label="选中文本操作" data-reader-decoration="" onMouseUp={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key==="Escape")onClose?.();}}>
     {selectedText && <details className="selection-preview"><summary>已选 {countReadingCharacters(selectedText)} / {MAX_READING_SELECTION} 字符 · {paragraphCount} 段</summary><blockquote>{selectedText}</blockquote></details>}
-    {onReadingStyleChange&&<div className="selection-mode-row"><ReadingStyleControl value={readingStyle} onChange={onReadingStyleChange}/><span>{readingStyle==="semantic"?"Agent 按完整意思分块，直白内容可略过":"对整段选文统一释读"}</span></div>}
     <div className="selection-primary-actions">
       <div className="selection-colors" aria-label="标注颜色">{COLORS.map(color=><button type="button" key={color.id} className={"selection-color selection-color-"+color.id} disabled={disabled} aria-label={color.label+"标亮"} title={color.label+"标亮"} onClick={()=>onHighlight(color.id)}/>)}</div>
       <button type="button" disabled={disabled||analyzeDisabled} title={reason} onClick={onAnalyze}>句读一下</button>
