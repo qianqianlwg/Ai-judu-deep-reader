@@ -6,6 +6,7 @@ import type { StructuredCompressionState } from "../context-compaction";
 import type { SummaryInput } from "../context-memory";
 import { estimateTextTokens, accumulateUsage, estimatedUsage, type TokenUsage } from "../token-usage";
 import { createReadingModel } from "./model";
+import { namedToolChoice, TOOL_NAMES } from "./tool-choice";
 
 export const memorySchema = z.object({
   task:z.string().max(2000),constraints:z.array(z.string().max(1500)).max(32),decisions:z.array(z.string().max(1500)).max(32),
@@ -27,8 +28,8 @@ export function createContextSummarizer(config:ProviderConfig,onUsage?:(usage:To
       const validated={...state,evidence:state.evidence.filter(item=>{const ids=[...item.matchAll(/book:[A-Za-z0-9:_-]+?:paragraph:[A-Za-z0-9:_-]+/gu)].map(match=>match[0]);return ids.length>0 && ids.every(id=>knownIds.has(id));})};
       if(validated.evidence.length!==state.evidence.length)console.warn("阅读记忆省略了未在历史资料中出现的来源标识");
       return validated;
-    },{name:"compress_reading_context",description:"保存本批中文阅读记忆；各字段总长度应符合摘要目标Token。",schema:memorySchema});
-    const bound=model.bindTools([save],{tool_choice:"compress_reading_context"});
+    },{name:TOOL_NAMES.compressReadingContext,description:"保存本批中文阅读记忆；各字段总长度应符合摘要目标Token。",schema:memorySchema});
+    const bound=model.bindTools([save],namedToolChoice(TOOL_NAMES.compressReadingContext));
     let combined:AIMessageChunk|undefined, finish:unknown;
     const settleUsage=()=>{
       const measured=combined?.usage_metadata;
@@ -48,7 +49,7 @@ export function createContextSummarizer(config:ProviderConfig,onUsage?:(usage:To
     } finally { settleUsage(); }
     const reason=finish??combined?.additional_kwargs.stop_reason??combined?.response_metadata.stop_reason;
     if(!reason || reason==="length" || reason==="max_tokens")throw new Error("记忆整理未完成，保留上一个检查点供重试");
-    const call=combined?.tool_calls?.find(call=>call.name==="compress_reading_context");
+    const call=combined?.tool_calls?.find(call=>call.name===TOOL_NAMES.compressReadingContext);
     if(!call)throw new Error("模型未调用阅读记忆工具");
     const argumentsValue:unknown=call.args;
     const state=memorySchema.parse(await save.invoke(memorySchema.parse(argumentsValue)));

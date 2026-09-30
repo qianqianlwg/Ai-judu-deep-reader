@@ -11,14 +11,15 @@ import { readingDetailSpec } from '../reading-detail';
 import { readingDifficultyPrompt } from '../reading-preferences';
 import { SemanticPlanError } from '../semantic-plan-input';
 import type { ToolRun } from './runtime';
+import { namedToolChoice, TOOL_NAMES } from './tool-choice';
 
-export const SENTENCE_TOOL='submit_reading_sentence';
+export const SENTENCE_TOOL=TOOL_NAMES.submitReadingSentence;
 export const SENTENCE_DESCRIPTION='提交当前一句的完整句读及原文标注。一次只提交一句，按顺序连续覆盖所有原文，不跳过、不重复、不改写。所有字段必填，没有概念或重点明确填“无”。原文首尾各取5个字符，不足5字用全文。程序在剩余原文中找到最近的结尾，不能用首尾相同片段代表更长范围。来源、格式或标注核验失败时，按照错误反馈修正当前句，不重新生成已完成句。';
 export type SentenceStep={chunk:AIMessageChunk;usage:TokenUsage};
 export type IncrementalOptions={config:ProviderConfig;sources:SemanticSource[];context:string;messages:ProviderMessage[];readingStyle?:ReadingStyle;detail:string;difficulty:string;previous?:SemanticReading;signal:AbortSignal;contextWindow:number;onUsage:(u:TokenUsage)=>void;publish:(s:SemanticReading,c:string)=>void;commit:(u:SemanticUnit,s:SemanticReading)=>void;audit:(r:ToolRun)=>Promise<void>;step:(messages:BaseMessageLike[],onStart:()=>void)=>Promise<SentenceStep>};
 export async function streamSentence(config:ProviderConfig,messages:BaseMessageLike[],signal:AbortSignal,contextWindow:number,onStart:()=>void):Promise<SentenceStep>{
   const submit=tool(async value=>value,{name:SENTENCE_TOOL,description:SENTENCE_DESCRIPTION,schema:semanticSubmissionSchema});
-  const bound=createReadingModel(config).bindTools([submit],{tool_choice:SENTENCE_TOOL});
+  const bound=createReadingModel(config).bindTools([submit],namedToolChoice(SENTENCE_TOOL));
   let combined:AIMessageChunk|undefined,finish:unknown,started=false;
   const stream=await bound.stream(messages,{signal,callbacks:[{handleLLMEnd(result){finish=result.generations[0]?.[0]?.generationInfo?.finish_reason;}}]});
   for await(const chunk of stream){

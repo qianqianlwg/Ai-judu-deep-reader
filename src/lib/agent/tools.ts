@@ -5,6 +5,7 @@ import type { Analysis } from "../chat-stream";
 import { EMPTY_ANSWER_EMPHASIS, validateAnswerEmphasis, type AnswerEmphasis } from "../answer-emphasis";
 import { anchorParts, type ReadingAnchor } from "../reading-anchors";
 import { readSourceSchema, saveAnalysisSchema, searchBookSchema, markAnswerEmphasisSchema, type ReadSourceInput, type SearchBookInput } from "./schemas";
+import { TOOL_NAMES } from "./tool-choice";
 
 export type BookSource = { sourceId: string; paragraphId: string; chapterId: string; chapterTitle: string; text: string; channels?: ("keyword" | "semantic")[]; excerpts?: string[]; origin?: "context" | "search" | "read"; evidence?: { text: string; origin: "context" | "search" | "read" }[] };
 export type SavedReadingAnalysis = Analysis & { anchor?: ReadingAnchor; emphasis: AnswerEmphasis; emphasisSource: "agent" };
@@ -38,12 +39,12 @@ export function createReadingTools(deps: ReadingToolDependencies) {
       if (Array.isArray(result)) return register(result, "search");
       const registered = register(result.sources, "search");
       return { ...registered, ok: result.retrieval.effectiveMode !== "none", retrieval: result.retrieval };
-    }, { name: "search_book", description: "按需检索当前书籍：支持并行关键词、语义和最多两个补充查询，返回真实原文、来源及每路耗时/降级情况。需要书内事实、其他章节或证据时主动使用；已有上下文足够时不必检索。不能建索引或访问其他书籍。", schema: searchBookSchema }),
+    }, { name: TOOL_NAMES.searchBook, description: "按需检索当前书籍：支持并行关键词、语义和最多两个补充查询，返回真实原文、来源及每路耗时/降级情况。需要书内事实、其他章节或证据时主动使用；已有上下文足够时不必检索。不能建索引或访问其他书籍。", schema: searchBookSchema }),
     tool(async (input) => {
       // WHY：只允许扩展本轮已经真实提供的来源，不准用模型猜出的 ID 读取其他版本。
       if (!deps.sources.has(input.sourceId)) return { ok: false, code: "unknown_source", error: "来源未在本轮检索中出现，请先调用 search_book" };
       return register(await deps.read(input), "read");
-    }, { name: "read_source", description: "读取已检索来源及相邻段落，理解前后文。不能读取其他书籍或任意 ID。", schema: readSourceSchema }),
+    }, { name: TOOL_NAMES.readSource, description: "读取已检索来源及相邻段落，理解前后文。不能读取其他书籍或任意 ID。", schema: readSourceSchema }),
     tool(async (input) => {
       if (!deps.selectedText.trim()) return { ok: false, code: "missing_selection", error: "本轮没有选文，不能保存句读。请自然回答用户。" };
       const concepts = input.concepts === "无" ? [] : input.concepts;
@@ -67,7 +68,7 @@ export function createReadingTools(deps: ReadingToolDependencies) {
       // WHY：消息、版本和原文锚点由服务器绑定；模型只能填写分析内容，不能指定保存到其他消息。
       await deps.save(analysis);
       return { ok: true, analysisId: deps.messageId, saved: true, locationAvailable: Boolean(deps.anchor), result: analysis };
-    }, { name: "save_reading_analysis", description: "保存选文的结构化句读和概念。concepts 是必填字段：有核心概念时填写名称及本段定义；没有时填写字符串‘无’，不可省略。emphasis 同样必填：填写本轮可见回答中精确出现的少量关键词和一条完整关键句；确实没有时填写字符串‘无’。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮已提供的选文/邻段或 search_book/read_source 真实来源。先输出完整释读再保存；若先保存且尚无正文，则随后输出正文，已有正文不重复。", schema: saveAnalysisSchema }),
+    }, { name: TOOL_NAMES.saveReadingAnalysis, description: "保存选文的结构化句读和概念。concepts 是必填字段：有核心概念时填写名称及本段定义；没有时填写字符串‘无’，不可省略。emphasis 同样必填：填写本轮可见回答中精确出现的少量关键词和一条完整关键句；确实没有时填写字符串‘无’。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮已提供的选文/邻段或 search_book/read_source 真实来源。先输出完整释读再保存；若先保存且尚无正文，则随后输出正文，已有正文不重复。", schema: saveAnalysisSchema }),
     tool(async (input) => {
       const answer = deps.getVisibleAnswer?.() ?? "";
       if (!answer.trim() || !deps.saveEmphasis) return { ok: false, code: "answer_unavailable", error: "需要先完整输出本轮正文，才能标注重点" };
@@ -78,6 +79,6 @@ export function createReadingTools(deps: ReadingToolDependencies) {
       }
       await deps.saveEmphasis(verified);
       return { ok: true, marked: verified.marks.length };
-    }, { name: "mark_answer_emphasis", description: "普通追问必用：完整回答后提交必填 emphasis，填写正文中的 1-3 个完整关键词和最多 1 条完整关键句；确实没有时填写字符串‘无’，不可省略或传空数组。只提交精确文本及出现次数；不指定颜色、不改写正文。已标注后不要再输出重复回答。", schema: markAnswerEmphasisSchema }),
+    }, { name: TOOL_NAMES.markAnswerEmphasis, description: "普通追问必用：完整回答后提交必填 emphasis，填写正文中的 1-3 个完整关键词和最多 1 条完整关键句；确实没有时填写字符串‘无’，不可省略或传空数组。只提交精确文本及出现次数；不指定颜色、不改写正文。已标注后不要再输出重复回答。", schema: markAnswerEmphasisSchema }),
   ] as const;
 }
