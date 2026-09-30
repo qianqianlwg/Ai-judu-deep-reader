@@ -357,7 +357,7 @@ describe("首次上下文快照：持久化、刷新和重试", () => {
     expect(firstBody).toContain("精神现象学");
     expect(firstBody).toContain("承认关系");
     expect(firstBody).toContain("首次提交的前后文");
-    expect(JSON.parse(firstBody).max_tokens).toBe(8192);
+    expect(JSON.parse(firstBody).max_tokens).toBeUndefined();
     expect(stored()._request.contextSnapshot).toEqual(firstMeta.contextSnapshot);
     expect(stored()._request.fingerprint).toBe(firstMeta.fingerprint);
     expect(count()).toBe(2);
@@ -391,7 +391,7 @@ describe("首次上下文快照：持久化、刷新和重试", () => {
       const body = String(fetcher.mock.calls[0][1]?.body);
       expect(body).toContain("首次提交的前后文");
       expect(body).not.toContain("保存配置后不同的上下文");
-      expect(JSON.parse(body).max_tokens).toBe(8192);
+      expect(JSON.parse(body).max_tokens).toBeUndefined();
     } finally { vi.unstubAllEnvs(); }
   });
   it("没有旧快照的记录仍沿用原指纹和 ID，兼容快照只补录一次", async () => {
@@ -423,7 +423,7 @@ describe("首次上下文快照：持久化、刷新和重试", () => {
 });
 
 describe("显式更新预算的原位重试",()=>{
-  it("调整执行预算不改变首次上下文和原消息身份",async()=>{fetcher.mockResolvedValueOnce(new Response("失败",{status:503}));await call({contextSettings:{maxInputTokens:4096,maxOutputTokens:1024,compressionStrategy:"balanced"}});const original=stored()._request.contextSnapshot;const first=JSON.parse(String(fetcher.mock.calls[0][1]?.body));expect(first.max_tokens).toBe(1024);await call({retryContextSettings:{maxInputTokens:8192,maxOutputTokens:2048}});expect(row().status).toBe("completed");expect(count()).toBe(2);expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body)).max_tokens).toBe(2048);expect(stored()._request.contextSnapshot).toEqual(original);expect(stored()._request).toMatchObject({executionSettings:{maxInputTokens:8192,maxOutputTokens:2048}});});
+  it("调整执行预算不改变首次上下文和原消息身份",async()=>{fetcher.mockResolvedValueOnce(new Response("失败",{status:503}));await call({contextSettings:{maxInputTokens:4096,maxOutputTokens:1024,compressionStrategy:"balanced"}});const original=stored()._request.contextSnapshot;const first=JSON.parse(String(fetcher.mock.calls[0][1]?.body));expect(first.max_tokens).toBeUndefined();await call({retryContextSettings:{maxInputTokens:8192,maxOutputTokens:2048}});expect(row().status).toBe("completed");expect(count()).toBe(2);expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body)).max_tokens).toBeUndefined();expect(stored()._request.contextSnapshot).toEqual(original);expect(stored()._request).toMatchObject({executionSettings:{maxInputTokens:8192,maxOutputTokens:2048}});});
   it("固定原文超预算后，提高预算可以在同一消息继续",async()=>{const first={context:"需要保留的原文".repeat(1500),contextSettings:{maxInputTokens:4096,maxOutputTokens:1024,compressionStrategy:"balanced"}};expect((await call(first)).text).toContain("context_limit");expect(fetcher).not.toHaveBeenCalled();expect((await call({contextSettings:{maxInputTokens:1000000,maxOutputTokens:2048}})).text).toContain("context_limit");expect((await call({retryContextSettings:{maxInputTokens:131072,maxOutputTokens:2048}})).text).toContain("event: done");expect(count()).toBe(2);expect(stored()._request.contextSnapshot?.context).toBe(first.context);});
   it("首次请求及非法预算不接受重试覆盖",async()=>{expect((await call({retryContextSettings:{maxInputTokens:8192,maxOutputTokens:2048}})).status).toBe(400);expect(count()).toBe(0);expect((await call({retryContextSettings:{maxInputTokens:NaN,maxOutputTokens:2048}})).status).toBe(400);});
 });

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import {describe,expect,it} from 'vitest';
+import {describe,expect,it,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {SemanticReadingResult} from './semantic-reading-result';
 import type {SemanticUnit} from '@/lib/semantic-reading';
@@ -8,3 +8,9 @@ describe('语义结果展示',()=>{it('显示独立定位与范围',()=>{const h
 
 it('细读规划失败不把历史句读线误称为本次进度',()=>{const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'interrupted',units:[]}}/>);expect(html).toContain('本次细读尚未生成');expect(html).toContain('已有句读线属于历史记录');expect(html).not.toContain('进度已保留');});
 it('细分释读保留词句增强，来源保持字面且也能增强',()=>{const content='权责关系。地方政府承担公共服务，并在行政层级之间协调资源和职责。';const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',units:[{...unit,content,analysis:{emphasisSource:'agent',summary:'',breakdown:[],concepts:[],context:'',uncertainty:'',emphasis:{version:1,marks:[{kind:'term',quote:'权责关系',occurrence:1},{kind:'key_sentence',quote:content.slice(5),occurrence:1}]}},sourceEmphasis:[{paragraphId:'p',startOffset:0,endOffset:4,quote:content.slice(0,4),kind:'term'},{paragraphId:'p',startOffset:5,endOffset:content.length,quote:content.slice(5),kind:'key_sentence'}],anchor:{paragraphId:'p',startOffset:0,endOffset:content.length,selectedText:content}}]}}/>);expect(html).toContain('data-answer-emphasis="term"');expect(html).toContain('data-answer-emphasis="key_sentence"');expect(html).toContain('data-source-emphasis="term"');expect(html).toContain('data-source-emphasis="key_sentence"');});
+
+it('进度条按10+90字数比例显示，当前句只有占位而没有伪来源',()=>{const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'reading',thinkingCompleted:true,title:'Agent总标题',totalCharacters:4,units:[unit],pending:{index:2}}}/>);expect(html).toContain('value="55"');expect(html).toContain('Agent总标题');expect(html).toContain('semantic-skeleton');expect(html).toContain('正在句读第2句');expect(html).not.toContain('data-message-id="2"');});
+
+import {act} from 'react';
+import {createRoot} from 'react-dom/client';
+it('整组列表可折叠，后续句读更新不强制重新展开',async()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const host=document.createElement('div'),root=createRoot(host);document.body.append(host);try{await act(async()=>root.render(<SemanticReadingResult state={{version:1,phase:'reading',title:'商品两重性',units:[unit]}}/>));const list=host.querySelector<HTMLDetailsElement>('.semantic-list')!;await act(async()=>{list.open=false;list.dispatchEvent(new Event('toggle'));});await act(async()=>root.render(<SemanticReadingResult state={{version:1,phase:'completed',title:'商品两重性',units:[unit,{...unit,id:'v'}]}}/>));expect(list.open).toBe(false);}finally{await act(async()=>root.unmount());host.remove();vi.unstubAllGlobals();}});

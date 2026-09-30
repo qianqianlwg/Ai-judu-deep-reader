@@ -10,13 +10,20 @@ export function resolveSourceEmphasis(proposals:readonly z.infer<typeof sourceMa
  for(const mark of proposals){const source=sources.find(p=>p.paragraphId===mark.paragraphId);if(!source)continue;let from=0,at=-1;for(let n=0;n<mark.occurrence;n++){at=source.selectedText.indexOf(mark.quote,from);if(at<0)break;from=at+mark.quote.length;}if(at<0)continue;
   if(splitsReadingCharacter(source.selectedText,at)||splitsReadingCharacter(source.selectedText,at+mark.quote.length))continue;
   const startOffset=source.startOffset+at,endOffset=startOffset+mark.quote.length;
-  if(result.some(r=>r.paragraphId===mark.paragraphId&&startOffset<r.endOffset&&endOffset>r.startOffset))continue;
+  if(result.some(r=>r.paragraphId===mark.paragraphId&&r.kind===mark.kind&&startOffset<r.endOffset&&endOffset>r.startOffset))continue;
   result.push({paragraphId:mark.paragraphId,kind:mark.kind,quote:mark.quote,startOffset,endOffset});
  }return result;
 }
 export function sourceEmphasisRanges(text:string,paragraphId:string,marks:readonly SourceEmphasis[]=[]):SourceEmphasisRange[]{return marks.filter(m=>m.paragraphId===paragraphId&&text.slice(m.startOffset,m.endOffset)===m.quote).map(m=>({start:m.startOffset,end:m.endOffset,kind:m.kind})).sort((a,b)=>a.start-b.start);}
 export function sourceEmphasisSegments(text:string,start:number,ranges:readonly SourceEmphasisRange[]){
- const end=start+text.length,parts:{text:string;kind?:SourceEmphasisRange['kind']}[]=[];let cursor=start;
- for(const range of ranges){const low=Math.max(start,range.start,cursor),high=Math.min(end,range.end);if(high<=low)continue;if(low>cursor)parts.push({text:text.slice(cursor-start,low-start)});parts.push({text:text.slice(low-start,high-start),kind:range.kind});cursor=high;}
- if(cursor<end)parts.push({text:text.slice(cursor-start)});return parts;
+ const end=start+text.length,parts:{text:string;kind?:SourceEmphasisRange['kind'];kinds?:SourceEmphasisRange['kind'][]}[]=[];
+ const relevant=ranges.filter(r=>r.start<end&&r.end>start);
+ const boundaries=[...new Set([start,end,...relevant.flatMap(r=>[Math.max(start,r.start),Math.min(end,r.end)])])].sort((a,b)=>a-b);
+ // WHY：关键词背景与关键句下划线可在同处叠加；仅分割展示文本，不生成或扩大Agent提交的标注范围。
+ for(let i=0;i<boundaries.length-1;i++){
+  const from=boundaries[i],to=boundaries[i+1],kinds=[...new Set(relevant.filter(r=>r.start<=from&&r.end>=to).map(r=>r.kind))];
+  const value=text.slice(from-start,to-start);
+  parts.push(kinds.length>1?{text:value,kind:kinds[0],kinds}:kinds.length?{text:value,kind:kinds[0]}:{text:value});
+ }
+ return parts;
 }

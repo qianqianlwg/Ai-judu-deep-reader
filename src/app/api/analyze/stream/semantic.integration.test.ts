@@ -1,3 +1,4 @@
+import { SOURCE_EMPHASIS_SCHEMA } from '@/lib/source-enhancement-store';
 import { GUIDE_SCHEMA } from "@/lib/guide-schema";
 import {NextRequest} from 'next/server';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
@@ -13,12 +14,12 @@ const runtime=(process as unknown as {getBuiltinModule(name:string):{DatabaseSyn
 const fetcher=vi.fn<typeof fetch>(),encoder=new TextEncoder();
 const texts=['这是第一个完整意思。','这是第二个完整意思。','图一。'],original=texts.join('');
 const payload={threadId:'thread-semantic',clientUserMessageId:'user-semantic',clientAssistantMessageId:'parent-semantic',editionId:'edition-1',bookId:'book-1',chapterId:'chapter-1',paragraphId:'p1',mode:'analyze',readingStyle:'semantic',question:'请按句意细读',selectedText:original,selectionStart:0,selectionEnd:original.length,selectionAnchors:[{paragraphId:'p1',startOffset:0,endOffset:original.length,selectedText:original}]};
-function upstream(content?:string,args?:unknown){const data=args?{id:'step',choices:[{index:0,delta:{role:'assistant',tool_calls:[{index:0,id:'call-plan',type:'function',function:{name:'plan_reading_units',arguments:JSON.stringify(args)}}]},finish_reason:'tool_calls'}]}:{id:'step',choices:[{index:0,delta:{role:'assistant',content,tool_calls:[{index:0,id:'call-save',type:'function',function:{name:'save_reading_analysis',arguments:JSON.stringify({readingText:content,concepts:'无',emphasis:'无'})}}]},finish_reason:'tool_calls'}]};return new Response(new ReadableStream<Uint8Array>({start(c){c.enqueue(encoder.encode('data: '+JSON.stringify(data)+String.fromCharCode(10,10)+'data: [DONE]'+String.fromCharCode(10,10)));c.close();}}),{headers:{'Content-Type':'text/event-stream'}});}
-const plan=(allSkip=false)=>({units:texts.map((text,i)=>({ sourceEmphasis: "无",label:'意思'+(i+1),action:allSkip||i===2?'skip':'read',reason:allSkip||i===2?'原文直白无需额外解释':'',fragments:[{paragraphId:'p1',text}]}))});
+function submission(text:string,title='商品关系') {return {listTitle:'原文逐句细读',sourceStart:Array.from(text).slice(0,5).join(''),sourceEnd:Array.from(text).slice(-5).join(''),title,content:'这一句说明了对应的关系。',keywords:'无',keySentences:'无',concepts:'无',answerEmphasis:'无'};}
+function upstream(args:unknown){const chunks=[{choices:[{index:0,delta:{role:'assistant',tool_calls:[{index:0,id:crypto.randomUUID(),type:'function',function:{name:'submit_reading_sentence',arguments:''}}]},finish_reason:null}]},{choices:[{index:0,delta:{tool_calls:[{index:0,function:{arguments:JSON.stringify(args)}}]},finish_reason:null}]},{choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:20000,completion_tokens:18000,total_tokens:38000}}];return new Response(new ReadableStream<Uint8Array>({start(c){for(const part of chunks)c.enqueue(encoder.encode('data: '+JSON.stringify(part)+'\n\n'));c.enqueue(encoder.encode('data: [DONE]\n\n'));c.close();}}),{headers:{'Content-Type':'text/event-stream'}});}
 async function call(extra:Record<string,unknown>={}){const response=await POST(new NextRequest('http://localhost/api/analyze/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,...extra})}));return {status:response.status,text:await response.text()};}
 function parent(){return fixture.db!.prepare('SELECT * FROM chat_messages WHERE id=?').get(payload.clientAssistantMessageId) as {id:string;role:'assistant';content:string;status:string;structured_output:string};}
 function state():SemanticReading {const v:unknown=JSON.parse(parent().structured_output).semantic;if(!isSemanticReading(v))throw new Error('状态缺失');return v;}
-beforeEach(()=>{fixture.db=new runtime.DatabaseSync(':memory:');fixture.db.exec(GUIDE_SCHEMA);fixture.db.exec(String.raw`
+beforeEach(()=>{fixture.db=new runtime.DatabaseSync(':memory:');fixture.db.exec(GUIDE_SCHEMA);fixture.db.exec(SOURCE_EMPHASIS_SCHEMA);fixture.db.exec(String.raw`
     CREATE TABLE ai_provider_configs (id TEXT PRIMARY KEY, provider TEXT, base_url TEXT, api_key TEXT, model TEXT);
     INSERT INTO ai_provider_configs VALUES ('default', 'openai', 'https://provider.test', 'test-key', 'test-model');
     CREATE TABLE reading_threads (id TEXT PRIMARY KEY, book_id TEXT, edition_id TEXT NOT NULL, chapter_id TEXT, paragraph_id TEXT, selected_text TEXT, created_at TEXT, updated_at TEXT);
@@ -35,47 +36,69 @@ beforeEach(()=>{fixture.db=new runtime.DatabaseSync(':memory:');fixture.db.exec(
  CREATE TABLE annotations(id TEXT PRIMARY KEY,paragraph_id TEXT,start_offset INTEGER,end_offset INTEGER,text_hash TEXT,thread_id TEXT,summary TEXT,concepts TEXT,created_at TEXT,concept_details TEXT,message_id TEXT);
 `);fixture.db.prepare('UPDATE paragraphs SET text=? WHERE id=?').run(original,'p1');fetcher.mockReset();vi.stubGlobal('fetch',fetcher);vi.spyOn(console,'error').mockImplementation(()=>{});vi.spyOn(console,'info').mockImplementation(()=>{});});
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();fixture.db?.close();fixture.db=undefined;});
-describe('按句意细读 API 集成',()=>{
- it('真实模型工具协议、独立原文锚点、事务标注、历史合组和幂等回放',async()=>{
-  fetcher.mockResolvedValueOnce(upstream(undefined,plan())).mockResolvedValueOnce(upstream('第一块解释。')).mockResolvedValueOnce(upstream('第二块解释。'));
-  const response=await call();expect(response.status).toBe(200);expect(response.text).toContain('event: semantic');expect(response.text).toContain('event: done');
-  expect(state().units.map(u=>u.status)).toEqual(['completed','completed','skipped']);
-  const rows=fixture.db!.prepare('SELECT * FROM annotations ORDER BY start_offset').all() as {start_offset:number;end_offset:number;message_id:string}[];expect(rows.map(r=>[r.start_offset,r.end_offset])).toEqual([[0,texts[0].length],[texts[0].length,texts[0].length+texts[1].length]]);expect(new Set(rows.map(r=>r.message_id)).size).toBe(2);
-  const history=fixture.db!.prepare('SELECT id,role,content,status,structured_output AS structuredOutput FROM chat_messages ORDER BY created_at').all() as Parameters<typeof hydrateChatHistory>[0];const hydrated=hydrateChatHistory(history);expect(hydrated).toHaveLength(2);expect(hydrated.find(m=>m.id===payload.clientAssistantMessageId)?.semantic?.units).toHaveLength(3);
-  const count=fetcher.mock.calls.length;expect((await call()).text).toContain('event: semantic');expect(fetcher).toHaveBeenCalledTimes(count);
+describe('逐句增量细读 API 集成',()=>{
+ it('第二句请求仍在等待时，浏览器已收到首句事件且标注已保存',async()=>{
+  let release:()=>void=()=>{};const wait=new Promise<void>(resolve=>{release=resolve;});
+  fetcher.mockResolvedValueOnce(upstream(submission(texts[0]))).mockImplementationOnce(async()=>{await wait;return upstream(submission(texts[1]));}).mockResolvedValueOnce(upstream(submission(texts[2])));
+  const response=await POST(new NextRequest('http://localhost/api/analyze/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
+  const reader=response.body!.getReader(),decoder=new TextDecoder();let received='';
+  try{
+   while(!received.includes('"status":"completed"')){const part=await reader.read();if(part.done)throw new Error('首句前流中断');received+=decoder.decode(part.value,{stream:true});}
+   expect(received).not.toContain('event: done');expect(state().units).toHaveLength(1);expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:1});
+  }finally{release();while(!(await reader.read()).done){/* WHY：释放受控上游并消费尾流，让测试不留下悬挂的数据库操作。 */}}
  });
- it('一块失败后刷新恢复只继续未完成块，不重新规划',async()=>{
-  fetcher.mockResolvedValueOnce(upstream(undefined,plan())).mockResolvedValueOnce(upstream('第一块解释。')).mockRejectedValueOnce(new Error('网络中断'));
-  expect((await call()).text).toContain('event: error');expect(state().units[0].status).toBe('completed');
-  const stored=parent(),restored=restoreReadingRequest(payload.threadId,{...stored,structuredOutput:stored.structured_output});expect(restored?.payload.readingStyle).toBe('semantic');expect(restored?.semantic?.units[0].status).toBe('completed');
-  fetcher.mockResolvedValueOnce(upstream('第二块恢复。'));expect((await call()).text).toContain('event: done');expect(fetcher).toHaveBeenCalledTimes(4);expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:2});
+ it('单工具逐句提交、事务标注、进度、历史合组及幂等回放；累计预算不会截断',async()=>{
+  for(const text of texts)fetcher.mockResolvedValueOnce(upstream(submission(text)));
+  const response=await call();expect(response.status).toBe(200);expect(response.text).toContain('event: done');
+  const events=response.text.split('\n\n').filter(b=>b.startsWith('event: semantic')).map(b=>JSON.parse(b.split('\ndata: ')[1]).result as SemanticReading);
+  expect(events[0]).toMatchObject({phase:'planning',thinkingCompleted:false,totalCharacters:original.length});
+  expect(events.some(s=>s.thinkingCompleted&&s.units.length===0&&s.pending?.index===1)).toBe(true);
+  expect(events.some(s=>s.phase==='reading'&&s.units.length===1)).toBe(true);
+  expect(state().units.map(u=>u.status)).toEqual(['completed','completed','completed']);
+  expect(state().title).toBe('原文逐句细读');
+  const rows=fixture.db!.prepare('SELECT * FROM annotations ORDER BY start_offset').all() as {start_offset:number;end_offset:number;message_id:string}[];
+  expect(rows).toHaveLength(3);expect(rows[0]).toMatchObject({start_offset:0,end_offset:texts[0].length});
+  const history=fixture.db!.prepare('SELECT id,role,content,status,structured_output AS structuredOutput FROM chat_messages ORDER BY created_at').all() as Parameters<typeof hydrateChatHistory>[0];
+  expect(hydrateChatHistory(history)).toHaveLength(2);
+  for(const outgoing of fetcher.mock.calls){const request=JSON.parse(String(outgoing[1]?.body));expect(request.tools).toHaveLength(1);expect(request.tools[0].function.name).toBe('submit_reading_sentence');expect(request.max_tokens).toBeUndefined();expect(request.max_completion_tokens).toBeUndefined();}
+  const count=fetcher.mock.calls.length;await call();expect(fetcher).toHaveBeenCalledTimes(count);
  });
- it('全略过也有明确原因和可恢复来源，不创建伪解释标注',async()=>{fetcher.mockResolvedValueOnce(upstream(undefined,plan(true)));const r=await call();expect(r.text).toContain('event: done');expect(state().units.every(u=>u.status==='skipped')).toBe(true);expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:0});expect(fetcher).toHaveBeenCalledOnce();});
- it('错误分块有限修正，不用普通回答冒充成功',async()=>{for(let i=0;i<3;i++)fetcher.mockResolvedValueOnce(upstream(undefined,{units:plan().units.slice(0,1)}));expect((await call()).text).toContain('event: error');expect(state().units).toHaveLength(0);expect(fetcher).toHaveBeenCalledTimes(3);});
- it('损坏的分块数组在SSE明确报告，不让历史标记冒充新结果',async()=>{for(let i=0;i<3;i++)fetcher.mockResolvedValueOnce(upstream(undefined,{units:'broken'}));const response=await call();expect(response.text).toContain('semantic_plan_invalid');expect(response.text).toContain('原有句读线不是本次结果');expect(state().units).toHaveLength(0);expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:0});});
- it('整段模式同样交给Agent规划，恢复保留模式与小白设置',async()=>{fetcher.mockResolvedValueOnce(upstream(undefined,plan(true)));const response=await call({readingStyle:'whole',difficulty:'beginner'});expect(response.text).toContain('event: done');expect(state().readingStyle).toBe('whole');const outgoing=JSON.parse(String(fetcher.mock.calls[0][1]?.body));expect(outgoing.messages.at(-1).content).toContain('whole');expect(outgoing.tools[0].function.description).toContain('以自然段为最小单位');const stored=parent(),restored=restoreReadingRequest(payload.threadId,{...stored,structuredOutput:stored.structured_output});expect(restored?.payload).toMatchObject({readingStyle:'whole',difficulty:'beginner'});});
- it('跨版本或伪造来源在调用模型前拒绝',async()=>{expect((await call({selectedText:'伪造文字'})).status).toBe(409);expect((await call({sectionId:'chapter-2'})).status).toBe(400);expect(fetcher).not.toHaveBeenCalled();});
- it('本节原文由服务端解析，不信任浏览器提交的正文',async()=>{fetcher.mockResolvedValueOnce(upstream(undefined,plan(true)));const r=await call({sectionId:'chapter-1',selectedText:'浏览器伪造正文'});expect(r.text).toContain('event: done');expect(state().units[0].anchor.selectedText).toBe(texts[0]);expect(JSON.stringify(JSON.parse(String(fetcher.mock.calls[0][1]?.body)))).not.toContain('浏览器伪造正文');});
-});
-
-
-it('规划阶段的 API 原始错误可见，切换模型重试沿用同一选文和父消息',async()=>{
- const detail={message:'当前 API Key 分组下模型 test-model 无可用渠道 test-key',type:'permission_error',code:'channel_unavailable'};
- fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('new-model',0)");
- fetcher.mockResolvedValueOnce(Response.json({error:detail},{status:403}));
- const first=await call({model:'test-model'});
- const errorBlock=first.text.split('\n\n').find(block=>block.startsWith('event: error\n'));
- expect(JSON.parse(errorBlock!.split('\ndata: ')[1]).message).toBe(JSON.stringify(detail,null,2));
- expect(parent().status).toBe('error');expect(state().units).toEqual([]);
- const before=JSON.parse(parent().structured_output)._request;
- fetcher.mockResolvedValueOnce(upstream(undefined,plan())).mockResolvedValueOnce(upstream('第一块解释。')).mockResolvedValueOnce(upstream('第二块解释。'));
- const retry=await call({model:'test-model',retryModel:'new-model'});
- expect(retry.text).toContain('event: done');expect(parent().status).toBe('completed');
- expect(fetcher.mock.calls.slice(1).map(call=>JSON.parse(String(call[1]?.body)).model)).toEqual(['new-model','new-model','new-model']);
- const after=JSON.parse(parent().structured_output)._request;
- expect(after).toMatchObject({fingerprint:before.fingerprint,input:before.input,contextSnapshot:before.contextSnapshot,executionModel:'new-model'});
- expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE role='user'").get()).toEqual({count:1});
- expect(fixture.db!.prepare('SELECT model_name FROM chat_messages WHERE id=?').get(payload.clientAssistantMessageId)).toEqual({model_name:'new-model'});
- expect(state().units.map(unit=>unit.status)).toEqual(['completed','completed','skipped']);
- const calls=fetcher.mock.calls.length;await call({model:'test-model',retryModel:'new-model'});expect(fetcher).toHaveBeenCalledTimes(calls);
+ it('第二句失败时首句和标注已持久化，恢复仅继续剩余原文',async()=>{
+  fetcher.mockResolvedValueOnce(upstream(submission(texts[0]))).mockRejectedValueOnce(new Error('网络中断'));
+  expect((await call()).text).toContain('event: error');expect(state().phase).toBe('interrupted');expect(state().units).toHaveLength(1);
+  const stored=parent(),restored=restoreReadingRequest(payload.threadId,{...stored,structuredOutput:stored.structured_output});expect(restored?.semantic?.units[0].status).toBe('completed');
+  fetcher.mockResolvedValueOnce(upstream(submission(texts[1]))).mockResolvedValueOnce(upstream(submission(texts[2])));
+  expect((await call()).text).toContain('event: done');expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:3});expect(fetcher).toHaveBeenCalledTimes(4);
+ });
+ it('错误首尾定位反馈给Agent修正，既不伪造结果也不重做首句',async()=>{
+  fetcher.mockResolvedValueOnce(upstream(submission(texts[0]))).mockResolvedValueOnce(upstream({...submission(texts[1]),sourceEnd:'找不到尾。'})).mockResolvedValueOnce(upstream(submission(texts[1]))).mockResolvedValueOnce(upstream(submission(texts[2])));
+  const r=await call();expect(r.text).toContain('找不到对应语句');expect(r.text).toContain('event: done');expect(state().units).toHaveLength(3);expect(JSON.stringify(JSON.parse(String(fetcher.mock.calls[2][1]?.body)).messages)).toContain('找不到对应语句');
+ });
+ it('省略必填标注三次失败报告明确错误，不添加新句读标记',async()=>{
+  for(let i=0;i<3;i++)fetcher.mockResolvedValueOnce(upstream({...submission(texts[0]),keywords:undefined}));
+  const r=await call();expect(r.text).toContain('event: error');expect(r.text).toContain('必填');expect(state().units).toHaveLength(0);expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:0});
+ });
+ it('每句Agent原文关键词和关键句通过工具同步保存',async()=>{
+  fetcher.mockResolvedValueOnce(upstream({...submission(texts[0]),keywords:[{paragraphId:'p1',quote:'完整意思',occurrence:1}]}));
+  for(const t of texts.slice(1))fetcher.mockResolvedValueOnce(upstream(submission(t)));
+  expect((await call()).text).toContain('event: done');expect(state().units[0].sourceEmphasis?.[0]).toMatchObject({quote:'完整意思',kind:'term'});
+  expect(fixture.db!.prepare('SELECT count(*) AS n FROM source_emphasis').get()).toEqual({n:1});
+ });
+ it('whole模式保留自然段最小单位说明，不在程序预切句',async()=>{
+  fetcher.mockResolvedValueOnce(upstream(submission(original)));
+  const r=await call({readingStyle:'whole',difficulty:'beginner'});expect(r.text).toContain('event: done');expect(state().units).toHaveLength(1);expect(JSON.stringify(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).messages)).toContain('以自然段为最小单位');
+ });
+ it('跨版本和伪造选文在模型调用前拒绝；本节来源由服务端解析',async()=>{
+  expect((await call({selectedText:'伪造文字'})).status).toBe(409);expect((await call({sectionId:'chapter-2'})).status).toBe(400);expect(fetcher).not.toHaveBeenCalled();
+  fetcher.mockResolvedValueOnce(upstream(submission(original)));expect((await call({sectionId:'chapter-1',selectedText:'浏览器伪造正文'})).text).toContain('event: done');expect(state().units[0].anchor.selectedText).toBe(original);
+ });
+ it('上游错误可见，换模型重试沿用原选文和父消息',async()=>{
+  fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('new-model',0)");
+  fetcher.mockResolvedValueOnce(Response.json({error:{message:'没有可用渠道',code:'channel_unavailable'}},{status:403}));
+  expect((await call()).text).toContain('没有可用渠道');const before=JSON.parse(parent().structured_output)._request;
+  for(const t of texts)fetcher.mockResolvedValueOnce(upstream(submission(t)));
+  expect((await call({retryModel:'new-model'})).text).toContain('event: done');expect(fetcher.mock.calls.slice(1).map(c=>JSON.parse(String(c[1]?.body)).model)).toEqual(['new-model','new-model','new-model']);
+  expect(JSON.parse(parent().structured_output)._request).toMatchObject({fingerprint:before.fingerprint,input:before.input,executionModel:'new-model'});
+  expect(fixture.db!.prepare("SELECT count(*) AS n FROM chat_messages WHERE role='user'").get()).toEqual({n:1});
+ });
 });

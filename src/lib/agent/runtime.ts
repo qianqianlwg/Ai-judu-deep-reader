@@ -118,7 +118,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       return result;
     },
   });
-  const agent = createAgent({ model: createReadingModel(options.config, options.maxOutputTokens), tools, systemPrompt: options.systemPrompt, middleware: [middleware] });
+  const agent = createAgent({ model: createReadingModel(options.config), tools, systemPrompt: options.systemPrompt, middleware: [middleware] });
   const finishes = new Map<string, string>();
   const stream = agent.streamEvents({ messages: options.messages }, { version: "v2", signal, recursionLimit: 24,
     callbacks: [{ handleLLMEnd(result, runId) {
@@ -156,7 +156,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       const metadata = isRecord(output) && isRecord(output.response_metadata) ? output.response_metadata : {};
       const additional = isRecord(output) && isRecord(output.additional_kwargs) ? output.additional_kwargs : {};
       const finish = finishes.get(event.run_id) ?? metadata.finish_reason ?? metadata.stop_reason ?? additional.stop_reason;
-      if (finish === "length" || finish === "max_tokens") throw new ReadingAgentError("output_limit", "回答达到输出上限，请提高最大输出 Token 后重试");
+      if (finish === "length" || finish === "max_tokens") throw new ReadingAgentError("output_limit", "模型服务的输出上限截断了回答，请重试或换用支持更长输出的模型");
       if (finish === "content_filter" || finish === "refusal") throw new Error("模型未能完成本轮回答");
       finishedModel = typeof finish === "string" && finish.length > 0;
       const measured = providerUsage(output);

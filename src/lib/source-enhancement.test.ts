@@ -7,3 +7,5 @@ it('拒绝跨来源或错位显示，分页片段不改变原文',()=>{const mar
 it('同一来源重点重叠时不叠加两种渲染',()=>{expect(resolveSourceEmphasis([{paragraphId:'p',kind:'term',quote:'权责',occurrence:1},{paragraphId:'p',kind:'term',quote:'权责关系',occurrence:1}],sources)).toHaveLength(1);});
 
 it('原文标记不能拆开Unicode字符，也不能反转范围',async()=>{const {sourceEmphasisSchema}=await import('./source-enhancement');expect(sourceEmphasisSchema.safeParse({paragraphId:'p',kind:'term',quote:'字',startOffset:3,endOffset:2}).success).toBe(false);expect(resolveSourceEmphasis([{paragraphId:'p',kind:'term',quote:'\ud83d',occurrence:1}],[{paragraphId:'p',startOffset:0,endOffset:3,selectedText:'😀。'}])).toEqual([]);});
+
+it('关键词可位于关键句内，两类Agent标注叠加但不改变逐字原文',()=>{const marks=resolveSourceEmphasis([{paragraphId:'p',kind:'term',quote:'权责关系',occurrence:1},{paragraphId:'p',kind:'key_sentence',quote:text,occurrence:1}],sources);expect(marks).toHaveLength(2);const parts=sourceEmphasisSegments(text,0,sourceEmphasisRanges(text,'p',marks));expect(parts.map(p=>p.text).join('')).toBe(text);expect(parts[0].kinds).toEqual(['term','key_sentence']);});

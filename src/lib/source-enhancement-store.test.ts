@@ -5,3 +5,5 @@ beforeEach(()=>{db=new runtime.DatabaseSync(':memory:');db.exec(SOURCE_EMPHASIS_
 const mark={paragraphId:'p',startOffset:0,endOffset:4,quote:'权责关系',kind:'term' as const};
 it('持久化与重读，错版/过期文本拒绝，不改原文',()=>{saveSourceEmphasis(db,'e',[mark]);expect(readSourceEmphasis(db,'e')).toEqual([mark]);expect(readSourceEmphasis(db,'other')).toEqual([]);expect(()=>saveSourceEmphasis(db,'other',[mark])).toThrow('不一致');db.exec("UPDATE paragraphs SET text='已变化'");expect(readSourceEmphasis(db,'e')).toEqual([]);});
 it('同处重新生成替换旧重点，事务回滚可保持原值',()=>{saveSourceEmphasis(db,'e',[mark]);db.exec('BEGIN');saveSourceEmphasis(db,'e',[{...mark,endOffset:2,quote:'权责'}]);db.exec('ROLLBACK');expect(readSourceEmphasis(db,'e')).toEqual([mark]);});
+
+it('同处关键词和关键句分别保存，不互相删除',()=>{saveSourceEmphasis(db,'e',[mark,{...mark,startOffset:0,endOffset:9,quote:'权责关系需要明确。',kind:'key_sentence'}]);expect(readSourceEmphasis(db,'e')).toHaveLength(2);});

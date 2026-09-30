@@ -44,6 +44,22 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("AnalysisPanel 消息、选文与失败状态", () => {
+  it("逐句追问和重新句读只填草稿并准备来源，不发送且不触发旧重跑",async()=>{
+    const onSend=vi.fn(),oldReread=vi.fn(),prepare=vi.fn(()=>true);
+    const unit={id:'unit',label:'商品的两重性',action:'read' as const,reason:'',anchor:anchor(),status:'completed' as const,content:'解释'};
+    await render({onSend,onReadUnit:oldReread,onPrepareSource:prepare,messages:[{id:'parent',role:'assistant',content:'',semantic:{version:1,phase:'completed',units:[unit]}}]});
+    const textarea=container.querySelector('textarea')!;
+    await click([...container.querySelectorAll('button')].find(b=>b.textContent==='追问此块')!);
+    expect(textarea.value).toBe('用户追问标题为“商品的两重性”的问题如下：');
+    await click([...container.querySelectorAll('button')].find(b=>b.textContent==='重新句读')!);
+    expect(textarea.value).toBe('用户需要重新句读标题“商品的两重性”，需要调整的方向如下：');
+    expect(prepare).toHaveBeenCalledWith(unit.anchor);expect(document.activeElement).toBe(textarea);expect(onSend).not.toHaveBeenCalled();expect(oldReread).not.toHaveBeenCalled();
+    textarea.value+='请用更简单的表达';await click(labelledButton('发送追问'));expect(onSend).toHaveBeenCalledWith(expect.stringContaining('请用更简单的表达'));
+  });
+  it("原文准备失败不写草稿不发送",async()=>{
+    const onSend=vi.fn();await render({onSend,onPrepareSource:()=>false,messages:[{role:'assistant',content:'',semantic:{version:1,phase:'completed',units:[{id:'u',label:'标题',action:'read',reason:'',anchor:anchor(),status:'completed',content:'解释'}]}}]});
+    await click([...container.querySelectorAll('button')].find(b=>b.textContent==='追问此块')!);expect(container.querySelector('textarea')!.value).toBe('');expect(onSend).not.toHaveBeenCalled();
+  });
   it("打开聊天记录时等待同一会话历史加载完成，再默认展示最新消息", async () => {
     metrics.top = 0; metrics.height = 300;
     await render({ activeThreadId: "history", conversationsLoading: true });

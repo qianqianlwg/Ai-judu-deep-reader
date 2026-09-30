@@ -1,5 +1,6 @@
 "use client";
 
+import type { SemanticUnit } from '@/lib/semantic-reading';
 import {SemanticReadingResult} from './semantic-reading-result';
 import { useRef, type ReactNode } from "react";
 import Markdown from "react-markdown";
@@ -24,6 +25,7 @@ export type { Analysis, ChatMessage } from "@/lib/chat-stream";
 export type PanelMessage = ChatMessage;
 type Props = {
   onReadUnit?: (anchor:MessageAnchor)=>void;
+  onPrepareSource?: (anchor:MessageAnchor)=>boolean;
   readingPreferences?: ReadingPreferences; onReadingPreferencesChange?: (value: ReadingPreferences) => void;
   id?: string;
   className?: string; selected: string; analysis: Analysis | null; loading: boolean; error?: string;
@@ -212,12 +214,20 @@ function UsageFooter({ modelName, usage }: { modelName?: string; usage?: TokenUs
   </div>;
 }
 
-export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch, onBookContextPrefetchChange, onReadUnit }: Props) {
+export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch, onBookContextPrefetchChange, onPrepareSource }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const generating = loading || messages.some((message) => message.status === "streaming");
   const interactionLocked = generating || conversationsLoading;
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const { viewportRef, contentRef, showLatest, jumpToLatest, pauseFollowing } = useChatFollow(generating, messages, activeThreadId ?? editionId, conversationsLoading);
+  const prepareUnitDraft = (unit:SemanticUnit, reread:boolean) => {
+    if(interactionLocked || onPrepareSource?.(unit.anchor)===false) return;
+    const textarea=textareaRef.current;
+    if(!textarea)return;
+    // WHY：按钮只准备真实来源和用户草稿，绝不偷偷发请求；保留用户补充方向和确认发送的机会。
+    textarea.value=reread ? '用户需要重新句读标题“'+unit.label+'”，需要调整的方向如下：' : '用户追问标题为“'+unit.label+'”的问题如下：';
+    textarea.focus();textarea.setSelectionRange(textarea.value.length,textarea.value.length);
+  };
   const submit = () => {
     const textarea = textareaRef.current;
     const value = textarea?.value.trim();
@@ -236,7 +246,7 @@ export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, 
             const anchor = messageAnchor(message);
             return <article data-message-id={message.id} className={"chat-message " + message.role + " " + styles.messageGroup} key={message.id ?? message.role + "-" + index}>
               <div className={message.role === "user" ? styles.srOnly : "message-role"}>{message.role === "user" ? "你" : "句读"}</div>
-              {message.role === "user" ? <MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage}><ReadableText content={message.content}/></MessageActions> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><ExternalResearchActivity message={message} />{message.semantic?<SemanticReadingResult state={message.semantic} disabled={interactionLocked} onOpenCitation={onOpenCitation} onDiscussUnit={onOpenSource?anchor=>{onOpenSource(anchor);textareaRef.current?.focus();}:undefined} onOpenSource={onOpenSource} onReadUnit={onReadUnit} onRetry={message.id===lastAssistant?.id?onRetry:undefined}/>:<AssistantMessage message={message} onOpenCitation={onOpenCitation} />}</>}
+              {message.role === "user" ? <MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage}><ReadableText content={message.content}/></MessageActions> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><ExternalResearchActivity message={message} />{message.semantic?<SemanticReadingResult state={message.semantic} disabled={interactionLocked} onOpenCitation={onOpenCitation} onDiscussUnit={unit=>prepareUnitDraft(unit,false)} onOpenSource={onOpenSource} onReadUnit={unit=>prepareUnitDraft(unit,true)} onRetry={message.id===lastAssistant?.id?onRetry:undefined}/>:<AssistantMessage message={message} onOpenCitation={onOpenCitation} />}</>}
               {anchor && !message.semantic && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
             </article>;
           })}

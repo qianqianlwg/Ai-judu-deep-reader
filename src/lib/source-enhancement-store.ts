@@ -5,7 +5,7 @@ export const SOURCE_EMPHASIS_SCHEMA=`CREATE TABLE IF NOT EXISTS source_emphasis 
 // WHY：同步写入由调用方事务统一装配；原文、重点和生成结果必须绑定同一版本，不接收模型指定的版本。
 export function saveSourceEmphasis(db:Db,editionId:string,marks:readonly SourceEmphasis[]):void{
  for(const input of marks){const m=sourceEmphasisSchema.parse(input),row=db.prepare('SELECT p.text FROM paragraphs p JOIN chapters c ON c.id=p.chapter_id WHERE p.id=? AND c.edition_id=?').get(m.paragraphId,editionId) as {text:string}|undefined;if(!row||row.text.slice(m.startOffset,m.endOffset)!==m.quote)throw new Error('重点与当前版本原文不一致');
- db.prepare('DELETE FROM source_emphasis WHERE edition_id=? AND paragraph_id=? AND start_offset<? AND end_offset>?').run(editionId,m.paragraphId,m.endOffset,m.startOffset);
+ db.prepare('DELETE FROM source_emphasis WHERE edition_id=? AND paragraph_id=? AND start_offset<? AND end_offset>? AND kind=?').run(editionId,m.paragraphId,m.endOffset,m.startOffset,m.kind);
  db.prepare('INSERT INTO source_emphasis VALUES(?,?,?,?,?,?)').run(editionId,m.paragraphId,m.startOffset,m.endOffset,m.kind,m.quote);
  }
 }

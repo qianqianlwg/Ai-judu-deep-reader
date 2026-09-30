@@ -8,7 +8,7 @@ export type ReadingStyle = 'semantic' | 'whole';
 export const READING_STYLE_KEY = 'judu:reading-style';
 export function readReadingStyle(value: unknown): ReadingStyle { return value === 'whole' ? 'whole' : 'semantic'; }
 export const MAX_SECTION_CHARACTERS = 30000;
-export const SEMANTIC_PROMPT_VERSION = 'semantic-v4-required-source-emphasis';
+export const SEMANTIC_PROMPT_VERSION = 'semantic-v5-incremental-sentence';
 export type SemanticSource = ReadingAnchorPart;
 export const semanticPlanSchema = z.object({ units: z.array(z.object({
   sourceEmphasis: z.union([z.literal("无"),z.array(sourceMarkProposalSchema).min(1).max(16)]).describe("必填：当前块原文重点；确实没有时填写字符串‘无’，不得省略或传空数组"),
@@ -21,10 +21,10 @@ export const semanticPlanSchema = z.object({ units: z.array(z.object({
 }).strict()).min(1).max(128) }).strict();
 export type SemanticPlan = z.infer<typeof semanticPlanSchema>;
 export type SemanticUnit = { sourceEmphasis?:SourceEmphasis[]; id: string; label: string; action: 'read' | 'skip'; reason: string; anchor: ReadingAnchor; status: 'pending' | 'streaming' | 'completed' | 'skipped' | 'error'; content: string; analysis?: Analysis; error?: string; usage?: TokenUsage };
-export type SemanticReading = { version: 1; readingStyle?: ReadingStyle; phase: 'planning' | 'reading' | 'completed' | 'interrupted'; units: SemanticUnit[] };
+export type SemanticReading = { version: 1; title?: string; totalCharacters?: number; thinkingCompleted?: boolean; pending?: { index: number; error?: string };  readingStyle?: ReadingStyle; phase: 'planning' | 'reading' | 'completed' | 'interrupted'; units: SemanticUnit[] };
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 export function isSemanticReading(v: unknown): v is SemanticReading {
-  return record(v) && v.version === 1 && (v.readingStyle===undefined||v.readingStyle==='semantic'||v.readingStyle==='whole') && ['planning','reading','completed','interrupted'].includes(String(v.phase)) && Array.isArray(v.units) && v.units.length <= 128 && v.units.every(u => record(u) && typeof u.id === 'string' && typeof u.label === 'string' && typeof u.content === 'string' && typeof u.reason === 'string' && (u.sourceEmphasis===undefined||(Array.isArray(u.sourceEmphasis)&&u.sourceEmphasis.every(m=>sourceEmphasisSchema.safeParse(m).success))) && ['read','skip'].includes(String(u.action)) && ['pending','streaming','completed','skipped','error'].includes(String(u.status)) && !!readReadingAnchor(u.anchor));
+  return record(v) && v.version === 1 && (v.title===undefined||typeof v.title==='string') && (v.totalCharacters===undefined||(typeof v.totalCharacters==='number'&&Number.isSafeInteger(v.totalCharacters)&&v.totalCharacters>0)) && (v.thinkingCompleted===undefined||typeof v.thinkingCompleted==='boolean') && (v.pending===undefined||(record(v.pending)&&typeof v.pending.index==='number'&&Number.isSafeInteger(v.pending.index)&&v.pending.index>0&&(v.pending.error===undefined||typeof v.pending.error==='string'))) && (v.readingStyle===undefined||v.readingStyle==='semantic'||v.readingStyle==='whole') && ['planning','reading','completed','interrupted'].includes(String(v.phase)) && Array.isArray(v.units) && v.units.every(u => record(u) && typeof u.id === 'string' && typeof u.label === 'string' && typeof u.content === 'string' && typeof u.reason === 'string' && (u.sourceEmphasis===undefined||(Array.isArray(u.sourceEmphasis)&&u.sourceEmphasis.every(m=>sourceEmphasisSchema.safeParse(m).success))) && ['read','skip'].includes(String(u.action)) && ['pending','streaming','completed','skipped','error'].includes(String(u.status)) && !!readReadingAnchor(u.anchor));
 }
 
 // WHY：语义边界完全由 Agent 提交；程序仅逐字核验连续覆盖，不预切句子、不猜相似原文。
@@ -76,5 +76,5 @@ export function semanticSummary(state: SemanticReading): string {
 // WHY：取消/断流后保留已提交块，把当前块显式标为中断，不让界面永久显示生成中。
 export function interruptSemanticReading(value:SemanticReading|undefined,message:string):SemanticReading|undefined {
   if(!value)return;
-  return {...value,phase:'interrupted',units:value.units.map(unit=>unit.status==='streaming'?{...unit,status:'error',error:message}:unit)};
+  return {...value,phase:'interrupted',pending:undefined,units:value.units.map(unit=>unit.status==='streaming'?{...unit,status:'error',error:message}:unit)};
 }
