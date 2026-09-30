@@ -197,7 +197,7 @@ describe("修改预算后原位重试页面接线", () => {
     localStorage.setItem("judu:maxInputTokens", "400000"); localStorage.setItem("judu:maxOutputTokens", "8192");
     await click(button("重新句读"));
     expect(requests).toHaveLength(2);
-    expect(requests[1]).toEqual({ ...first, retryContextSettings: { maxInputTokens: 400000, maxOutputTokens: 8192 } });
+    expect(requests[1]).toEqual({ ...first, retryModel: first.model, retryContextSettings: { maxInputTokens: 400000, maxOutputTokens: 8192 } });
     expect([...host.querySelectorAll(".chat-message.user")].map(item => item.getAttribute("data-message-id"))).toEqual(userIds);
     expect(host.querySelectorAll('[data-message-id="' + first.clientAssistantMessageId + '"]')).toHaveLength(1);
     expect(element('[data-message-id="' + first.clientAssistantMessageId + '"]').textContent).toContain("正常回答");

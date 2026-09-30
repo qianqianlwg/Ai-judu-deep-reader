@@ -10,15 +10,18 @@ import type { createExternalReader } from "./external-reading";
 import { createReadingTools, type ReadingToolDependencies } from "./tools";
 import { createExternalTools, type ExternalPermissions, type createExternalSearch } from "./external-search";
 import { logAgentEvent } from "./logger";
+import { readProviderFailure, type ProviderFailure } from "./provider-failure";
 import { diagnoseToolException } from "./diagnostics";
 
 export class ReadingAgentError extends Error { constructor(readonly code: string, message: string) { super(message); this.name = "ReadingAgentError"; } }
-export function readingAgentFailure(error: unknown): { code: string; message: string } | undefined {
+export function readingAgentFailure(error: unknown): ProviderFailure | undefined {
   let current = error;
   for (let depth = 0; depth < 6 && current instanceof Error; depth += 1) {
     if (current instanceof ReadingAgentError) return { code: current.code, message: current.message };
     if (current.name === "GraphRecursionError") return { code: "tool_limit", message: "本轮工具循环达到上限，请提出更具体的问题后重新生成" };
-    // WHY：LangChain 中间件会包装异常；只解包自己的可公开错误，供应商原始错误不返回页面。
+    const providerFailure = readProviderFailure(current);
+    if (providerFailure) return providerFailure;
+    // WHY：LangChain 中间件会包装异常；沿 cause 找到上游错误，避免只显示包装层提示。
     current = current.cause;
   }
 }

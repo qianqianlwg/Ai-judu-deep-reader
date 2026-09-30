@@ -24,7 +24,7 @@ import { AnalysisPanel } from "@/components/analysis-panel";
 import { emptyExternalPermissions, readExternalPermissions, type ExternalPermissions } from "@/lib/agent/external-permissions";
 import { defaultExternalPreferences, permittedExternalSources, readExternalPreferences, writeExternalPreferences } from "@/lib/agent/external-preferences";
 import { type Analysis, type ChatMessage, type MessageAnchor, type TokenUsage } from "@/lib/chat-stream";
-import { createReadingRequest, restoreReadingRequest, withRetryContextSettings, beginReadingRequest, applyReadingRequest, executeReadingRequest, prepareReadingEdit, type ReadingRequestState } from "@/lib/reading-request";
+import { createReadingRequest, restoreReadingRequest, withRetryModel, withRetryContextSettings, beginReadingRequest, applyReadingRequest, executeReadingRequest, prepareReadingEdit, type ReadingRequestState } from "@/lib/reading-request";
 import { WorkspaceNav, type WorkspaceView } from "@/components/workspace-nav";
 import {BOOK_RESUME_CHANGED} from "@/lib/book-resume";
 import {importFileSizeError,IMPORT_TOO_LARGE} from "@/lib/import-limits";
@@ -448,9 +448,9 @@ export default function Home() {
     if (!request || (request.status !== "error" && request.status !== "cancelled")) return;
     try {
       const retry = withRetryContextSettings(request, { maxInputTokens: Number(localStorage.getItem("judu:maxInputTokens") ?? DEFAULT_CONTEXT_SETTINGS.maxInputTokens), maxOutputTokens: Number(localStorage.getItem("judu:maxOutputTokens") ?? 4096) });
-      await runRequest(retry);
+      await runRequest(withRetryModel(retry, model.selectedModel));
     } catch (cause: unknown) {
-      console.error("重试预算无效", cause); setError(cause instanceof Error ? cause.message : "无法应用重试预算，请检查设置。");
+      console.error("重试执行参数无效", cause); setError(cause instanceof Error ? cause.message : "无法应用重试模型或预算，请检查设置。");
     }
   }
 

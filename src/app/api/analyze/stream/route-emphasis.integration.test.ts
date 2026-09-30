@@ -122,3 +122,44 @@ it("旧自动标注即使已落库，幂等回放也不冒充 AI 标注", async 
   expect(data.result.emphasis).toBeUndefined();
   expect(row().content).toBe("自然释读正文。");
 });
+
+it("真实 SDK 的 403 原始错误通过 SSE 和持久化完整显示，不改写或脱敏", async () => {
+  const detail = { message: "当前 API Key 分组下模型 test-model 无可用渠道 test-key", type: "permission_error", code: "channel_unavailable", param: "model", extra: { request_id: "request-1" } };
+  fetcher.mockReset().mockResolvedValueOnce(Response.json({error:detail},{status:403}));
+  const response=await call();
+  const errorBlock=response.text.split("\n\n").find(block=>block.startsWith("event: error\n"));
+  expect(errorBlock).toBeDefined();
+  const event=JSON.parse(errorBlock!.split("\ndata: ")[1]);
+  expect(event.message).toBe(JSON.stringify(detail,null,2));
+  expect(JSON.parse(event.message)).toEqual(detail);
+  expect(row().status).toBe("error");
+  expect(stored()._request.failure).toMatchObject({code:"upstream_failed",message:event.message,retryable:true});
+  expect(stored().emphasis).toBeUndefined();
+});
+it("手选新模型后重试保持原消息指纹，真实SDK发送新模型并记录执行模型", async () => {
+  fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('new-model',0)");
+  fetcher.mockReset().mockResolvedValueOnce(Response.json({error:{message:"当前 API Key 分组下模型 test-model 无可用渠道"}},{status:403}));
+  await call({model:"test-model"});
+  const fingerprint=stored()._request.fingerprint;
+  const firstContext=stored()._request.contextSnapshot;
+  fetcher.mockResolvedValueOnce(upstream(delta("本轮新模型回答。"),block({id:"new",choices:[{index:0,delta:{tool_calls:[{index:0,id:"new",type:"function",function:{name:"mark_answer_emphasis",arguments:JSON.stringify({emphasis:"无"})}}]},finish_reason:"tool_calls"}]}),block("[DONE]")));
+  const response=await call({model:"test-model",retryModel:"new-model",context:"不能覆盖原快照"});
+  expect(response.text).toContain("event: done");
+  const outgoing=JSON.parse(String(fetcher.mock.calls.at(-1)?.[1]?.body));
+  expect(outgoing.model).toBe("new-model");
+  expect(stored()._request.fingerprint).toBe(fingerprint);
+  expect(stored()._request.contextSnapshot).toEqual(firstContext);
+  expect(stored()._request).toMatchObject({input:{model:"test-model"},executionModel:"new-model"});
+  expect(fixture.db!.prepare("SELECT model_name FROM chat_messages WHERE id='assistant-1'").get()).toEqual({model_name:"new-model"});
+  expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM chat_messages").get()).toEqual({count:2});
+});
+it("首次请求及未配置模型不能滥用retryModel，已完成消息也不重复生成", async () => {
+  expect((await call({retryModel:"test-model"})).status).toBe(400);
+  expect(fetcher).not.toHaveBeenCalled();
+  fetcher.mockResolvedValueOnce(Response.json({error:{message:"无可用渠道"}},{status:403}));
+  await call();
+  const count=fetcher.mock.calls.length;
+  expect((await call({retryModel:"unconfigured-model"})).status).toBe(400);
+  expect(fetcher).toHaveBeenCalledTimes(count);
+  expect(row().status).toBe("error");
+});

@@ -57,3 +57,25 @@ describe('按句意细读 API 集成',()=>{
  it('跨版本或伪造来源在调用模型前拒绝',async()=>{expect((await call({selectedText:'伪造文字'})).status).toBe(409);expect((await call({sectionId:'chapter-2'})).status).toBe(400);expect(fetcher).not.toHaveBeenCalled();});
  it('本节原文由服务端解析，不信任浏览器提交的正文',async()=>{fetcher.mockResolvedValueOnce(upstream(undefined,plan(true)));const r=await call({sectionId:'chapter-1',selectedText:'浏览器伪造正文'});expect(r.text).toContain('event: done');expect(state().units[0].anchor.selectedText).toBe(texts[0]);expect(JSON.stringify(JSON.parse(String(fetcher.mock.calls[0][1]?.body)))).not.toContain('浏览器伪造正文');});
 });
+
+
+it('规划阶段的 API 原始错误可见，切换模型重试沿用同一选文和父消息',async()=>{
+ const detail={message:'当前 API Key 分组下模型 test-model 无可用渠道 test-key',type:'permission_error',code:'channel_unavailable'};
+ fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('new-model',0)");
+ fetcher.mockResolvedValueOnce(Response.json({error:detail},{status:403}));
+ const first=await call({model:'test-model'});
+ const errorBlock=first.text.split('\n\n').find(block=>block.startsWith('event: error\n'));
+ expect(JSON.parse(errorBlock!.split('\ndata: ')[1]).message).toBe(JSON.stringify(detail,null,2));
+ expect(parent().status).toBe('error');expect(state().units).toEqual([]);
+ const before=JSON.parse(parent().structured_output)._request;
+ fetcher.mockResolvedValueOnce(upstream(undefined,plan())).mockResolvedValueOnce(upstream('第一块解释。')).mockResolvedValueOnce(upstream('第二块解释。'));
+ const retry=await call({model:'test-model',retryModel:'new-model'});
+ expect(retry.text).toContain('event: done');expect(parent().status).toBe('completed');
+ expect(fetcher.mock.calls.slice(1).map(call=>JSON.parse(String(call[1]?.body)).model)).toEqual(['new-model','new-model','new-model']);
+ const after=JSON.parse(parent().structured_output)._request;
+ expect(after).toMatchObject({fingerprint:before.fingerprint,input:before.input,contextSnapshot:before.contextSnapshot,executionModel:'new-model'});
+ expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE role='user'").get()).toEqual({count:1});
+ expect(fixture.db!.prepare('SELECT model_name FROM chat_messages WHERE id=?').get(payload.clientAssistantMessageId)).toEqual({model_name:'new-model'});
+ expect(state().units.map(unit=>unit.status)).toEqual(['completed','completed','skipped']);
+ const calls=fetcher.mock.calls.length;await call({model:'test-model',retryModel:'new-model'});expect(fetcher).toHaveBeenCalledTimes(calls);
+});

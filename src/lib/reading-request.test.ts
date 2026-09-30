@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { withRetryContextSettings, captureReadingContext, readReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, reduceReadingRequest, restoreReadingRequest, prepareReadingEdit } from "./reading-request";
+import { withRetryModel, readRetryModel, withRetryContextSettings, captureReadingContext, readReadingContextSnapshot, applyReadingRequest, beginReadingRequest, createReadingRequest, executeReadingRequest, reduceReadingRequest, restoreReadingRequest, prepareReadingEdit } from "./reading-request";
 import type { ChatMessage } from "./chat-stream";
 
 function request() {
@@ -245,4 +245,22 @@ it("设置按请求快照固定，后续修改不改旧请求且恢复保留方�
   expect(second.payload).toMatchObject({ difficulty: "advanced", detail: "expanded" });
   const restored = restoreReadingRequest(first.payload.threadId, { id: first.payload.clientAssistantMessageId, role: "assistant", content: "", status: "error", structuredOutput: JSON.stringify({ _request: { version: 1, clientUserMessageId: first.payload.clientUserMessageId, clientAssistantMessageId: first.payload.clientAssistantMessageId, input: first.payload } }) });
   expect(restored?.payload).toMatchObject(preferences);
+});
+
+it("重试跟随用户新选模型，但原输入、选文、历史和消息ID保持不变", () => {
+  const first=createReadingRequest({mode:"analyze",model:"old-model",question:"解释",selectedText:"原文",chatHistory:[{role:"user",content:"原历史"}]});
+  const snapshot=structuredClone(first.payload);
+  const retry=withRetryModel({...first,status:"error"},"new-model");
+  expect(retry.payload).toEqual({...snapshot,retryModel:"new-model"});
+  expect(first.payload).toEqual(snapshot);
+  expect(retry.payload.model).toBe("old-model");
+  expect(retry.payload.clientAssistantMessageId).toBe(first.payload.clientAssistantMessageId);
+  const restored=restoreReadingRequest(first.payload.threadId,{id:first.payload.clientAssistantMessageId,role:"assistant",status:"error",content:"",structuredOutput:JSON.stringify({_request:{version:1,clientUserMessageId:first.payload.clientUserMessageId,clientAssistantMessageId:first.payload.clientAssistantMessageId,input:snapshot,executionModel:"new-model"}})});
+  expect(restored?.payload).toMatchObject({model:"old-model",retryModel:"new-model",selectedText:"原文"});
+});
+it("只有失败或取消才能显式更换重试模型，不接受空模型", () => {
+  const first=request();
+  for(const status of ["idle","streaming","completed"] as const)expect(()=>withRetryModel({...first,status},"new-model")).toThrow("只有未完成");
+  expect(withRetryModel({...first,status:"cancelled"}," new-model ").payload.retryModel).toBe("new-model");
+  for(const value of [undefined,"","x\ny","x".repeat(201)])expect(()=>readRetryModel(value)).toThrow();
 });

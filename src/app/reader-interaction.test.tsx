@@ -155,7 +155,7 @@ beforeEach(() => {
   fetcher.mockImplementation(async (input, init) => {
     const url = endpoint(input);
     if (url.pathname === "/api/reading-emphasis") return Response.json({marks:[]});
-    if (url.pathname === "/api/settings/ai") return Response.json({ model: "workspace-test-model", hasApiKey: true });
+    if (url.pathname === "/api/settings/ai") return Response.json({ model: "workspace-test-model", models:["workspace-test-model","replacement-model"], hasApiKey: true });
     if (url.pathname === "/api/external-sources") return Response.json({ available: { openalex: true, crossref: true, web: true } });
     if (url.pathname === "/api/library") return Response.json([book("A"), book("B")]);
     if (url.pathname === "/api/books/A") return Response.json(book("A"));
@@ -486,6 +486,25 @@ describe("多会话页面隔离", () => {
 
 
 describe("工作台切换后请求身份回归", () => {
+  it("换模型后重试发送用户当前选择，保留失败请求身份及原文", async () => {
+    await loadA(); await selectOriginal(); await click(button("句读一下"));
+    const first=pendingStreams[0];
+    expect(first.payload.model).toBe("workspace-test-model");
+    const rawError=JSON.stringify({message:"当前模型无可用渠道 test-key",type:"permission_error",code:"channel_unavailable"},null,2);
+    await act(async()=>{event(first,"error",{code:"upstream_failed",message:rawError});first.closed=true;first.controller.close();});
+    await settle();
+    expect(element('[role="alert"]').textContent).toContain(rawError);
+    const picker=element<HTMLSelectElement>('[aria-label="选择模型"]');
+    await act(async()=>{picker.value="replacement-model";picker.dispatchEvent(new Event("change",{bubbles:true}));});
+    await click(button("重新句读"));
+    const retry=pendingStreams[1];
+    expect(retry.payload.retryModel).toBe("replacement-model");
+    expect(retry.payload.model).toBe(first.payload.model);
+    expect(retry.payload.clientAssistantMessageId).toBe(first.payload.clientAssistantMessageId);
+    expect(retry.payload.clientUserMessageId).toBe(first.payload.clientUserMessageId);
+    expect(retry.payload.selectedText).toBe(first.payload.selectedText);
+    await complete(retry);
+  });
   it("失败后重试复用原用户/助手身份与原文，不因为切视图重复发问", async () => {
     await loadA(); await selectOriginal(); await click(button("句读一下"));
     const first = pendingStreams[0];

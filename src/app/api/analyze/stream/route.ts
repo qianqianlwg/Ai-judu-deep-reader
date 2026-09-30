@@ -28,7 +28,7 @@ import {readModelChoices,selectRequestModel} from "@/lib/model-choices";
 import type { ProviderConfig, ProviderMessage } from "@/lib/ai-provider";
 import { isAnalysis, isRecord } from "@/lib/chat-stream";
 import { readAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
-import { captureReadingContext, readReadingContextSnapshot, readRetryContextSettings, type RetryContextSettings, type ReadingAnchor, type ReadingContextSnapshot } from "@/lib/reading-request";
+import { captureReadingContext, readReadingContextSnapshot, readRetryContextSettings, readRetryModel, type RetryContextSettings, type ReadingAnchor, type ReadingContextSnapshot } from "@/lib/reading-request";
 import { normalizeReadingDifficulty, type ReadingDifficulty } from "@/lib/reading-preferences";
 import { normalizeReadingDetail, readingAnswerBudget, readingSelectionError, type ReadingDetail } from "@/lib/reading-detail";
 import { logAgentEvent } from "@/lib/agent/logger";
@@ -50,7 +50,7 @@ type Failure = { code: string; message: string; retryable: boolean };
 type RequestMeta = {
   semantic?: SemanticReading;
   version: 1; clientUserMessageId: string; clientAssistantMessageId: string;
-  fingerprint: string; attemptId: string; leaseUntil: number; input: Input; contextSnapshot: ReadingContextSnapshot; executionSettings?: ContextSettings; failure?: Failure; timeline?: { tools: Record<string, number>; analysis?: number };
+  fingerprint: string; attemptId: string; leaseUntil: number; input: Input; contextSnapshot: ReadingContextSnapshot; executionSettings?: ContextSettings; executionModel?: string; failure?: Failure; timeline?: { tools: Record<string, number>; analysis?: number };
 };
 type MessageRow = { id: string; thread_id: string; role: string; content: string; structured_output: string | null; status: string; usage_json?: string | null };
 type SavedAnalysis = SavedReadingAnalysis;
@@ -103,7 +103,8 @@ function reserveMessages(db: Db, threadId: string, meta: RequestMeta, model: str
       meta.executionSettings = { ...meta.contextSnapshot.contextSettings, ...(saved.executionSettings ? readRetryContextSettings(saved.executionSettings) : {}), ...retrySettings };
       if (assistant.status === "completed" && assistant.content.trim()) { db.exec("COMMIT"); return assistant; }
       if (assistant.status === "streaming" && typeof saved.leaseUntil === "number" && saved.leaseUntil > Date.now()) throw new RequestError("原消息仍在生成，请停止后重试", 409, "request_in_progress");
-    } else if (retrySettings) throw new RequestError("首次请求不能指定重试预算", 400, "invalid_budget");
+    } else if (meta.executionModel !== undefined) throw new RequestError("首次请求不能指定重试模型", 400, "invalid_retry_model");
+    else if (retrySettings) throw new RequestError("首次请求不能指定重试预算", 400, "invalid_budget");
     else if (user) throw new RequestError("已有用户消息不能绑定另一个助手 ID");
     const now = new Date().toISOString();
     db.prepare("INSERT OR IGNORE INTO reading_threads (id, book_id, edition_id, chapter_id, paragraph_id, selected_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(threadId, meta.input.bookId, meta.input.editionId, meta.input.chapterId, meta.input.paragraphId, meta.input.selectedText, now, now);
@@ -213,7 +214,12 @@ export async function POST(request: NextRequest) {
     if(input.selectionAnchors && !verifiedAnchor(db,input)) throw new RequestError("选文来源与当前版本不一致，或选区不是连续正文，请重新划选",409,"anchor_mismatch");
     meta.contextSnapshot = { ...meta.contextSnapshot, chatHistory: attachSavedToolContext(db, threadId, meta.contextSnapshot.chatHistory) };
     let config=readConfig(db);
-    try {config=selectRequestModel(config,body.model,body.model===undefined?[]:readModelChoices(db,config.model));}catch(error:unknown){throw new RequestError(error instanceof Error?error.message:"模型未配置",400,"invalid_model");}
+    let retryModel: string | undefined;
+    if (body.retryModel !== undefined) { try { retryModel = readRetryModel(body.retryModel); } catch { throw new RequestError("重试模型名称无效", 400, "invalid_model"); } }
+    const requestedModel = retryModel ?? body.model;
+    try {config=selectRequestModel(config,requestedModel,requestedModel===undefined?[]:readModelChoices(db,config.model));}catch(error:unknown){throw new RequestError(error instanceof Error?error.message:"模型未配置",400,"invalid_model");}
+    // WHY：执行模型与原输入分开保存；只允许已配置模型，原请求指纹和连续原文仍逐项核验。
+    if (retryModel !== undefined) meta.executionModel = retryModel;
     let retrySettings: RetryContextSettings | undefined;
     if (body.retryContextSettings !== undefined) { try { retrySettings = readRetryContextSettings(body.retryContextSettings); } catch { throw new RequestError("重试预算不合法", 400, "invalid_budget"); } }
     const replay = reserveMessages(db, threadId, meta, config.model, retrySettings);
@@ -387,7 +393,7 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
           send("done", { content: raw, messageId: meta.clientAssistantMessageId });
           close();
         } catch (error: unknown) {
-          if (!terminal) { const failure = error instanceof SemanticPlanError ? {code:error.code,message:error.message} : error instanceof ContextCompactionError ? { code: "context_limit", message: error.message } : readingAgentFailure(error); logAgentEvent("error", "agent_failed", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, errorName: error instanceof Error ? error.name : "UnknownError", code: failure?.code ?? "upstream_failed" }); fail(failure?.code ?? "upstream_failed", failure?.message ?? "模型或工具执行未完成，请检查协议、模型工具能力和输出上限后重试"); }
+          if (!terminal) { const failure = error instanceof SemanticPlanError ? {code:error.code,message:error.message} : error instanceof ContextCompactionError ? { code: "context_limit", message: error.message } : readingAgentFailure(error); logAgentEvent("error", "agent_failed", { threadId, messageId: meta.clientAssistantMessageId, attemptId: meta.attemptId, errorName: error instanceof Error ? error.name : "UnknownError", model: config.model, httpStatus: failure && "httpStatus" in failure ? failure.httpStatus : undefined, code: failure?.code ?? "upstream_failed" }); fail(failure?.code ?? "upstream_failed", failure?.message ?? (error instanceof Error ? error.message : String(error))); }
         } finally {
           clearTimeout(timeout);
           request.signal.removeEventListener("abort", cancel);

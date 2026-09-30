@@ -21,9 +21,19 @@ export function withRetryContextSettings(state: ReadingRequestState, value: Retr
   // WHY：只更新执行预算；问题、原文、历史快照和两个消息ID仍沿用首次提交。
   return { ...state, payload: { ...state.payload, retryContextSettings: readRetryContextSettings(value) } };
 }
+export function readRetryModel(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > 200 || /[\x00-\x1f\x7f]/u.test(value)) throw new Error("重试模型名称无效，请重新选择模型");
+  return value.trim();
+}
+export function withRetryModel(state: ReadingRequestState, model: unknown): ReadingRequestState {
+  if (state.status !== "error" && state.status !== "cancelled") throw new Error("只有未完成的消息可更换重试模型");
+  // WHY：用户选择的新模型属于本次执行参数；不改首次输入、原文锚点和消息ID，避免重试被误认成新问题。
+  return { ...state, payload: { ...state.payload, retryModel: readRetryModel(model) } };
+}
 export type ReadingRequestInput = {
   readingStyle?: ReadingStyle; sectionId?: string; forceRead?: boolean;
   model?: string;
+  retryModel?: string;
   externalPermissions?: ExternalPermissions;
   bookContextPrefetch?: boolean;
   retryContextSettings?: RetryContextSettings;
@@ -149,7 +159,7 @@ export function restoreReadingRequest(threadId: string, message: StoredReadingMe
   const failure = isRecord(meta.failure) ? meta.failure : undefined;
   const status = message.status === "completed" && message.content.trim() ? "completed" : failure?.code === "cancelled" ? "cancelled" : "error";
   return {
-    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, ...((input.readingStyle === 'semantic' || input.readingStyle === 'whole') ? {readingStyle: input.readingStyle, sectionId: optionalString(input.sectionId), forceRead: input.forceRead === true} : {}), model: optionalString(input.model), externalPermissions: readExternalPermissions(input.externalPermissions), bookContextPrefetch: input.bookContextPrefetch === true, detail: normalizeReadingDetail(input.detail), difficulty: normalizeReadingDifficulty(input.difficulty), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
+    payload: { threadId, clientUserMessageId: meta.clientUserMessageId, clientAssistantMessageId: message.id, mode: input.mode, ...((input.readingStyle === 'semantic' || input.readingStyle === 'whole') ? {readingStyle: input.readingStyle, sectionId: optionalString(input.sectionId), forceRead: input.forceRead === true} : {}), model: optionalString(input.model), ...(meta.executionModel === undefined ? {} : { retryModel: readRetryModel(meta.executionModel) }), externalPermissions: readExternalPermissions(input.externalPermissions), bookContextPrefetch: input.bookContextPrefetch === true, detail: normalizeReadingDetail(input.detail), difficulty: normalizeReadingDifficulty(input.difficulty), question: input.question, selectedText: input.selectedText, ...(selectionAnchors ? {selectionAnchors} : {}), editionId: optionalString(input.editionId), bookId: optionalString(input.bookId), chapterId: optionalString(input.chapterId), paragraphId: optionalString(input.paragraphId), selectionStart: typeof input.selectionStart === "number" ? input.selectionStart : undefined, selectionEnd: typeof input.selectionEnd === "number" ? input.selectionEnd : undefined, ...(snapshot ? { bookTitle: snapshot.bookTitle, chapterTitle: snapshot.chapterTitle, context: snapshot.context, textHash: snapshot.textHash, contextSettings: snapshot.contextSettings, chatHistory: snapshot.chatHistory, bookSearch: snapshot.bookSearch } : { chatHistory: structuredClone(chatHistory) }) },
     status, attempt: 1, content: message.content, semantic: isSemanticReading(saved.semantic) ? saved.semantic : undefined, analysis: isAnalysis(saved) ? saved : undefined, emphasis: readAnswerEmphasis(message.content, saved.emphasis),
     error: status === "completed" ? undefined : typeof failure?.message === "string" ? failure.message : "上次生成未完成，可以重试",
   };
