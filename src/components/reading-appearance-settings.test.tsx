@@ -82,6 +82,17 @@ describe("ReadingAppearanceSettings", () => {
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="恢复默认阅读外观"]')!.click());
     expect(onChange).toHaveBeenCalledTimes(1); expect(onChange).toHaveBeenLastCalledWith(defaults);
   });
+  it("expanded preview reflects alignment, column, font, and emphasis visibility", async () => {
+    current = { ...defaults, language: "en", font: "kai", columnWidth: 780, textAlign: "justify", semanticTerms: false, semanticSentences: false, sourceTerms: false, sourceSentences: false };
+    await rerender();
+    const shell = host.querySelector<HTMLElement>('[data-testid="reading-appearance-preview-shell"]')!;
+    expect(shell.textContent).toContain("780px");
+    expect(shell.textContent).toContain("\u6977\u4f53");
+    expect(shell.textContent).toContain("a passage");
+    expect(shell.querySelector('[class*="previewTerm"]')).toBeNull();
+    expect(shell.querySelector('[class*="previewSentence"]')).toBeNull();
+    expect(shell.textContent).toContain("\u4e24\u7aef\u5bf9\u9f50");
+  });
   it("未 ready 时不展示可操作设置，不改值；错误通过 alert 反馈", async () => {
     await render({ ready: false, error: "本地设置读取失败" });
     expect(host.querySelector('[aria-busy="true"]')).toBeTruthy(); expect(host.querySelector('[role="status"]')?.textContent).toContain("读取");

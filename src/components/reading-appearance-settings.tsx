@@ -21,8 +21,18 @@ export interface ReadingAppearanceSettingsProps {
   className?: string;
 }
 const PREVIEW_TEXT = {
-  "zh-CN": { title: "让阅读，回到文字本身", text: "书页之间，不必急于抵达结论。停在一段文字前，听清它的语气，再循着自己的问题慢慢读下去。\n\n留一点空白，也给思想留一点余地。" },
-  en: { title: "Room to read, space to think", text: "There is no need to hurry toward a conclusion. Stay with a passage, listen to its voice, and follow the questions it brings to mind.\n\nA little space on the page can leave more room for thought." },
+  "zh-CN": {
+    title: "\u8ba9\u9605\u8bfb\uff0c\u56de\u5230\u6587\u5b57\u672c\u8eab",
+    paragraphs: ["\u4e66\u9875\u4e4b\u95f4\uff0c\u4e0d\u5fc5\u6025\u4e8e\u62b5\u8fbe\u7ed3\u8bba\u3002\u505c\u5728\u4e00\u6bb5\u6587\u5b57\u524d\uff0c\u542c\u6e05\u5b83\u7684\u8bed\u6c14\uff0c\u518d\u5faa\u7740\u81ea\u5df1\u7684\u95ee\u9898\u6162\u6162\u8bfb\u4e0b\u53bb\u3002", "\u7559\u4e00\u70b9\u7a7a\u767d\uff0c\u4e5f\u7ed9\u601d\u60f3\u7559\u4e00\u70b9\u4f59\u5730\u3002"],
+    term: "\u4e00\u6bb5\u6587\u5b57",
+    sentence: "\u5faa\u7740\u81ea\u5df1\u7684\u95ee\u9898\u6162\u6162\u8bfb\u4e0b\u53bb\u3002",
+  },
+  en: {
+    title: "Room to read, space to think",
+    paragraphs: ["There is no need to hurry toward a conclusion. Stay with a passage, listen to its voice, and follow the questions it brings to mind.", "A little space on the page can leave more room for thought."],
+    term: "a passage",
+    sentence: "follow the questions it brings to mind.",
+  },
 };
 function ThemeThumbnail({ theme }: { theme: ReadingTheme }) {
   return <span className={styles.thumbnail} data-testid="reading-appearance-theme" style={getReadingThemeVariables(theme.id) as CSSProperties} aria-hidden="true">
@@ -34,20 +44,38 @@ function ThemeThumbnail({ theme }: { theme: ReadingTheme }) {
 function Preview({ value }: { value: ReadingAppearancePreferences }) {
   const copy = PREVIEW_TEXT[value.language];
   const textProps = getReadingTextProps(value);
-  // WHY：设置卡不可能容纳 780px 真书页；栏宽等比缩略，字号/行距/字距保持真实 CSS 值。
+  const font = READING_FONTS.find((item) => item.id === value.font);
+  // WHY：Keep the preview proportional to the real reading width so column changes remain visible without making the settings card overflow.
   const width = value.columnWidth === "auto" ? "100%" : (value.columnWidth / 780 * 100) + "%";
-  return <figure className={styles.preview} style={getReadingAppearanceVariables(value) as CSSProperties}>
-    <figcaption className={styles.previewCaption}><span>阅读预览</span><span>{value.fontSize}px · {value.lineHeight.toFixed(1)} 倍行距</span></figcaption>
+  const widthLabel = value.columnWidth === "auto" ? "\u81ea\u9002\u5e94" : `${value.columnWidth}px`;
+  const alignmentLabel = value.textAlign === "justify" ? "\u4e24\u7aef\u5bf9\u9f50" : "\u5de6\u5bf9\u9f50";
+  const highlightTerm = value.semanticTerms || value.sourceTerms;
+  const underlineSentence = value.semanticSentences || value.sourceSentences;
+  const renderParagraph = (paragraph: string, index: number) => {
+    if (index !== 0) return paragraph;
+    const termIndex = paragraph.indexOf(copy.term);
+    const sentenceIndex = paragraph.indexOf(copy.sentence);
+    if (termIndex < 0 || sentenceIndex < termIndex + copy.term.length) return paragraph;
+    return <>{paragraph.slice(0, termIndex)}{highlightTerm ? <mark className={styles.previewTerm}>{copy.term}</mark> : copy.term}{paragraph.slice(termIndex + copy.term.length, sentenceIndex)}{underlineSentence ? <span className={styles.previewSentence}>{copy.sentence}</span> : copy.sentence}{paragraph.slice(sentenceIndex + copy.sentence.length)}</>;
+  };
+  return <figure className={styles.preview} style={getReadingAppearanceVariables(value) as CSSProperties} data-testid="reading-appearance-preview-shell">
+    <figcaption className={styles.previewCaption}>
+      <span><strong>{"\u9605\u8bfb\u9884\u89c8"}</strong><small>{"\u4fee\u6539\u9009\u9879\u540e\u5373\u65f6\u66f4\u65b0"}</small></span>
+      <span className={styles.previewMetrics}><b>{value.fontSize}px</b><b>{value.lineHeight.toFixed(1)} {"\u500d\u884c\u8ddd"}</b><b>{widthLabel}</b></span>
+    </figcaption>
+    <div className={styles.previewToolbar} aria-hidden="true"><span className={styles.previewToolbarDots}><i /><i /><i /></span><span>{"\u53e5\u8bfb \u00b7 \u5f53\u524d\u4e66\u9875"}</span><span className={styles.previewToolbarChip}>{alignmentLabel}</span></div>
     <div className={styles.previewWorkspace}>
-      <div className={styles.previewSidebar} aria-hidden="true"><i /><i /><i /></div>
+      <div className={styles.previewSidebar} aria-hidden="true"><i className={styles.previewSidebarActive} /><i /><i /><i /></div>
       <div className={styles.previewPaper}>
         <article {...textProps} className={styles.previewText} style={{ ...textProps.style, width }} data-testid="reading-appearance-preview">
-          <h3>{copy.title}</h3><p>{copy.text}</p>
+          <h3>{copy.title}</h3>
+          {copy.paragraphs.map((paragraph, index) => <p key={paragraph}>{renderParagraph(paragraph, index)}</p>)}
         </article>
       </div>
-      <div className={styles.previewAssistant} aria-hidden="true"><i /><i /><i /></div>
+      <aside className={styles.previewAssistant} aria-label={"\u56de\u7b54\u9884\u89c8"}><span className={styles.previewAssistantBadge}>AI</span><p /><p /><p className={styles.previewAssistantShort} /></aside>
     </div>
-    <p className={styles.previewNote}>栏宽等比缩略，字体与间距即时预览。主题色仅供外观选择，不代表护眼功效。</p>
+    <div className={styles.previewLegend}><span><i className={styles.previewLegendTerm} />{"\u91cd\u70b9\u8bcd"}</span><span><i className={styles.previewLegendSentence} />{"\u5173\u952e\u53e5"}</span><span className={styles.previewFontLabel}>{font?.label ?? "\u7cfb\u7edf"}</span></div>
+    <p className={styles.previewNote}>{"\u680f\u5bbd\u3001\u5bf9\u9f50\u3001\u5b57\u4f53\u3001\u5b57\u8ddd\u3001\u884c\u8ddd\u548c\u91cd\u70b9\u663e\u793a\u5747\u4e3a\u7f29\u7565\u9884\u89c8\uff1b\u4e3b\u9898\u8272\u4ec5\u4f9b\u5916\u89c2\u9009\u62e9\uff0c\u4e0d\u4ee3\u8868\u62a4\u773c\u529f\u6548\u3002"}</p>
   </figure>;
 }
 interface RangeSettingProps {
