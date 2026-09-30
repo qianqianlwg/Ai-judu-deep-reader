@@ -14,7 +14,7 @@ const runtime=(process as unknown as {getBuiltinModule(name:string):{DatabaseSyn
 const fetcher=vi.fn<typeof fetch>(),encoder=new TextEncoder();
 const texts=['这是第一个完整意思。','这是第二个完整意思。','图一。'],original=texts.join('');
 const payload={threadId:'thread-semantic',clientUserMessageId:'user-semantic',clientAssistantMessageId:'parent-semantic',editionId:'edition-1',bookId:'book-1',chapterId:'chapter-1',paragraphId:'p1',mode:'analyze',readingStyle:'semantic',question:'请按句意细读',selectedText:original,selectionStart:0,selectionEnd:original.length,selectionAnchors:[{paragraphId:'p1',startOffset:0,endOffset:original.length,selectedText:original}]};
-function submission(text:string,title='商品关系') {return {listTitle:'原文逐句细读',sourceStart:Array.from(text).slice(0,5).join(''),sourceEnd:Array.from(text).slice(-5).join(''),title,content:'这一句说明了对应的关系。',keywords:'无',keySentences:'无',concepts:'无',answerEmphasis:'无'};}
+function submission(text:string,title='商品关系') {const size=Math.min(8,Array.from(text).length);return {sourceStart:Array.from(text).slice(0,size).join(''),sourceEnd:Array.from(text).slice(-size).join(''),title,content:'这一句说明了对应的关系。',sourceAnnotations:{keywords:'none',keySentences:'none',concepts:'none'},answerEmphasis:{keywords:'none',keySentences:'none'}};}
 function upstream(args:unknown){const chunks=[{choices:[{index:0,delta:{role:'assistant',tool_calls:[{index:0,id:crypto.randomUUID(),type:'function',function:{name:'submit_reading_sentence',arguments:''}}]},finish_reason:null}]},{choices:[{index:0,delta:{tool_calls:[{index:0,function:{arguments:JSON.stringify(args)}}]},finish_reason:null}]},{choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:20000,completion_tokens:18000,total_tokens:38000}}];return new Response(new ReadableStream<Uint8Array>({start(c){for(const part of chunks)c.enqueue(encoder.encode('data: '+JSON.stringify(part)+'\n\n'));c.enqueue(encoder.encode('data: [DONE]\n\n'));c.close();}}),{headers:{'Content-Type':'text/event-stream'}});}
 async function call(extra:Record<string,unknown>={}){const response=await POST(new NextRequest('http://localhost/api/analyze/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,...extra})}));return {status:response.status,text:await response.text()};}
 function parent(){return fixture.db!.prepare('SELECT * FROM chat_messages WHERE id=?').get(payload.clientAssistantMessageId) as {id:string;role:'assistant';content:string;status:string;structured_output:string};}
@@ -55,7 +55,7 @@ describe('逐句增量细读 API 集成',()=>{
   expect(events.some(s=>s.thinkingCompleted&&s.units.length===0&&s.pending?.index===1)).toBe(true);
   expect(events.some(s=>s.phase==='reading'&&s.units.length===1)).toBe(true);
   expect(state().units.map(u=>u.status)).toEqual(['completed','completed','completed']);
-  expect(state().title).toBe('原文逐句细读');
+  expect(state().title).toBeUndefined();
   const rows=fixture.db!.prepare('SELECT * FROM annotations ORDER BY start_offset').all() as {start_offset:number;end_offset:number;message_id:string}[];
   expect(rows).toHaveLength(3);expect(rows[0]).toMatchObject({start_offset:0,end_offset:texts[0].length});
   const history=fixture.db!.prepare('SELECT id,role,content,status,structured_output AS structuredOutput FROM chat_messages ORDER BY created_at').all() as Parameters<typeof hydrateChatHistory>[0];
@@ -75,11 +75,11 @@ describe('逐句增量细读 API 集成',()=>{
   const r=await call();expect(r.text).toContain('找不到对应语句');expect(r.text).toContain('event: done');expect(state().units).toHaveLength(3);expect(JSON.stringify(JSON.parse(String(fetcher.mock.calls[2][1]?.body)).messages)).toContain('找不到对应语句');
  });
  it('省略必填标注三次失败报告明确错误，不添加新句读标记',async()=>{
-  for(let i=0;i<3;i++)fetcher.mockResolvedValueOnce(upstream({...submission(texts[0]),keywords:undefined}));
-  const r=await call();expect(r.text).toContain('event: error');expect(r.text).toContain('必填');expect(state().units).toHaveLength(0);expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:0});
+  for(let i=0;i<3;i++)fetcher.mockResolvedValueOnce(upstream({...submission(texts[0]),sourceAnnotations:{keywords:undefined,keySentences:'none',concepts:'none'}}));
+  const r=await call();expect(r.text).toContain('event: error');expect(r.text).toContain('sourceAnnotations.keywords');expect(state().units).toHaveLength(0);expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:0});
  });
  it('每句Agent原文关键词和关键句通过工具同步保存',async()=>{
-  fetcher.mockResolvedValueOnce(upstream({...submission(texts[0]),keywords:[{paragraphId:'p1',quote:'完整意思',occurrence:1}]}));
+  fetcher.mockResolvedValueOnce(upstream({...submission(texts[0]),sourceAnnotations:{keywords:[{paragraphKey:'p000001',quote:'完整意思'}],keySentences:'none',concepts:'none'}}));
   for(const t of texts.slice(1))fetcher.mockResolvedValueOnce(upstream(submission(t)));
   expect((await call()).text).toContain('event: done');expect(state().units[0].sourceEmphasis?.[0]).toMatchObject({quote:'完整意思',kind:'term'});
   expect(fixture.db!.prepare('SELECT count(*) AS n FROM source_emphasis').get()).toEqual({n:1});
