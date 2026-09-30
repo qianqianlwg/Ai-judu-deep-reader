@@ -12,7 +12,13 @@ function fixture(texts: string[]) {
     if (!p || !Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > p.text.length) return null;
     const range = document.createRange(); range.setStart(elements[index].firstChild!, start); range.setEnd(elements[index].firstChild!, end); return range;
   });
-  return { paragraphs, root, elements, rangeFor, build: (annotations: TextAnnotation[] = [], concepts: ConceptDetail[] = []) => buildReaderInteractions(paragraphs, rangeFor, annotations, concepts) };
+  return { paragraphs, root, elements, rangeFor, build: (annotations: TextAnnotation[] = [], concepts: ConceptDetail[] = []) => {
+    const localAnnotations = annotations.length || !concepts.length ? annotations : paragraphs.flatMap(paragraph => {
+      const local = concepts.filter(concept => paragraph.text.includes(concept.name));
+      return local.length ? [{ id: "local-" + paragraph.id, paragraphId: paragraph.id, startOffset: 0, endOffset: paragraph.text.length, textHash: "h", threadId: "local-test", kind: "analysis" as const, summary: "", concepts: local.map(concept => concept.name), conceptDetails: local, createdAt: "now" }] : [];
+    });
+    return buildReaderInteractions(paragraphs, rangeFor, localAnnotations, concepts);
+  } };
 }
 const conceptsOf = (targets: ReaderInteraction[]) => targets.filter(item => item.kind === "concept");
 const historiesOf = (targets: ReaderInteraction[]) => targets.filter(item => item.kind === "history");
@@ -21,6 +27,10 @@ afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 // WHY：共享算法使用真实jsdom Range，映射回调为可审计的精确UTF-16实现，不读取书库或执行模型。
 describe("共享概念交互来源与非侵入性", () => {
+  it("book dictionary alone does not create concept interactions", () => {
+    const f = fixture(["财政体制"]);
+    expect(buildReaderInteractions(f.paragraphs, f.rangeFor, [], [{ name: "财政体制", text: "定义" }])).toEqual([]);
+  });
   it("同文跨段落不猜首个来源，生成独立key", () => {
     const f = fixture(["财政体制", "财政体制"]), before = f.root.innerHTML;
     const result = conceptsOf(f.build([], [{ name: "财政体制", text: "定义" }]));
@@ -55,7 +65,7 @@ describe("共享概念交互来源与非侵入性", () => {
     expect(empty[0].concept.definitions).toEqual([{ name: "财政体制", text: "" }]); expect(JSON.stringify(empty)).not.toContain(annotation().summary);
   });
   it("多个标注边界切分同一概念后仍只有一个完整Range，不改输入、DOM和已有选区", () => {
-    const f = fixture(["财政体制"]), annotations = [annotation({ endOffset: 1 }), annotation({ id: "second", startOffset: 1, endOffset: 3 })], concepts = [{ name: "财政体制", text: "定义" }];
+    const f = fixture(["财政体制"]), concepts = [{ name: "财政体制", text: "定义" }], annotations = [annotation({ concepts: ["财政体制"], conceptDetails: concepts }), annotation({ id: "second", startOffset: 1, endOffset: 3 })];
     const input = JSON.stringify({ paragraphs: f.paragraphs, annotations, concepts }), html = f.root.innerHTML, node = f.elements[0].firstChild;
     const existing = document.createRange(); existing.setStart(node!, 1); existing.setEnd(node!, 3);
     const result = conceptsOf(f.build(annotations, concepts));

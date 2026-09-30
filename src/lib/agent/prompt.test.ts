@@ -4,7 +4,7 @@ it("默认释读不附带固定分析栏目，预算约束完整可见答案和�
   const prompt=readingSystemPrompt("analyze", "字".repeat(338), "standard");
   expect(prompt).toContain("目标约338字"); expect(prompt).toContain("禁止惯例性追加");
   expect(prompt).toContain("允许留空");expect(prompt).not.toContain("先输出一个标题");
-  expect(prompt).toContain("保存成功后不要再输出");expect(READING_PROMPT_VERSION).toBe("v15-verified-emphasis");
+  expect(prompt).toContain("保存成功后不要再输出");expect(READING_PROMPT_VERSION).toBe("v16-required-local-concepts");
 });
 it("追問不注入句读详细程度或保存模板", () => {
   const prompt=readingSystemPrompt("chat", "字".repeat(338), "detailed");

@@ -156,73 +156,86 @@ describe("AnnotatedParagraph 实测组件交互", () => {
 });
 
 
-describe("AnnotatedParagraph 全书字典概念", () => {
-  const bookConcepts = [{ name: "自我意识", text: "本书保存的逐词定义" }] as const;
+describe("AnnotatedParagraph \u672c\u6bb5\u53e5\u8bfb\u6982\u5ff5", () => {
+  const bookConcepts = [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u672c\u4e66\u4fdd\u5b58\u7684\u9010\u8bcd\u5b9a\u4e49" }] as const;
+  const local = (text: string, startOffset = 0, endOffset = text.length, definition = "\u672c\u6bb5\u5b9a\u4e49"): TextAnnotation => ({ ...annotation, paragraphId: "p1", startOffset, endOffset, concepts: ["\u81ea\u6211\u610f\u8bc6"], conceptDetails: [{ name: "\u81ea\u6211\u610f\u8bc6", text: definition }] });
 
-  it("无 annotation 的段落也显示全部字典命中，且不生成句读标记", () => {
-    const text = "自我意识面对自我意识；自我意识成立。";
+  it("book dictionary alone does not create concept marks", () => {
+    const text = "\u81ea\u6211\u610f\u8bc6\u9762\u5bf9\u81ea\u6211\u610f\u8bc6\uff1b\u81ea\u6211\u610f\u8bc6\u6210\u7acb\u3002";
     render({ text, sourceText: text, annotations: [], bookConcepts });
-    const terms = Array.from(document.querySelectorAll<HTMLElement>(".judu-concept-term"));
-    expect(terms).toHaveLength(3); expect(element("p").textContent).toBe(text);
+    expect(document.querySelectorAll(".judu-concept-term")).toHaveLength(0);
+    expect(element("p").textContent).toBe(text);
     expect(document.querySelector(".judu-history-marker, .judu-annotation-text")).toBeNull();
-    for (const term of terms) {
-      hover(term); expect(element('[role="dialog"]').textContent).toContain("本书保存的逐词定义");
-      expect(element('[role="dialog"]').textContent).not.toContain(annotation.summary);
-    }
-    expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("跨页词两侧均可点击同词定义，UTF-16 文本偏移保持原段坐标", () => {
-    const full = "前😀自我意识成立";
-    render({ text: full.slice(0, 5), sourceText: full, sourceStartOffset: 0, sourceEndOffset: 5, annotations: [], bookConcepts });
-    expect(element(".judu-concept-term").textContent).toBe("自我");
-    click(element(".judu-concept-term")); expect(element('[data-concept-definition="自我意识"]').textContent).toBe("本书保存的逐词定义");
-    render({ text: full.slice(5), sourceText: full, sourceStartOffset: 5, sourceEndOffset: full.length, annotations: [], bookConcepts });
+  it("same-name occurrences outside this paragraph annotation are not highlighted", () => {
+    const text = "\u81ea\u6211\u610f\u8bc6\u9762\u5bf9\u81ea\u6211\u610f\u8bc6\uff1b\u81ea\u6211\u610f\u8bc6\u6210\u7acb\u3002";
+    render({ text, sourceText: text, annotations: [local(text, 0, 4)], bookConcepts });
+    const terms = document.querySelectorAll<HTMLElement>(".judu-concept-term");
+    expect(terms).toHaveLength(1);
+    expect(terms[0].textContent).toBe("\u81ea\u6211\u610f\u8bc6");
+    hover(terms[0]);
+    expect(element('[role="dialog"]').textContent).toContain("\u672c\u6bb5\u5b9a\u4e49");
+    expect(element("p").textContent).toBe(text);
+  });
+
+  it("a concept crossing pagination retains its local definition and original offsets", () => {
+    const full = "\u524d\ud83d\ude00\u81ea\u6211\u610f\u8bc6\u6210\u7acb";
+    const annotationForFull = local(full, 3, 7);
+    render({ text: full.slice(0, 5), sourceText: full, sourceStartOffset: 0, sourceEndOffset: 5, annotations: [annotationForFull], bookConcepts });
+    expect(element(".judu-concept-term").textContent).toBe("\u81ea\u6211");
+    click(element(".judu-concept-term"));
+    expect(element('[data-concept-definition="\u81ea\u6211\u610f\u8bc6"]').textContent).toContain("\u672c\u6bb5\u5b9a\u4e49");
+    render({ text: full.slice(5), sourceText: full, sourceStartOffset: 5, sourceEndOffset: full.length, annotations: [annotationForFull], bookConcepts });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    const term = element(".judu-concept-term"); expect(term.textContent).toBe("意识"); expect(term.dataset.conceptWord).toBe("自我意识");
+    const term = element(".judu-concept-term");
+    expect(term.textContent).toBe("\u610f\u8bc6");
     expect(term.closest<HTMLElement>("[data-reader-text]")?.dataset.sourceStart).toBe("5");
     expect(term.closest<HTMLElement>("[data-reader-text]")?.dataset.sourceEnd).toBe("7");
-    act(() => term.focus()); expect(element('[data-concept-definition="自我意识"]').textContent).toBe("本书保存的逐词定义");
-    click(term); expect(element('[role="dialog"]').textContent).not.toContain("句读历史");
+    act(() => term.focus());
+    expect(element('[data-concept-definition="\u81ea\u6211\u610f\u8bc6"]').textContent).toContain("\u672c\u6bb5\u5b9a\u4e49");
     expect(element("p").textContent).toBe(full.slice(5));
   });
 
-  it("原文没有确切名称时不渲染概念词或弹窗，不拆复合名称", () => {
-    const text = "确定性还须提高为真理性。";
-    render({ text, sourceText: text, annotations: [], bookConcepts: [{ name: "确定性与真理性", text: "两者关系" }, { name: "对象与主体的统一", text: "抽象表达" }] });
-    hover(element("p")); expect(document.querySelector(".judu-concept-term")).toBeNull();
-    expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(element("p").textContent).toBe(text);
+  it("concept labels that do not literally occur in the source are not rendered", () => {
+    const text = "\u786e\u5b9a\u6027\u8fd8\u987b\u63d0\u9ad8\u4e3a\u771f\u7406\u6027\u3002";
+    const unrelated: TextAnnotation = { ...annotation, startOffset: 0, endOffset: text.length, concepts: ["\u786e\u5b9a\u6027\u4e0e\u771f\u7406\u6027"], conceptDetails: [{ name: "\u786e\u5b9a\u6027\u4e0e\u771f\u7406\u6027", text: "\u8bf4\u660e" }] };
+    render({ text, sourceText: text, annotations: [unrelated], bookConcepts: [{ name: "\u786e\u5b9a\u6027\u4e0e\u771f\u7406\u6027", text: "\u4e24\u8005\u5173\u7cfb" }] });
+    hover(element("p"));
+    expect(document.querySelector(".judu-concept-term, [role=\"dialog\"]")).toBeNull();
+    expect(element("p").textContent).toBe(text);
   });
 
-  it("本段定义优先，书级定义补充去重；旧 annotation 可由字典补齐", () => {
-    render({ bookConcepts: [{ name: "自我意识", text: "意识以自身作为对象" }, ...bookConcepts, ...bookConcepts] });
+  it("local definition wins and the book dictionary only supplements it without duplicates", () => {
+    render({ bookConcepts: [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u610f\u8bc6\u4ee5\u81ea\u8eab\u4f5c\u4e3a\u5bf9\u8c61" }, ...bookConcepts, ...bookConcepts] });
     click(element(".judu-concept-term"));
-    expect(Array.from(document.querySelectorAll(".judu-concept-definition > div")).map((item) => item.textContent)).toEqual(["意识以自身作为对象", "本书保存的逐词定义"]);
+    expect(Array.from(document.querySelectorAll(".judu-concept-definition > div")).map((item) => item.textContent)).toEqual(["\u610f\u8bc6\u4ee5\u81ea\u8eab\u4f5c\u4e3a\u5bf9\u8c61", "\u672c\u4e66\u4fdd\u5b58\u7684\u9010\u8bcd\u5b9a\u4e49"]);
     render({ annotations: [{ ...annotation, conceptDetails: undefined }], bookConcepts });
-    expect(element(".judu-concept-definition").textContent).toBe("本书保存的逐词定义");
+    expect(element(".judu-concept-definition").textContent).toBe("\u672c\u4e66\u4fdd\u5b58\u7684\u9010\u8bcd\u5b9a\u4e49");
     expect(element(".judu-concept-definition").textContent).not.toContain(annotation.summary);
   });
 
-  it("书级名称已命中但无定义时显示暂无定义", () => {
-    render({ annotations: [], bookConcepts: [{ name: "自我意识", text: "" }] });
-    click(element(".judu-concept-term")); expect(element(".judu-concept-definition").textContent).toBe("暂无定义");
+  it("a scoped concept with no available definition shows the empty-state text", () => {
+    render({ annotations: [{ ...annotation, concepts: ["\u81ea\u6211\u610f\u8bc6"], conceptDetails: undefined }], bookConcepts: [{ name: "\u81ea\u6211\u610f\u8bc6", text: "" }] });
+    click(element(".judu-concept-term"));
+    expect(element(".judu-concept-definition").textContent).toBe("\u6682\u65e0\u5b9a\u4e49");
   });
 
-  it("字典刷新实时更新已打开定义，移除概念时关闭旧浮层", () => {
-    render({ annotations: [], bookConcepts }); click(element(".judu-concept-term"));
-    render({ annotations: [], bookConcepts: [{ name: "自我意识", text: "刷新后的词义" }] });
-    expect(element(".judu-concept-definition").textContent).toBe("刷新后的词义");
+  it("definition updates live and the popup closes when its local annotation is removed", () => {
+    const current = { ...annotation, conceptDetails: undefined };
+    render({ annotations: [current], bookConcepts }); click(element(".judu-concept-term"));
+    render({ annotations: [current], bookConcepts: [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u5237\u65b0\u540e\u7684\u8bcd\u4e49" }] });
+    expect(element(".judu-concept-definition").textContent).toBe("\u5237\u65b0\u540e\u7684\u8bcd\u4e49");
     render({ annotations: [], bookConcepts: [] });
-    expect(document.querySelector(".judu-concept-term")).toBeNull(); expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector(".judu-concept-term, [role=\"dialog\"]")).toBeNull();
   });
 
-  it("关闭概念显示后书级字典也不能留下词语标记", () => {
-    render({ annotations: [], bookConcepts }); click(element(".judu-concept-term"));
-    render({ annotations: [], bookConcepts, showConcepts: false });
-    expect(document.querySelector(".judu-concept-term")).toBeNull(); expect(document.querySelector('[role="dialog"]')).toBeNull();
+  it("disabling concept display removes its marks and popup", () => {
+    render(); click(element(".judu-concept-term"));
+    render({ showConcepts: false });
+    expect(document.querySelector(".judu-concept-term, [role=\"dialog\"]")).toBeNull();
   });
 });
-
 
 describe("句读线模式", () => {
   it("开关仅控制句读线，不隐藏历史入口与概念", () => {
@@ -236,7 +249,7 @@ describe("句读线模式", () => {
 });
 
 it("页内重复概念是普通文字，不再包含弹窗入口", () => {
- const html=renderToStaticMarkup(<AnnotatedParagraph paragraphId="p" text="理性与理性" annotations={[]} showConcepts bookConcepts={[{name:"理性",text:"定义"}]} highlightedConceptStarts={new Set([0])} onOpenAnnotation={()=>{}}/>);
+ const html=renderToStaticMarkup(<AnnotatedParagraph paragraphId="p" text="理性与理性" annotations={[{...annotation,paragraphId:"p",startOffset:0,endOffset:5,concepts:["\u7406\u6027"],conceptDetails:[{name:"\u7406\u6027",text:"\u5b9a\u4e49"}]}]} showConcepts bookConcepts={[{name:"理性",text:"定义"}]} highlightedConceptStarts={new Set([0])} onOpenAnnotation={()=>{}}/>);
  const node=document.createElement("div");node.innerHTML=html;
  const terms=node.querySelectorAll('[data-concept-word="理性"]');
  expect(terms).toHaveLength(1);expect(terms[0].getAttribute("role")).toBe("button");expect(node.textContent).toBe("理性与理性");
@@ -247,7 +260,7 @@ it("首次概念与重复词均保留底层句读标记，重复词不加粗或�
  const css=await readFile(path.resolve("src/components/annotation-popover.css"),"utf8");
  const style=document.createElement("style");style.textContent=css;document.head.append(style);
  try{
-  render({paragraphId:"p",text:"理性与理性。",sourceText:"理性与理性。",bookConcepts:[{name:"理性",text:"定义"}],highlightedConceptStarts:new Set([0]),annotations:[{...annotation,paragraphId:"p",startOffset:0,endOffset:6,concepts:[],conceptDetails:[]}]});
+  render({paragraphId:"p",text:"理性与理性。",sourceText:"理性与理性。",bookConcepts:[{name:"理性",text:"定义"}],highlightedConceptStarts:new Set([0]),annotations:[{...annotation,paragraphId:"p",startOffset:0,endOffset:6,concepts:["\u7406\u6027"],conceptDetails:[{name:"\u7406\u6027",text:"\u5b9a\u4e49"}]}]});
   const spans=host.querySelectorAll<HTMLElement>('[data-reader-text]');
   const repeat=[...spans].find(span=>span.dataset.sourceStart==="3")!;
   expect(repeat.textContent).toBe("理性");expect(repeat.classList.contains("judu-annotation-text")).toBe(true);

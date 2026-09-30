@@ -282,6 +282,7 @@ describe("阅读器主页面交互回归", () => {
     expect(element('[data-paragraph-id="paragraph-B"]').textContent).toContain("乙书");
     expect(host.querySelector(".chat-messages")?.textContent).not.toContain("仅属于A的新回复");
     expect(host.querySelector('.reading-content [data-concept-word="承认"]')).toBeNull();
+    expect(document.querySelector('[data-concept-definition="承认"]')).toBeNull();
   });
 
   it("手动刷新知识卡片同时更新正文词典，且不会触发无限请求", async () => {
@@ -291,7 +292,7 @@ describe("阅读器主页面交互回归", () => {
     const before = callCount("/api/knowledge", "edition-A");
     await click(element('button[aria-label="刷新本书知识"]'));
     expect(callCount("/api/knowledge", "edition-A")).toBe(before + 1);
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(0);
     expect(element('.knowledge-library').textContent).toContain("新补充的互相确认定义");
     await settle(); await settle();
     expect(callCount("/api/knowledge", "edition-A")).toBe(before + 1);
@@ -300,12 +301,12 @@ describe("阅读器主页面交互回归", () => {
   it("旧概念无定义仍进入全书词典，未句读段落也能标记名称", async () => {
     bookKnowledge = knowledge({ name: "承认", text: "" });
     await loadA();
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(0);
     expect(host.querySelector(".judu-history-marker")).toBeNull();
     await click(element(".concept-toggle"));
     expect(host.querySelector('.reading-content [data-concept-word="承认"]')).toBeNull();
     await click(element(".concept-toggle"));
-    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(1);
+    expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(0);
   });
 
   it("过时的切书结果不覆盖最后选择，书籍加载期间禁止发起句读", async () => {
@@ -407,11 +408,10 @@ describe("跨书知识来源定位", () => {
   });
 });
 describe("工作区切换的浮层边界", () => {
-  it("进入书架会卸载原文词义浮层，但保留阅读测量容器", async () => {
+  it("\u5b57\u5178\u72ec\u6709\u6982\u5ff5\u4e0d\u751f\u6210\u539f\u6587\u6d6e\u5c42\uff0c\u8fdb\u5165\u4e66\u67b6\u4fdd\u7559\u9605\u8bfb\u6d4b\u91cf\u5bb9\u5668", async () => {
     bookKnowledge = knowledge({ name: "承认", text: "这是一条定义" });
     await loadA(); const reading = element(".reading-content");
-    await click(element('[data-concept-word="承认"]'));
-    expect(document.querySelector('[data-concept-definition="承认"]')?.textContent).toContain("这是一条定义");
+    expect(document.querySelector('[data-concept-word="承认"]')).toBeNull();
     await click(button("书架")); expect(document.querySelector(".judu-annotation-popover")).toBeNull();
     expect(element(".reading-content")).toBe(reading);
     await click(button("阅读")); expect(element(".reading-content")).toBe(reading);

@@ -19,6 +19,17 @@ const rect = (left: number, top: number, width: number, height: number): ReaderR
 afterEach(() => document.body.replaceChildren());
 
 describe("EPUB 非侵入交互投影", () => {
+  it("dictionary alone cannot create a concept interaction", () => {
+    const { maps } = fixture();
+    const targets = buildEpubInteractions(maps, [], [{ name: "\u8d22\u653f\u4f53\u5236", text: "\u5b9a\u4e49" }]);
+    expect(targets.filter(item => item.kind === "concept")).toEqual([]);
+  });
+
+  it("book dictionary alone does not create concept interactions", () => {
+    const { maps } = fixture();
+    expect(buildEpubInteractions(maps, [], [{ name: "\u8d22\u653f\u4f53\u5236", text: "\u5b9a\u4e49" }]).filter(item => item.kind === "concept")).toEqual([]);
+  });
+
   it("概念跨内联元素仍生成完整 Range，不修改 DOM、文本节点或既有来源位置", () => {
     const { doc, maps } = fixture('<p>理解<em>财政</em><strong>体制</strong>，才能理解地方发展。</p>');
     const before = doc.documentElement.outerHTML;
@@ -51,17 +62,22 @@ describe("EPUB 非侵入交互投影", () => {
 
   it("标注边界将同一概念分段时仍只有一个完整概念目标", () => {
     const { maps } = fixture();
-    const targets = buildEpubInteractions(maps, [annotation({ endOffset: 4 })], [{ name: "财政体制", text: "定义" }]);
-    const concepts = targets.filter(item => item.kind === "concept");
-    expect(concepts).toHaveLength(1);
-    expect(concepts[0].range.toString()).toBe("财政体制");
+    const concepts = [{ name: "\u8d22\u653f\u4f53\u5236", text: "\u5b9a\u4e49" }];
+    const local = annotation({ startOffset: 2, endOffset: 6, concepts: [concepts[0].name], conceptDetails: concepts });
+    const boundary = annotation({ id: "boundary", messageId: "boundary", startOffset: 0, endOffset: 4, concepts: [], conceptDetails: [] });
+    const targets = buildEpubInteractions(maps, [local, boundary], concepts);
+    const conceptTargets = targets.filter(item => item.kind === "concept");
+    expect(conceptTargets).toHaveLength(1);
+    expect(conceptTargets[0].range.toString()).toBe("财政体制");
     expect(targets.find(item => item.kind === "history")?.range.toString()).toBe(text.slice(3, 4));
   });
 
   it("重复概念按具体位置分别定位，最长名称优先且不猜同义词", () => {
     const value = "财政体制与财政体制";
     const { maps } = fixture(`<p>${value}</p>`, [value]);
-    const targets = buildEpubInteractions(maps, [], [{ name: "财政", text: "短词" }, { name: "财政体制", text: "长词" }, { name: "税收制度", text: "未出现" }]);
+    const concepts = [{ name: "\u8d22\u653f", text: "short" }, { name: "\u8d22\u653f\u4f53\u5236", text: "long" }, { name: "\u7a0e\u6536\u5236\u5ea6", text: "missing" }];
+    const local = annotation({ paragraphId: "p0", startOffset: 0, endOffset: value.length, concepts: concepts.map(item => item.name), conceptDetails: concepts });
+    const targets = buildEpubInteractions(maps, [local], concepts).filter(item => item.kind === "concept");
     expect(targets.map(item => item.range.toString())).toEqual(["财政体制", "财政体制"]);
     expect(new Set(targets.map(item => item.key)).size).toBe(2);
     expect(targets.map(item => item.range.startOffset)).toEqual([0, 5]);
@@ -95,7 +111,9 @@ describe("EPUB 非侵入交互投影", () => {
     const value = "认识 😀 财政体制。";
     const { doc, maps } = fixture('<p>认识 😀 <em>财政</em>体制。</p>', [value]);
     const before = doc.body.innerHTML;
-    const targets = buildEpubInteractions(maps, [], [{ name: "😀 财政体制", text: "定义" }]);
+    const concept = { name: "\ud83d\ude00 \u8d22\u653f\u4f53\u5236", text: "\u5b9a\u4e49" };
+    const local = annotation({ paragraphId: "p0", startOffset: 0, endOffset: value.length, concepts: [concept.name], conceptDetails: [concept] });
+    const targets = buildEpubInteractions(maps, [local], [concept]).filter(item => item.kind === "concept");
     expect(targets).toHaveLength(1);
     expect(targets[0].range.toString()).toBe("😀 财政体制");
     expect(doc.body.innerHTML).toBe(before);

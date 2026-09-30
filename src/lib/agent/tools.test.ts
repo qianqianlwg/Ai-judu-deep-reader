@@ -8,6 +8,7 @@ function fixture() {
 const analysis = { readingText: "认识使对象改变啊", summary: "解释", breakdown: [], concepts: [{ name: "认识", text: "认识活动" }], context: "", uncertainty: "", citations: [{ sourceId: source.sourceId, quote: "认识" }] };
 describe("结构化句读工具", () => {
   it("只登记实际检索结果，然后验证并保存原文锚点", async () => { const { deps, tools } = fixture(); await tools[0].invoke({ query: "认识" }); expect(deps.sources.size).toBe(1); const result = await tools[2].invoke(analysis); expect(result).toMatchObject({ ok: true, analysisId: "m", saved: true }); expect(deps.save).toHaveBeenCalledWith(expect.objectContaining({ anchor: deps.anchor, citations: [expect.objectContaining({ paragraphId: "p", messageId: "m" })] })); });
+  it("empty concepts marker persists as an empty list and omission is rejected", async () => { const { deps, tools } = fixture(); expect(await tools[2].invoke({ ...analysis, concepts: "\u65e0", citations: [] })).toMatchObject({ ok: true }); expect(deps.save).toHaveBeenCalledWith(expect.objectContaining({ concepts: [] })); });
   it("服务端区分选文、预加载上下文与真正检索，不让后续检索改写首次来源", async () => {
     const { deps, tools } = fixture();
     const context = { ...source, text: "选中部分。相邻部分。", origin: "context" as const };
@@ -18,7 +19,7 @@ describe("结构化句读工具", () => {
     const found = { ...source, sourceId: "book:e:paragraph:found", paragraphId: "found", text: "检索原文。" };
     deps.search = vi.fn(async () => [context, found]);
     await tools[0].invoke({ query: "检索" });
-    const result = await tools[2].invoke({ ...analysis, concepts: [], citations: [
+    const result = await tools[2].invoke({ ...analysis, concepts: "\u65e0", citations: [
       { sourceId: context.sourceId, quote: "选中部分。" },
       { sourceId: context.sourceId, quote: "相邻部分。" },
       { sourceId: "book:e:paragraph:near", quote: "邻段原文。" },
@@ -43,7 +44,7 @@ describe("结构化句读工具", () => {
     deps.sources.set(source.sourceId, { ...source, text: "旧上下文", origin: "context" });
     deps.search = vi.fn(async () => [{ ...source, text: "新检索片段" }]);
     await tools[0].invoke({ query: "新检索片段" });
-    expect(await tools[2].invoke({ ...analysis, concepts: [], citations: [{ sourceId: source.sourceId, quote: "新检索片段" }] }))
+    expect(await tools[2].invoke({ ...analysis, concepts: "\u65e0", citations: [{ sourceId: source.sourceId, quote: "新检索片段" }] }))
       .toMatchObject({ ok: true, result: { citations: [{ origin: "search" }] } });
   });
   it("未经验证的选区不标作选文依据", async () => {

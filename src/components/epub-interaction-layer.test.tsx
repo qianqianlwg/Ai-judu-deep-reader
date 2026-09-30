@@ -34,7 +34,19 @@ let frameBox: DOMRect, rangeRects: (range: Range) => DOMRect[], frames: Map<numb
 let extraFrames: HTMLIFrameElement[];
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
 const button = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(item => item.getAttribute("aria-label") === label || item.textContent === label)!;
-async function render(next: Partial<Props> = {}) { props = { ...props, ...next }; await act(async () => { root.render(<EpubInteractionLayer {...props} />); }); }
+async function render(next: Partial<Props> = {}) {
+  props = { ...props, ...next };
+  if (!("annotations" in next) && props.annotations.length === 0) {
+    // WHY：测试中的全书字典只能补充释义；概念名称必须由预设的本地句读记录声明，且不让概念样例伪造历史图标。
+    const localNames = ["\u8d22\u653f\u4f53\u5236", "\u5730\u65b9"];
+    props.annotations = props.documents.flatMap(({ maps }) => maps.flatMap(({ paragraph }) => {
+      const concepts = localNames.filter((name) => paragraph.text.includes(name));
+      return concepts.length ? [{ id: "local-" + paragraph.id, paragraphId: paragraph.id, startOffset: 0, endOffset: paragraph.text.length, textHash: "h", threadId: "local-test", kind: "analysis" as const, summary: "", concepts, createdAt: "now" }] : [];
+    }));
+    props.historyMarkerIds ??= new Set();
+  }
+  await act(async () => { root.render(<EpubInteractionLayer {...props} />); });
+}
 async function flushFrames() { await act(async () => { const jobs = [...frames.values()]; frames.clear(); for (const job of jobs) job(0); }); }
 async function event(target: EventTarget, type: string, options: MouseEventInit = {}) { const dispatched = new MouseEvent(type, { bubbles: true, cancelable: true, ...options }); await act(async () => { target.dispatchEvent(dispatched); }); return dispatched; }
 async function hover(x = 50, y = 50, target: EventTarget = doc.querySelector("p")!) { await event(target, "mousemove", { clientX: x, clientY: y }); }
@@ -242,7 +254,7 @@ describe("浮窗不干扰原生选文", () => {
     await act(async () => button("查看概念：财政体制").focus()); expect(dialog()).toBeNull();
   });
   it("portal 内文字选择事件不冒泡回阅读器选文处理器", async () => {
-    const handler = vi.fn(); await act(async () => root.render(<div onMouseUp={handler}><EpubInteractionLayer {...props} /></div>)); await hover();
+    const handler = vi.fn(); await render(); await act(async () => root.render(<div onMouseUp={handler}><EpubInteractionLayer {...props} /></div>)); await hover();
     await event(dialog()!.querySelector(".judu-concept-definition")!, "mouseup"); expect(handler).not.toHaveBeenCalled(); expect(doc.defaultView!.getSelection()?.isCollapsed).toBe(true);
   });
 });

@@ -54,15 +54,15 @@ export function paintEpubAnnotations(doc: Document, maps: readonly EpubParagraph
   for (const name of NAMES) registry.delete(name);
   for (const [name, values] of ranges) registry.set("judu-" + name, new Constructor(...values));
   // WHY：同一章可能有多页，必须在翻页/重排后重新按当前可见页计数，不能整章只标一次。
-  const candidates = buildEpubInteractions(maps, [], concepts).filter(item => item.kind === "concept");
+  const candidates = buildEpubInteractions(maps, annotations, concepts).filter(item => item.kind === "concept");
   const paintConcepts = () => {
     const seen = new Set<string>();
     const selected: Range[] = [];
     const bounds = page?.bounds();
     for (const item of candidates) {
-      if (item.kind !== "concept" || seen.has(item.concept.name)) continue;
+      if (item.kind !== "concept" || seen.has(JSON.stringify([item.paragraphId, item.concept.name]))) continue;
       if (page && (!bounds || !Array.from(item.range.getClientRects()).some(rect => clipReaderRect(epubRectToHost(doc, rect), bounds)))) continue;
-      seen.add(item.concept.name); selected.push(item.range);
+      seen.add(JSON.stringify([item.paragraphId, item.concept.name])); selected.push(item.range);
     }
     registry.set("judu-concept", new Constructor(...selected));
   };

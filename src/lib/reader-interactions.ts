@@ -1,7 +1,7 @@
 import { analysisHistoryMarkerIds } from "./analysis-history-markers";
 import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type TextAnnotation } from "./annotations";
 import type {LibraryParagraph} from "./library";
-export type ReaderInteraction = {key:string;range:Range} & ({kind:"concept";concept:AnnotationConcept}|{kind:"history";annotations:TextAnnotation[]}|{kind:"mark";annotation:TextAnnotation});
+export type ReaderInteraction = {key:string;range:Range} & ({kind:"concept";paragraphId:string;concept:AnnotationConcept}|{kind:"history";annotations:TextAnnotation[]}|{kind:"mark";annotation:TextAnnotation});
 export type ReaderRect={left:number;right:number;top:number;bottom:number;width:number;height:number};
 export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],rangeFor:(paragraphId:string,start:number,end:number)=>Range|null,annotations:readonly TextAnnotation[],concepts:readonly ConceptDetail[],historyMarkerIds:ReadonlySet<string>=analysisHistoryMarkerIds(annotations,paragraphs.map(p=>p.id))):ReaderInteraction[]{
  const result:ReaderInteraction[]=[];
@@ -13,7 +13,7 @@ export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],r
     const range=rangeFor(paragraph.id,segment.startOffset,segment.endOffset);
     if(range){
      if(previousConcept?.concept===segment.concept){previousConcept.range.setEnd(range.endContainer,range.endOffset);}
-     else {previousConcept={kind:"concept",key:paragraph.id+":concept:"+segment.startOffset,range,concept:segment.concept};result.push(previousConcept);}
+     else {previousConcept={kind:"concept",paragraphId:paragraph.id,key:paragraph.id+":concept:"+segment.startOffset,range,concept:segment.concept};result.push(previousConcept);}
     } else previousConcept=undefined;
    } else previousConcept=undefined;
    const history=segment.endingAnnotations.filter(annotation=>(!annotation.kind||annotation.kind==="analysis")&&historyMarkerIds.has(annotation.id));

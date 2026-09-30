@@ -10,7 +10,7 @@ it("EPUB 高亮图层不拆分正文节点，清理时只删除自己的图层",
  const node=document.querySelector('p')!.firstChild;
  const maps=mapEpubDocument(document,{id:'c',title:'章',paragraphs:[{id:'p',text:'认识世界'}]});
  const cleanup=paintEpubAnnotations(document,maps,[{id:'a',paragraphId:'p',startOffset:0,endOffset:2,textHash:'h',threadId:'t',summary:'s',concepts:[],createdAt:'now',kind:'highlight',markColor:'green'}],[{name:'世界',text:'定义'}]);
- expect(set.mock.calls.map(call=>call[0])).toEqual(['judu-green','judu-concept']);
+ expect(set.mock.calls.map(call=>call[0])).toEqual(['judu-green','judu-concept']);expect((set.mock.calls.find(call=>call[0]==='judu-concept')?.[1] as {range?:Range})?.range).toBeUndefined();
  expect(document.querySelector('p')!.firstChild).toBe(node); expect(document.querySelector('p')!.innerHTML).toBe('认识世界');
  cleanup();expect(document.querySelector('[data-judu-decoration]')).toBeNull();vi.unstubAllGlobals();
 });
@@ -55,7 +55,7 @@ it("当前页同词只标第一处，翻页重新计数且保留手动标亮", a
  vi.stubGlobal("Range",window.Range);const oldRects=Object.getOwnPropertyDescriptor(window.Range.prototype,"getClientRects");
  Object.defineProperty(window.Range.prototype,"getClientRects",{configurable:true,value:function(this:Range){const second=this.startContainer.parentElement===document.querySelectorAll("p")[1]; const left=(second?1:0)===page?10:200;return [{left,right:left+20,top:10,bottom:30,width:20,height:20}] as unknown as DOMRectList;}});
  const bounds=()=>({left:0,right:100,top:0,bottom:100,width:100,height:100});
- const clean=paintEpubAnnotations(document,maps,[],[{name:"理性",text:"定义"},{name:"经验",text:"定义"}],{enabled:true,opacity:.25},{bounds,changes});
+ const localConcepts=[{name:"\u7406\u6027",text:"\u5b9a\u4e49"},{name:"\u7ecf\u9a8c",text:"\u5b9a\u4e49"}];const annotations=[{id:"a1",paragraphId:"p1",startOffset:0,endOffset:6,textHash:"h",threadId:"t",kind:"analysis" as const,summary:"",concepts:localConcepts.map(item=>item.name),conceptDetails:localConcepts,createdAt:"now"},{id:"a2",paragraphId:"p2",startOffset:0,endOffset:4,textHash:"h",threadId:"t",kind:"analysis" as const,summary:"",concepts:localConcepts.map(item=>item.name),conceptDetails:localConcepts,createdAt:"now"}];const clean=paintEpubAnnotations(document,maps,annotations,localConcepts,{enabled:true,opacity:.25},{bounds,changes});
  expect(registry.get("judu-concept")?.map(r=>r.toString())).toEqual(["理性","经验"]);
  expect(registry.get("judu-concept")?.[0].startContainer.parentElement).toBe(document.querySelectorAll("p")[0]);
  page=1;changes.dispatchEvent(new Event("relocate"));
@@ -71,7 +71,7 @@ it("概念只增加首处黄底，不挖掉首次和重复词的句读下横线"
  const registry=new Map<string,Range[]>();
  vi.stubGlobal("CSS",{highlights:{set:(name:string,ranges:Range[])=>registry.set(name,ranges),delete:(name:string)=>registry.delete(name)}});
  vi.stubGlobal("Highlight",class extends Array<Range>{constructor(...ranges:Range[]){super(...ranges);}});
- const annotation={id:"a",paragraphId:"p",startOffset:0,endOffset:6,textHash:"h",threadId:"t",summary:"",concepts:[],createdAt:"now"};
+ const annotation={id:"a",paragraphId:"p",startOffset:0,endOffset:6,textHash:"h",threadId:"t",kind:"analysis" as const,summary:"",concepts:["\u7406\u6027"],conceptDetails:[{name:"\u7406\u6027",text:"\u5b9a\u4e49"}],createdAt:"now"};
  const cleanup=paintEpubAnnotations(document,maps,[annotation],[{name:"理性",text:"定义"}]);
  expect(registry.get("judu-analysis")?.map(range=>range.toString())).toEqual(["理性与理性。"]);
  expect(registry.get("judu-concept")?.map(range=>range.toString())).toEqual(["理性"]);

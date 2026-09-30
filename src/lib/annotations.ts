@@ -262,28 +262,47 @@ type ConceptMatch = { start: number; end: number; concept: AnnotationConcept };
 
 function matchParagraphConcepts(input: AnnotationSlice, source: string, sourceOffset: number): ConceptMatch[] {
   if (!input.showConcepts) return [];
-  const dictionary = new Map<string, ConceptDetail[]>();
-  const localDetails = input.annotations
-    .filter((annotation) => annotation.paragraphId === input.paragraphId)
-    .flatMap(annotationConceptDetails);
-  // WHY：本段已有逐词定义排在全书字典之前，字典用于补充；任何路径都不读取整段 summary。
-  for (const detail of [...localDetails, ...(input.bookConcepts ?? [])]) {
-    const name = detail.name.trim();
-    if (!name) continue;
-    const text = detail.text.trim();
-    const definitions = dictionary.get(name) ?? [];
-    if (!definitions.some((item) => item.text === text)) definitions.push({ name, text });
-    dictionary.set(name, definitions);
-  }
   const candidates: ConceptMatch[] = [];
-  for (const [name, definitions] of dictionary) {
-    // WHY：复合标签必须整体真实出现才标记，不拆“与/和”等连接词、不猜同义词或抽象口号。
-    let offset = source.indexOf(name);
-    while (offset !== -1) {
-      candidates.push({ start: sourceOffset + offset, end: sourceOffset + offset + name.length, concept: { name, definitions } });
-      offset = source.indexOf(name, offset + 1);
+  const sourceEnd = sourceOffset + source.length;
+  const localAnnotations = input.annotations.filter((annotation) =>
+    annotation.paragraphId === input.paragraphId && (!annotation.kind || annotation.kind === "analysis"),
+  );
+  const exactMatches = new Map<string, ConceptMatch>();
+
+  for (const annotation of localAnnotations) {
+    const scopeStart = Math.max(sourceOffset, annotation.startOffset);
+    const scopeEnd = Math.min(sourceEnd, annotation.endOffset);
+    if (scopeStart >= scopeEnd) continue;
+
+    for (const detail of annotationConceptDetails(annotation)) {
+      const name = detail.name.trim();
+      if (!name) continue;
+      const definitions = [detail, ...(input.bookConcepts ?? []).filter((item) => item.name.trim() === name)];
+      // WHY：当前句读的逐词定义优先，全书字典只补充已由本段句读声明的概念；空定义不能遮蔽可用释义。
+      const nonEmptyDefinitions = definitions.filter((item) => item.text.trim());
+      const usableDefinitions = nonEmptyDefinitions.length ? nonEmptyDefinitions : definitions;
+      const uniqueDefinitions = usableDefinitions
+        .filter((item, index) => usableDefinitions.findIndex((other) => other.text.trim() === item.text.trim()) === index)
+        .map((item) => ({ name, text: item.text.trim() }));
+      let offset = source.indexOf(name, scopeStart - sourceOffset);
+      while (offset !== -1 && sourceOffset + offset + name.length <= scopeEnd) {
+        const start = sourceOffset + offset;
+        const end = start + name.length;
+        const key = JSON.stringify([start, end, name]);
+        const existing = exactMatches.get(key);
+        if (existing) {
+          const merged = [...existing.concept.definitions, ...uniqueDefinitions];
+          existing.concept.definitions = merged.filter((item, index) => merged.findIndex((other) => other.text.trim() === item.text.trim()) === index);
+        } else {
+          const match = { start, end, concept: { name, definitions: uniqueDefinitions } };
+          exactMatches.set(key, match);
+          candidates.push(match);
+        }
+        offset = source.indexOf(name, offset + name.length);
+      }
     }
   }
+
   candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.start - b.start);
   const matches: ConceptMatch[] = [];
   for (const candidate of candidates) {
@@ -292,7 +311,7 @@ function matchParagraphConcepts(input: AnnotationSlice, source: string, sourceOf
   return matches;
 }
 
-/** WHY：来源回跳高亮不写数据库；全部片段共同展示，避免只把首段当作整次句读。 */
+/** WHY：来源回跳高亮只在当前阅读视图临时显示，不写入书库标注数据。 */
 export function sourceSelectionHighlights(parts: readonly ReadingAnchorPart[]): TextAnnotation[] {
   return parts.map(part=>({id:"source-"+part.paragraphId+"-"+part.startOffset,paragraphId:part.paragraphId,startOffset:part.startOffset,endOffset:part.endOffset,textHash:hashText(part.selectedText),threadId:"source-preview",summary:"",concepts:[],kind:"highlight",markColor:"yellow",createdAt:""}));
 }

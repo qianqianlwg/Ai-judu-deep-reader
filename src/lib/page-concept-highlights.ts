@@ -12,8 +12,9 @@ export function pageConceptHighlights(slices: readonly AnnotationSlice[]): Reado
     for (const segment of segmentAnnotatedText(slice)) {
       if (!segment.concept) { previous = undefined; highlighted = false; continue; }
       if (segment.concept !== previous) {
-        highlighted = !seen.has(segment.concept.name);
-        seen.add(segment.concept.name);
+        const key = JSON.stringify([slice.paragraphId, segment.concept.name]);
+        highlighted = !seen.has(key);
+        seen.add(key);
       }
       if (highlighted) starts.add(segment.startOffset);
       previous = segment.concept;

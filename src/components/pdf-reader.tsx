@@ -7,7 +7,7 @@ import{createPdfLinkService}from'@/lib/pdf-links';
 import{selectionParts,type ReadingSelection}from'@/lib/reader-selection';
 import {sourceEmphasisRanges} from "@/lib/source-enhancement";
 import {getReadingThemeVariables} from "@/lib/reading-appearance";
-import {analysisIntervalsWithoutConcepts} from "@/lib/annotations";
+import {analysisIntervalsWithoutConcepts, annotationConceptDetails, segmentAnnotatedText} from "@/lib/annotations";
 import type{PDFDocumentProxy}from'pdfjs-dist/types/src/display/api';
 import type{IPDFLinkService}from'pdfjs-dist/types/web/interfaces';
 import type{EpubReaderProps}from'./epub-reader';
@@ -102,8 +102,8 @@ export function PdfReader(props:EpubReaderProps){
  useEffect(()=>{
   const view=window as Window&{CSS?:{highlights?:{set(name:string,value:unknown):void;delete(name:string):boolean}};Highlight?:new(...ranges:Range[])=>unknown};const registry=view.CSS?.highlights,H=view.Highlight;if(!registry||!H)return;
   const pages=[...dom.current.values()],groups=new Map<string,Range[]>(['analysis','yellow','green','blue','pink','orange','concept','selection','enhance-term','enhance-sentence'].map(name=>[name,[]]));
-  for(const annotation of props.annotations){const name=annotation.kind&&annotation.kind!=='analysis'?annotation.markColor??'yellow':'analysis';const paragraph=session?.index.paragraphs.find(item=>item.id===annotation.paragraphId);const intervals=name==='analysis'&&paragraph?analysisIntervalsWithoutConcepts(paragraph.text,annotation.startOffset,annotation.endOffset,props.concepts):[{start:annotation.startOffset,end:annotation.endOffset}];for(const interval of intervals)groups.get(name)?.push(...pdfRangesForSource(pages,{paragraphId:annotation.paragraphId,startOffset:interval.start,endOffset:interval.end}));}
-  for(const paragraph of session?.index.paragraphs??[])for(const concept of props.concepts){if(!concept.name)continue;let start=paragraph.text.indexOf(concept.name);while(start>=0){groups.get('concept')!.push(...pdfRangesForSource(pages,{paragraphId:paragraph.id,startOffset:start,endOffset:start+concept.name.length}));start=paragraph.text.indexOf(concept.name,start+concept.name.length);}}
+  for(const annotation of props.annotations){const name=annotation.kind&&annotation.kind!=='analysis'?annotation.markColor??'yellow':'analysis';const paragraph=session?.index.paragraphs.find(item=>item.id===annotation.paragraphId);const intervals=name==='analysis'&&paragraph?analysisIntervalsWithoutConcepts(paragraph.text,annotation.startOffset,annotation.endOffset,annotationConceptDetails(annotation)):[{start:annotation.startOffset,end:annotation.endOffset}];for(const interval of intervals)groups.get(name)?.push(...pdfRangesForSource(pages,{paragraphId:annotation.paragraphId,startOffset:interval.start,endOffset:interval.end}));}
+  for(const paragraph of session?.index.paragraphs??[])for(const segment of segmentAnnotatedText({paragraphId:paragraph.id,text:paragraph.text,sourceText:paragraph.text,annotations:props.annotations,bookConcepts:props.concepts,showConcepts:props.concepts.length>0})){if(segment.concept)groups.get('concept')!.push(...pdfRangesForSource(pages,{paragraphId:paragraph.id,startOffset:segment.startOffset,endOffset:segment.endOffset}));}
   if(props.appearance.sourceTerms||props.appearance.sourceSentences)for(const paragraph of session?.index.paragraphs??[])for(const mark of sourceEmphasisRanges(paragraph.text,paragraph.id,props.sourceEmphasis)){
    if(!(mark.kind==='term'?props.appearance.sourceTerms:props.appearance.sourceSentences))continue;
    groups.get(mark.kind==='term'?'enhance-term':'enhance-sentence')!.push(...pdfRangesForSource(pages,{paragraphId:paragraph.id,startOffset:mark.start,endOffset:mark.end}));

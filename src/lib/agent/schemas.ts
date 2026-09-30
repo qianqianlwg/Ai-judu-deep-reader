@@ -18,7 +18,10 @@ export const saveAnalysisSchema = z.object({
   readingText: z.string().trim().min(1).max(24000).describe("完整句读文本；与已输出的可见释读一致，长度档位是目标而非硬限制"),
   summary: z.string().trim().max(4000).default(""),
   breakdown: z.array(z.object({ label: z.string().min(1).max(100), text: z.string().min(1).max(12000) }).strict()).max(24).default([]),
-  concepts: z.array(z.object({ name: z.string().trim().min(1).max(80).describe("必须逐字出现在选中文本中的概念词"), text: z.string().trim().min(1).max(2000) }).strict()).max(20).default([]),
+  concepts: z.union([
+    z.literal("无"),
+    z.array(z.object({ name: z.string().trim().min(1).max(80).describe("必须逐字出现在选中文本中的概念词"), text: z.string().trim().min(1).max(2000) }).strict()).min(1).max(20),
+  ]).describe("必填。选文有值得解释的核心概念时填写概念及本段定义；确实没有时填写字符串‘无’，不得省略"),
   context: z.string().max(6000).default(""),
   uncertainty: z.string().max(2000).default(""),
   citations: z.array(z.object({ sourceId: z.string().min(1).max(240), quote: z.string().trim().min(1).max(4000) }).strict()).max(16).default([]),

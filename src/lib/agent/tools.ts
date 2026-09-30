@@ -46,7 +46,8 @@ export function createReadingTools(deps: ReadingToolDependencies) {
     }, { name: "read_source", description: "读取已检索来源及相邻段落，理解前后文。不能读取其他书籍或任意 ID。", schema: readSourceSchema }),
     tool(async (input) => {
       if (!deps.selectedText.trim()) return { ok: false, code: "missing_selection", error: "本轮没有选文，不能保存句读。请自然回答用户。" };
-      const invalidConcepts = input.concepts.filter(c => !deps.selectedText.includes(c.name));
+      const concepts = input.concepts === "无" ? [] : input.concepts;
+      const invalidConcepts = concepts.filter(c => !deps.selectedText.includes(c.name));
       if (invalidConcepts.length) return { ok: false, code: "invalid_concepts", error: "以下概念未逐字出现在选文中，请修正", invalidConcepts: invalidConcepts.map(c => c.name) };
       const citations: NonNullable<Analysis["citations"]> = [];
       for (const citation of input.citations) {
@@ -61,11 +62,11 @@ export function createReadingTools(deps: ReadingToolDependencies) {
       }
       const { emphasis: proposal, ...fields } = input;
       const emphasis = validateAnswerEmphasis(deps.getVisibleAnswer?.() ?? "", proposal);
-      const analysis = { ...fields, provenanceVersion: 1 as const, citations, ...(emphasis.marks.length ? { emphasis } : {}), ...(deps.anchor ? { anchor: deps.anchor } : {}) };
+      const analysis = { ...fields, concepts, provenanceVersion: 1 as const, citations, ...(emphasis.marks.length ? { emphasis } : {}), ...(deps.anchor ? { anchor: deps.anchor } : {}) };
       // WHY：消息、版本和原文锚点由服务器绑定；模型只能填写分析内容，不能指定保存到其他消息。
       await deps.save(analysis);
       return { ok: true, analysisId: deps.messageId, saved: true, locationAvailable: Boolean(deps.anchor), result: analysis };
-    }, { name: "save_reading_analysis", description: "保存选文的结构化句读和概念；emphasis 可填本轮可见回答中精确出现的少量关键词和一条关键句（无则空）。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮已提供的选文/邻段或 search_book/read_source 真实来源。先输出完整释读再保存；若先保存且尚无正文，则随后输出正文，已有正文不重复。", schema: saveAnalysisSchema }),
+    }, { name: "save_reading_analysis", description: "保存选文的结构化句读和概念。concepts 是必填字段：有核心概念时填写名称及本段定义；没有时填写字符串‘无’，不可省略。emphasis 可填本轮可见回答中精确出现的少量关键词和一条关键句（无则空）。参数不是 JSON 正文，颜色由前端决定。引用必须来自本轮已提供的选文/邻段或 search_book/read_source 真实来源。先输出完整释读再保存；若先保存且尚无正文，则随后输出正文，已有正文不重复。", schema: saveAnalysisSchema }),
     tool(async (input) => {
       const answer = deps.getVisibleAnswer?.() ?? "";
       if (!answer.trim() || !deps.saveEmphasis) return { ok: false, code: "answer_unavailable", error: "需要先完整输出本轮正文，才能标注重点" };

@@ -18,7 +18,7 @@ const runtime = (process as unknown as {
 const fetcher = vi.fn<typeof fetch>();
 const responses: (() => Response)[] = [];
 const encoder = new TextEncoder();
-const analysis = { readingText: "连续选文需要结合上下文理解。", summary: "", breakdown: [], concepts: [], context: "", uncertainty: "", citations: [] };
+const analysis = { readingText: "连续选文需要结合上下文理解。", summary: "", breakdown: [], concepts: "\u65e0", context: "", uncertainty: "", citations: [] };
 const sourceRows = [
   ["p1", "chapter-1", "第一段正文用于验收多段句读完整来源。", 0],
   ["p2", "chapter-1", "第二段正文应完整包含在这次选择中。", 1],

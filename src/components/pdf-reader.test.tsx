@@ -468,10 +468,11 @@ it("五种手动颜色、AI下划线、概念和当前选区独立注册，绿�
   await render({ annotations: [
     ...colors.map((markColor, index) => ({ ...base, id: markColor, kind: "highlight" as const, markColor, startOffset: index * 2, endOffset: index * 2 + 2 })),
     { ...base, id: "analysis", kind: "analysis", threadId: "real-thread", messageId: "real-message", startOffset: 10, endOffset: 12 },
+    { ...base, id: "concept-analysis", kind: "analysis", threadId: "concept-thread", messageId: "concept-message", startOffset: 0, endOffset: 3, concepts: [text.slice(0, 3)], conceptDetails: [{ name: text.slice(0, 3), text: "独立概念定义" }] },
   ], concepts: [{ name: text.slice(0, 3), text: "独立概念定义" }] });
   for (const [index, color] of colors.entries()) expect(highlights.get("judu-pdf-" + color)?.ranges.map(range => range.toString())).toEqual([text.slice(index * 2, index * 2 + 2)]);
   expect(highlights.get("judu-pdf-analysis")?.ranges.map(range => range.toString())).toEqual([text.slice(10, 12)]);
-  expect(highlights.get("judu-pdf-concept")?.ranges.map(range => range.toString())).toContain(text.slice(0, 3));
+  expect(highlights.get("judu-pdf-concept")?.ranges.map(range => range.toString())).toEqual([text.slice(0, 2), text.slice(2, 3)]);
   await select(textNode(), 0, textNode(), 12);
   expect(highlights.get("judu-pdf-selection")?.ranges.map(range => range.toString())).toEqual([text.slice(0, 12)]);
   expect(highlights.get("judu-pdf-green")?.ranges.map(range => range.toString())).toEqual([text.slice(2, 4)]);

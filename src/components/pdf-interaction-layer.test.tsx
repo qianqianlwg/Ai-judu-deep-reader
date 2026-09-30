@@ -57,11 +57,15 @@ beforeEach(() => {
   const index = mapPdfDocument([makePage(1, firstText), makePage(2, secondText)], book);
   const pages = index.pages.map((page, i) => bindPdfTextLayer(page, texts[i].parentElement!, [texts[i]], [texts[i].textContent!]));
   pdf = { numPages: 2, getDestination: vi.fn<(name: string) => Promise<unknown>>(async () => [1, { name: "Fit" }]), getPageIndex: vi.fn(async () => 1) };
-  props = { host: { current: host }, book, document: pdf as unknown as PDFDocumentProxy, index, pages, annotations: [], concepts: [{ name: "财政体制", text: "中央与地方之间财政关系的制度安排" }], onOpenAnnotation: vi.fn(), onNotice: vi.fn(), onJump: vi.fn() };
+  props = { host: { current: host }, book, document: pdf as unknown as PDFDocumentProxy, index, pages, annotations: [analysis(), analysis({ id: "a2", paragraphId: "p2", endOffset: secondText.length })], concepts: [{ name: "财政体制", text: "中央与地方之间财政关系的制度安排" }], onOpenAnnotation: vi.fn(), onNotice: vi.fn(), onJump: vi.fn() };
 });
 afterEach(async () => { await unmount(); host.remove(); document.getSelection()?.removeAllRanges(); Reflect.deleteProperty(Range.prototype, "getClientRects"); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("PDF真实适配到共享浮层", () => {
+  it("does not expose a dictionary concept outside the current annotation anchor", async () => {
+    await render({ annotations: [analysis({ endOffset: 2 })] });
+    expect(host.querySelectorAll('[aria-label="\u67e5\u770b\u6982\u5ff5\uff1a\u8d22\u653f\u4f53\u5236"]')).toHaveLength(0);
+  });
   it("文字层概念hover显示逐词定义，使用真实共用portal而非Foliate假对象", async () => {
     await render(); await mouse(texts[0], "mousemove"); expect(dialog()?.classList.contains("judu-annotation-popover")).toBe(true);
     expect(dialog()?.textContent).toContain("中央与地方之间财政关系"); expect(dialog()?.parentElement).toBe(document.body);

@@ -26,7 +26,7 @@ function sourceRange(start: number, end: number, rect = box(40, 40, 80, 20)) {
   const range = document.createRange(); range.setStart(paragraph.firstChild!, start); range.setEnd(paragraph.firstChild!, end); geometries.set(range, [rect]); return range;
 }
 function concept(name = "财政体制", definition = "中央与地方财政关系的制度安排", range = sourceRange(2, 6)): ReaderInteraction {
-  return { kind: "concept", key: "concept:" + name, range, concept: { name, definitions: definition ? [{ name, text: definition }] : [] } };
+  return { kind: "concept", paragraphId: "p", key: "concept:" + name, range, concept: { name, definitions: definition ? [{ name, text: definition }] : [] } };
 }
 function link(href = "#note", parent: HTMLElement = scope) { const node = document.createElement("a"); node.href = href; node.textContent = "引用"; node.dataset.testLink = ""; parent.append(node); return node; }
 async function select(node: Node, start = 0, end = 2) { await act(async () => { const range = document.createRange(); range.setStart(node, start); range.setEnd(node, end); document.getSelection()!.removeAllRanges(); document.getSelection()!.addRange(range); document.dispatchEvent(new Event("selectionchange")); }); }
@@ -120,7 +120,7 @@ describe("共享原版浮层：scope、焦点、选文", () => {
   it("两个scope相邻/重叠矩形时事件只命中所属页", async () => {
     const second = document.createElement("div"), p = document.createElement("p"); p.textContent = "第二页"; second.append(p); host.append(second);
     const range = document.createRange(); range.selectNodeContents(p); geometries.set(range, [box(40, 40, 80, 20)]);
-    const target: ReaderInteraction = { kind: "concept", key: "second", range, concept: { name: "第二页", definitions: [{ name: "第二页", text: "第二页独有定义" }] } };
+    const target: ReaderInteraction = { kind: "concept", paragraphId: "p-second", key: "second", range, concept: { name: "第二页", definitions: [{ name: "第二页", text: "第二页独有定义" }] } };
     await render({ documents: [...props.documents, { doc: document, index: 2, scope: second, targets: [target] }] });
     await mouse(p, "mousemove"); expect(dialog()?.textContent).toContain("第二页独有定义"); expect(dialog()?.textContent).not.toContain("中央与地方");
   });

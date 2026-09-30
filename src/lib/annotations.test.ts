@@ -71,75 +71,62 @@ describe("分页标注与独立历史", () => {
 });
 
 
-describe("全书概念字典与跨页精确命中", () => {
-  const dictionary = [{ name: "自我意识", text: "以自身为对象的意识" }] as const;
-  const fullText = "前😀自我意识；自我意识。";
-  const slice = (start: number, end: number) => ({ paragraphId: "p", text: fullText.slice(start, end), sourceText: fullText, sourceStartOffset: start, sourceEndOffset: end, annotations: [], bookConcepts: dictionary, showConcepts: true });
+describe("\u53e5\u8bfb\u951a\u70b9\u8303\u56f4\u5185\u7684\u6982\u5ff5", () => {
+  const dictionary = [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u4ee5\u81ea\u8eab\u4e3a\u5bf9\u8c61\u7684\u610f\u8bc6" }] as const;
+  const fullText = "\u524d\ud83d\ude00\u81ea\u6211\u610f\u8bc6\uff1b\u81ea\u6211\u610f\u8bc6\u3002";
+  const firstOccurrence = createAnnotation({ paragraphId: "p", startOffset: 3, endOffset: 7, threadId: "t", summary: "\u4e0d\u80fd\u4f5c\u4e3a\u9010\u8bcd\u5b9a\u4e49", concepts: ["\u81ea\u6211\u610f\u8bc6"], conceptDetails: [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u672c\u6bb5\u5b9a\u4e49" }], createdAt: "2026-09-30" }, fullText);
+  const slice = (start: number, end: number, annotations = [firstOccurrence]) => ({ paragraphId: "p", text: fullText.slice(start, end), sourceText: fullText, sourceStartOffset: start, sourceEndOffset: end, annotations, bookConcepts: dictionary, showConcepts: true });
 
-  it("没有任何 annotation 仍标记全书字典在本段的所有真实出现位置", () => {
-    const result = segmentAnnotatedText(slice(0, fullText.length));
-    expect(result.filter((item) => item.concept).map((item) => [item.text, item.startOffset, item.endOffset])).toEqual([["自我意识", 3, 7], ["自我意识", 8, 12]]);
-    expect(result.flatMap((item) => item.annotations)).toEqual([]);
-    expect(result.flatMap((item) => item.endingAnnotations)).toEqual([]);
+  it("a book dictionary alone does not trigger highlights", () => {
+    const result = segmentAnnotatedText(slice(0, fullText.length, []));
+    expect(result.some((item) => item.concept)).toBe(false);
     expect(result.map((item) => item.text).join("")).toBe(fullText);
   });
-
-  it("跨页词先在完整原段定位，左右可见片段均绑定同名定义", () => {
+  it("only complete concept occurrences inside the current annotation anchor are highlighted", () => {
+    const result = segmentAnnotatedText(slice(0, fullText.length));
+    expect(result.filter((item) => item.concept).map((item) => [item.text, item.startOffset, item.endOffset])).toEqual([["\u81ea\u6211\u610f\u8bc6", 3, 7]]);
+    expect(result.filter((item) => item.endingAnnotations.length).at(-1)?.endingAnnotations).toEqual([firstOccurrence]);
+  });
+  it("pagination preserves source offsets and the same local definition", () => {
     const first = segmentAnnotatedText(slice(0, 5));
     const second = segmentAnnotatedText(slice(5, 8));
     const left = first.find((item) => item.concept);
     const right = second.find((item) => item.concept);
-    expect(left).toMatchObject({ text: "自我", startOffset: 3, endOffset: 5 });
-    expect(right).toMatchObject({ text: "意识", startOffset: 5, endOffset: 7 });
+    expect(left).toMatchObject({ text: "\u81ea\u6211", startOffset: 3, endOffset: 5 });
+    expect(right).toMatchObject({ text: "\u610f\u8bc6", startOffset: 5, endOffset: 7 });
     expect(left?.concept).toEqual(right?.concept);
-    expect(left?.concept?.name).toBe("自我意识");
-    expect(first.map((item) => item.text).join("") + second.map((item) => item.text).join("")).toBe(fullText.slice(0, 8));
   });
-
-  it("一个词跨越片段两端时也只裁剪显示文本，不改概念名称", () => {
-    expect(segmentAnnotatedText(slice(4, 6))).toMatchObject([{ text: "我意", startOffset: 4, endOffset: 6, concept: { name: "自我意识" } }]);
+  it("clipping a visible page does not change the full concept match", () => {
+    expect(segmentAnnotatedText(slice(4, 6))).toMatchObject([{ text: "\u6211\u610f", startOffset: 4, endOffset: 6, concept: { name: "\u81ea\u6211\u610f\u8bc6" } }]);
   });
-
-  it("最长名称优先级在裁剪前确定，跨页不能退化为较短概念", () => {
-    const result = segmentAnnotatedText({ ...slice(5, 7), bookConcepts: [...dictionary, { name: "意识", text: "更短概念" }] });
-    expect(result).toMatchObject([{ text: "意识", concept: { name: "自我意识", definitions: dictionary } }]);
-  });
-
-  it("未提供完整原段时不靠半个词猜测完整名称", () => {
-    const result = segmentAnnotatedText({ ...slice(5, 7), sourceText: undefined });
+  it("a repeated term outside the annotation anchor is not highlighted", () => {
+    const result = segmentAnnotatedText(slice(7, 13));
     expect(result.some((item) => item.concept)).toBe(false);
   });
-
-  it("本段其他片段的逐词定义优先，全书定义补充、去重且不挪用摘要", () => {
-    const local = createAnnotation({ paragraphId: "p", startOffset: 3, endOffset: 7, threadId: "t", summary: "不能作为定义的整段摘要", concepts: [], conceptDetails: [{ name: "自我意识", text: " 本段定义 " }], createdAt: "2026-09-14" }, fullText);
-    const foreign = { ...local, paragraphId: "elsewhere", conceptDetails: [{ name: "自我意识", text: "其他段定义" }] };
-    const result = segmentAnnotatedText({ ...slice(8, 12), annotations: [local, foreign], bookConcepts: [{ name: " 自我意识 ", text: "本段定义" }, ...dictionary, ...dictionary] });
-    expect(result[0].concept?.definitions).toEqual([{ name: "自我意识", text: "本段定义" }, { name: "自我意识", text: "以自身为对象的意识" }]);
-    expect(result[0].annotations).toEqual([]);
+  it("a different paragraph annotation cannot activate the same word here", () => {
+    const other = { ...firstOccurrence, paragraphId: "other" };
+    const result = segmentAnnotatedText({ paragraphId: "p", text: "\u81ea\u6211\u610f\u8bc6", annotations: [other], bookConcepts: dictionary, showConcepts: true });
+    expect(result.some((item) => item.concept)).toBe(false);
   });
-
-  it("缺少名称命中、抽象口号、复合标签不拆词、不猜同义词", () => {
-    const text = "确定性还须提高为真理性。";
-    const result = segmentAnnotatedText({ paragraphId: "p", text, sourceText: text, annotations: [], bookConcepts: [{ name: "确定性与真理性", text: "复合说明" }, { name: "主体客体的统一", text: "抽象口号" }, { name: "", text: "空名称" }], showConcepts: true });
-    expect(result).toMatchObject([{ text }]); expect(result.some((item) => item.concept)).toBe(false);
+  it("the current definition wins and the book dictionary only supplements it without duplicates", () => {
+    const local = createAnnotation({ paragraphId: "p", startOffset: 3, endOffset: 7, threadId: "t", summary: "\u4e0d\u80fd\u501f\u7528\u53e5\u8bfb\u6458\u8981", concepts: [], conceptDetails: [{ name: "\u81ea\u6211\u610f\u8bc6", text: " \u672c\u6bb5\u5b9a\u4e49 " }], createdAt: "2026-09-30" }, fullText);
+    const result = segmentAnnotatedText({ ...slice(3, 7), annotations: [local], bookConcepts: [{ name: " \u81ea\u6211\u610f\u8bc6 ", text: "\u672c\u6bb5\u5b9a\u4e49" }, ...dictionary, ...dictionary] });
+    expect(result[0].concept?.definitions).toEqual([{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u672c\u6bb5\u5b9a\u4e49" }, dictionary[0]]);
   });
-
-  it("名称按字面匹配，不把名称中的符号当正则表达式", () => {
-    const text = "C++ 不等于 C，a.b 不等于 axb。";
-    const result = segmentAnnotatedText({ paragraphId: "p", text, annotations: [], bookConcepts: [{ name: "C++", text: "语言" }, { name: "a.b", text: "字面名称" }], showConcepts: true });
+  it("concept matching stays literal and requires a concept declared by this annotation", () => {
+    const text = "C++ \u4e0d\u7b49\u4e8e C\uff0ca.b \u4e0d\u7b49\u4e8e axb\u3002";
+    const local = createAnnotation({ paragraphId: "p", startOffset: 0, endOffset: text.length, threadId: "t", summary: "", concepts: ["C++", "a.b"], conceptDetails: [{ name: "C++", text: "\u8bed\u8a00" }, { name: "a.b", text: "\u5b57\u9762\u540d\u79f0" }], createdAt: "now" }, text);
+    const result = segmentAnnotatedText({ paragraphId: "p", text, sourceText: text, annotations: [local], showConcepts: true });
     expect(result.filter((item) => item.concept).map((item) => item.text)).toEqual(["C++", "a.b"]);
   });
-
-  it("关闭概念开关时字典不产生任何概念标记", () => {
+  it("disabled concept display produces no marks", () => {
     expect(segmentAnnotatedText({ ...slice(0, fullText.length), showConcepts: false }).some((item) => item.concept)).toBe(false);
   });
-
-  it("sourceText 与当前片段内容不一致时明确报错而非错误定位", () => {
-    expect(() => segmentAnnotatedText({ ...slice(5, 7), text: "错字" })).toThrow("完整原段落");
-    expect(() => segmentAnnotatedText({ ...slice(5, 7), sourceText: "过短" })).toThrow("完整原段落");
+  it("a slice inconsistent with its complete source throws instead of mislocating", () => {
+    expect(() => segmentAnnotatedText({ ...slice(5, 7), text: "\u9519\u5b57" })).toThrow("\u5b8c\u6574\u539f\u6bb5\u843d");
+    expect(() => segmentAnnotatedText({ ...slice(5, 7), sourceText: "\u8fc7\u77ed" })).toThrow("\u5b8c\u6574\u539f\u6bb5\u843d");
   });
 });
-
 
 describe("句读与概念标记不重叠", () => {
   it("句读区间跨越概念时只给前后文字画线", () => {
