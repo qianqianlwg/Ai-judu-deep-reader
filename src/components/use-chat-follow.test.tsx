@@ -49,6 +49,22 @@ beforeEach(() => {
 afterEach(async () => { if (mounted) await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("useChatFollow 真实 React 滚动意图", () => {
+  it("进入历史会话默认触底，重渲染不抢用户上翻位置", async () => {
+    metrics.top = 0;
+    await render(false);
+    expect(metrics.top).toBe(600);
+    expect(button().hidden).toBe(true);
+    await scroll(120);
+    await render(false, "重渲染");
+    expect(metrics.top).toBe(120);
+  });
+  it("空会话异步载入历史并切换标识时触底", async () => {
+    metrics.height = 300; metrics.top = 0;
+    await render(false);
+    metrics.height = 1200;
+    await act(async () => root.render(<Harness generating={false} conversationKey="loaded-thread" revision="历史消息" />));
+    expect(metrics.top).toBe(900);
+  });
   it("在底部时随同一条消息的增量触底，不依赖消息数量增加", async () => {
     await render();
     expect(metrics.top).toBe(600);
@@ -96,6 +112,7 @@ describe("useChatFollow 真实 React 滚动意图", () => {
   it("latest 一次点击立即到真底部并复核一次新布局，不使用 smooth", async () => {
     metrics.top = 100;
     await render(false);
+    await scroll(100);
     expect(button().hidden).toBe(false);
     await act(async () => button().click());
     expect(metrics.top).toBe(600);
@@ -153,7 +170,7 @@ describe("useChatFollow 真实 React 滚动意图", () => {
     await render(true, "新字");
     expect(metrics.top).toBe(600);
   });
-  it("切换会话取消上一会话 latest 的延后滚动，不把跟随状态带过去", async () => {
+  it("切换会话取消旧会话延后滚动，并默认展示新会话底部", async () => {
     metrics.top = 100;
     await act(async () => root.render(<Harness generating={false} conversationKey="t1" />));
     await act(async () => button().click());
@@ -163,7 +180,7 @@ describe("useChatFollow 真实 React 滚动意图", () => {
     expect(frames.size).toBe(0);
     metrics.height = 1500;
     await flushFrames();
-    expect(metrics.top).toBe(150);
+    expect(metrics.top).toBe(600);
   });
   it("StrictMode 重挂载与连续渲染不累计 listener，卸载清理 observer 和 RAF", async () => {
     const add = vi.spyOn(EventTarget.prototype, "addEventListener");

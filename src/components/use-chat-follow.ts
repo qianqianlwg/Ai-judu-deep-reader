@@ -67,8 +67,9 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
       previousConversation.current = conversationKey;
     }
     if (!initialized.current) {
-      following.current = atBottom();
-      lastTop.current = viewportRef.current?.scrollTop ?? 0;
+      // WHY：首次进入和切换会话默认展示最新消息；仅初始化触底，后续尊重用户上翻历史的意图。
+      following.current = true;
+      moveToBottom();
       initialized.current = true;
     }
     const finishing = previousGenerating.current && !generating;
