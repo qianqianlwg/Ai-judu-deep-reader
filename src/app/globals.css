@@ -384,3 +384,9 @@ body { background: var(--ui-bg); color: var(--ui-text); }
 .app-shell .chat-composer { background: color-mix(in srgb, var(--reading-assistant-background, #edf4f1) 85%, var(--reading-surface, #fff) 15%); border-color: var(--reading-border, var(--ui-border)); }
 .app-shell .reader-sheet { color: var(--reading-text, #39464a); }
 .app-shell .reading-toolbar { background: var(--reading-paper, var(--paper)); border-color: var(--reading-border, var(--ui-border)); }
+
+.reading-toolbar .guide-reading-entry{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;padding:6px 13px;border:1px solid color-mix(in srgb,var(--reading-accent,#4b7774) 28%,transparent);border-radius:999px;background:color-mix(in srgb,var(--reading-accent,#4b7774) 9%,var(--reading-paper,#fff));color:var(--reading-accent,#4b7774);font:600 12px/1.2 system-ui,sans-serif;letter-spacing:.04em;cursor:pointer;transition:background-color .16s ease,border-color .16s ease,transform .16s ease}
+.reading-toolbar .guide-reading-entry:hover{background:color-mix(in srgb,var(--reading-accent,#4b7774) 15%,var(--reading-paper,#fff));border-color:color-mix(in srgb,var(--reading-accent,#4b7774) 42%,transparent)}
+.reading-toolbar .guide-reading-entry:active{transform:translateY(1px)}
+.reading-toolbar .guide-reading-entry:focus-visible{outline:2px solid var(--reading-accent,#4b7774);outline-offset:2px}
+.reading-toolbar .guide-reading-entry:disabled{opacity:.5;cursor:not-allowed}

@@ -199,6 +199,14 @@ afterEach(async () => {
 });
 
 describe("阅读器主页面交互回归", () => {
+  it("句读线与概念显示开关收纳在句读选项中", async () => {
+    await loadA();
+    expect(host.querySelector(".analysis-toggle")).toBeNull();
+    expect(host.querySelector(".concept-toggle")).toBeNull();
+    await click(element<HTMLButtonElement>('[aria-label="句读选项"]'));
+    expect(host.querySelector('.reading-options-panel [aria-label="句读线"]')).not.toBeNull();
+    expect(host.querySelector('.reading-options-panel [aria-label="概念"]')).not.toBeNull();
+  });
   it("每书解读设置在生成中可改，下一轮使用新值且切书不串用", async () => {
     await loadA(); await selectOriginal(); await click(button("句读一下"));
     expect(pendingStreams[0].payload).toMatchObject({ difficulty: "normal", detail: "standard" });
@@ -303,9 +311,9 @@ describe("阅读器主页面交互回归", () => {
     await loadA();
     expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(0);
     expect(host.querySelector(".judu-history-marker")).toBeNull();
-    await click(element(".concept-toggle"));
+    await click(element<HTMLButtonElement>('[aria-label="\u53e5\u8bfb\u9009\u9879"]')); await click(element<HTMLInputElement>('[aria-label="\u6982\u5ff5"]'));
     expect(host.querySelector('.reading-content [data-concept-word="承认"]')).toBeNull();
-    await click(element(".concept-toggle"));
+    await click(element<HTMLInputElement>('[aria-label="\u6982\u5ff5"]'));
     expect(host.querySelectorAll('.reading-content [data-concept-word="承认"]')).toHaveLength(0);
   });
 
