@@ -44,6 +44,17 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("AnalysisPanel 消息、选文与失败状态", () => {
+  it("打开聊天记录时等待同一会话历史加载完成，再默认展示最新消息", async () => {
+    metrics.top = 0; metrics.height = 300;
+    await render({ activeThreadId: "history", conversationsLoading: true });
+    metrics.height = 1800;
+    await render({ activeThreadId: "history", conversationsLoading: false, messages: [{ id: "last", role: "assistant", kind: "chat", status: "completed", content: "最新记录" }] });
+    expect(metrics.top).toBe(1500);
+    expect(latest().hidden).toBe(true);
+    await scroll(120);
+    await render({ activeThreadId: "history", messages: [{ id: "last", role: "assistant", kind: "chat", status: "completed", content: "最新记录" }] });
+    expect(metrics.top).toBe(120);
+  });
   it("保持原面板接口和可访问的空状态", async () => {
     await render();
     expect(container.querySelector("aside")?.classList.contains("analysis-panel")).toBe(true);

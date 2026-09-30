@@ -4,14 +4,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 const BOTTOM_EPSILON = 1;
 
-export function useChatFollow(generating: boolean, contentVersion: unknown, conversationKey?: string | null) {
+export function useChatFollow(generating: boolean, contentVersion: unknown, conversationKey?: string | null, historyLoading = false) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const interacting = useRef(false);
   const initialized = useRef(false);
   const generatingRef = useRef(generating);
-  const previousGenerating = useRef(false);
   const previousConversation = useRef(conversationKey);
   const lastTop = useRef(0);
   const frame = useRef<number | null>(null);
@@ -63,8 +62,14 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
   useLayoutEffect(() => {
     if (previousConversation.current !== conversationKey) {
       // WHY：切会话取消旧会话的待执行滚动，不能把上一会话的跟随/结束状态带入新会话。
-      cancelFrame(); initialized.current = false; previousGenerating.current = false; interacting.current = false;
+      cancelFrame(); initialized.current = false; interacting.current = false;
       previousConversation.current = conversationKey;
+    }
+    if (historyLoading) {
+      // WHY：会话标识先更新、历史消息后异步返回；必须等历史加载完成再初始化触底，否则只滚动了空容器。
+      cancelFrame(); initialized.current = false;
+      generatingRef.current = generating;
+      return;
     }
     if (!initialized.current) {
       // WHY：首次进入和切换会话默认展示最新消息；仅初始化触底，后续尊重用户上翻历史的意图。
@@ -72,15 +77,13 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
       moveToBottom();
       initialized.current = true;
     }
-    const finishing = previousGenerating.current && !generating;
     generatingRef.current = generating;
-    if ((generating || finishing) && following.current && !interacting.current) moveToBottom();
+    // WHY：跟随取决于用户滚动意图，而不是生成状态；历史恢复、最终排版和新消息都应在原本触底时继续触底。
+    if (following.current && !interacting.current) moveToBottom();
     else {
-      if (!generating && !finishing && !atBottom()) following.current = false;
       refresh();
     }
-    previousGenerating.current = generating;
-  }, [generating, contentVersion, conversationKey, atBottom, cancelFrame, moveToBottom, refresh]);
+  }, [generating, contentVersion, conversationKey, historyLoading, atBottom, cancelFrame, moveToBottom, refresh]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -111,8 +114,8 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
       touchY = nextY;
     };
     const onResize = () => {
-      // WHY：尺寸变化只在生成且仍有跟随意图时触底；历史阅读位置不被 resize 或 focus 恢复逻辑锁死。
-      if (generatingRef.current && following.current && !interacting.current) scheduleBottom();
+      // WHY：底部用户跟随内容尺寸变化；上翻后不恢复或锁死历史阅读位置。
+      if (following.current && !interacting.current) scheduleBottom(true);
       else refresh();
     };
     element.addEventListener("scroll", onScroll, { passive: true });

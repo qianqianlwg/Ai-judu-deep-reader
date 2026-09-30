@@ -153,15 +153,19 @@ describe("useChatFollow 真实 React 滚动意图", () => {
     await render(true, "用户继续看最新");
     expect(metrics.top).toBe(1100);
   });
-  it("非生成期追加内容不自动滚动，结束生成的最后一次排版可跟随", async () => {
+  it("原本在底部时非生成期追加内容和最终排版也跟随，主动上翻后停止", async () => {
     await render();
     metrics.height = 1200;
     await render(false, "完成后的结构化内容");
     expect(metrics.top).toBe(900);
     metrics.height = 1500;
     await render(false, "非生成期其他内容变化");
-    expect(metrics.top).toBe(900);
-    expect(button().hidden).toBe(false);
+    expect(metrics.top).toBe(1200);
+    expect(button().hidden).toBe(true);
+    await scroll(200);
+    metrics.height = 1800;
+    await render(false, "上翻后追加内容");
+    expect(metrics.top).toBe(200);
   });
   it("键盘上翻在增量到达前表达暂停意图", async () => {
     await render();

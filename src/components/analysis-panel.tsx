@@ -217,7 +217,7 @@ export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, 
   const generating = loading || messages.some((message) => message.status === "streaming");
   const interactionLocked = generating || conversationsLoading;
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-  const { viewportRef, contentRef, showLatest, jumpToLatest, pauseFollowing } = useChatFollow(generating, messages, activeThreadId ?? editionId);
+  const { viewportRef, contentRef, showLatest, jumpToLatest, pauseFollowing } = useChatFollow(generating, messages, activeThreadId ?? editionId, conversationsLoading);
   const submit = () => {
     const textarea = textareaRef.current;
     const value = textarea?.value.trim();
