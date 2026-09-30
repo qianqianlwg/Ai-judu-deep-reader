@@ -1,3 +1,4 @@
+import { GUIDE_SCHEMA } from "@/lib/guide-schema";
 import {NextRequest} from 'next/server';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import type {getDb} from '@/lib/db';
@@ -17,7 +18,7 @@ const plan=(allSkip=false)=>({units:texts.map((text,i)=>({label:'意思'+(i+1),a
 async function call(extra:Record<string,unknown>={}){const response=await POST(new NextRequest('http://localhost/api/analyze/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,...extra})}));return {status:response.status,text:await response.text()};}
 function parent(){return fixture.db!.prepare('SELECT * FROM chat_messages WHERE id=?').get(payload.clientAssistantMessageId) as {id:string;role:'assistant';content:string;status:string;structured_output:string};}
 function state():SemanticReading {const v:unknown=JSON.parse(parent().structured_output).semantic;if(!isSemanticReading(v))throw new Error('状态缺失');return v;}
-beforeEach(()=>{fixture.db=new runtime.DatabaseSync(':memory:');fixture.db.exec(String.raw`
+beforeEach(()=>{fixture.db=new runtime.DatabaseSync(':memory:');fixture.db.exec(GUIDE_SCHEMA);fixture.db.exec(String.raw`
     CREATE TABLE ai_provider_configs (id TEXT PRIMARY KEY, provider TEXT, base_url TEXT, api_key TEXT, model TEXT);
     INSERT INTO ai_provider_configs VALUES ('default', 'openai', 'https://provider.test', 'test-key', 'test-model');
     CREATE TABLE reading_threads (id TEXT PRIMARY KEY, book_id TEXT, edition_id TEXT NOT NULL, chapter_id TEXT, paragraph_id TEXT, selected_text TEXT, created_at TEXT, updated_at TEXT);

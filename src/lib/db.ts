@@ -1,3 +1,4 @@
+import { GUIDE_SCHEMA } from "./guide-schema";
 import { SOURCE_EMPHASIS_SCHEMA } from "./source-enhancement-store";
 import {BOOK_SHELF_SCHEMA} from "./book-shelf";
 import fs from "node:fs";
@@ -47,6 +48,7 @@ export function createDatabase() {
   const db = new runtime.DatabaseSync(path.join(dataDir, "judu.sqlite"));
   db.exec("PRAGMA busy_timeout = 5000;");
   db.exec(SOURCE_EMPHASIS_SCHEMA);
+  db.exec(GUIDE_SCHEMA);
   try {
     // WHY：并行 Worker 的增列必须在同一写锁内检查执行，避免重复 ALTER；迁移只增列，不重建正文表。
     db.exec("BEGIN IMMEDIATE");

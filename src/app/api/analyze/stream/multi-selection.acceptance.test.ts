@@ -1,3 +1,4 @@
+import { GUIDE_SCHEMA } from "@/lib/guide-schema";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { getDb } from "@/lib/db";
@@ -111,6 +112,7 @@ async function assertRejected(overrides: Record<string, unknown>, status: number
 beforeEach(() => {
   // WHY：真实 SQLite + 真实 Agent/工具链，只隔离数据库和模型 HTTP 传输；不伪造产品持久化结果。
   fixture.db = new runtime.DatabaseSync(":memory:");
+  fixture.db.exec(GUIDE_SCHEMA);
   db().exec(`
     CREATE TABLE books (id TEXT PRIMARY KEY);
     CREATE TABLE editions (id TEXT PRIMARY KEY, book_id TEXT NOT NULL);

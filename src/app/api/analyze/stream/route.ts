@@ -1,3 +1,4 @@
+import { enqueueGuideSource } from "@/lib/guide-sources";
 import { SemanticPlanError } from "@/lib/semantic-plan-input";
 import { isSemanticReading, semanticSummary, MAX_SECTION_CHARACTERS, type SemanticReading } from '@/lib/semantic-reading';
 import { executeSemanticFlow } from '@/lib/agent/semantic-flow';
@@ -118,7 +119,16 @@ function persistAssistant(db: Db, threadId: string, meta: RequestMeta, raw: stri
   const fields: Record<string, unknown> = { ...analysis, ...(meta.semantic ? {semantic:meta.semantic} : {}) };
   delete fields.emphasis;
   const verified = readAnswerEmphasis(raw, emphasis ?? analysis?.emphasis) ?? (status === "completed" ? inferAnswerEmphasis(raw) : undefined);
+  // WHY：完成消息与待更新事件同事务提交；旧 attempt 的完成不能发布导读，流式中间结果不入队。
+  if (status === "completed") db.exec("BEGIN IMMEDIATE");
+  try {
   db.prepare("UPDATE chat_messages SET content = ?, raw_content = ?, structured_output = ?, status = ?, usage_json = ? WHERE id = ? AND thread_id = ? AND json_extract(structured_output, '$._request.attemptId') = ?").run(raw, raw, JSON.stringify({ ...fields, ...(verified ? { emphasis: verified } : {}), outputFormat: "text", _request: { ...meta, semantic:undefined, failure } }), status, usage ? JSON.stringify(usage) : null, meta.clientAssistantMessageId, threadId, meta.attemptId);
+    if (status === "completed") {
+      const current = db.prepare("SELECT id FROM chat_messages WHERE id=? AND status='completed' AND json_extract(structured_output,'$._request.attemptId')=?").get(meta.clientAssistantMessageId, meta.attemptId);
+      if (current && meta.input.mode === "analyze" && !meta.semantic) enqueueGuideSource(db, meta.clientAssistantMessageId);
+      db.exec("COMMIT");
+    }
+  } catch (error: unknown) { if (status === "completed") db.exec("ROLLBACK"); throw error; }
 }
 function buildContext(db: Db, input: Input, meta: RequestMeta) {
   const snapshot = meta.contextSnapshot;
@@ -308,7 +318,7 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
               },
               commit(unit,state){
                 assertCurrentAttempt();
-                commitSemanticUnit(db,{threadId,editionId:meta.input.editionId,bookId:meta.input.bookId,parentId:meta.clientAssistantMessageId,attemptId:meta.attemptId,model:config.model},unit,()=>{meta.semantic=state;raw=semanticSummary(state);persistAssistant(db,threadId,meta,raw,'streaming',undefined,undefined,usage);});
+                commitSemanticUnit(db,{threadId,editionId:meta.input.editionId,bookId:meta.input.bookId,parentId:meta.clientAssistantMessageId,attemptId:meta.attemptId,model:config.model},unit,()=>{meta.semantic=state;raw=semanticSummary(state);persistAssistant(db,threadId,meta,raw,'streaming',undefined,undefined,usage);enqueueGuideSource(db,unit.id);});
               },
               emit(event){
                 if(terminal)return;if(event.type==='usage')usage=event.usage;

@@ -1,0 +1,10 @@
+import { afterEach, expect, it, vi } from "vitest";
+const mocks = vi.hoisted(() => ({ getDb: vi.fn(), claim: vi.fn(), run: vi.fn(), plan: vi.fn() }));
+vi.mock("./db", () => ({ getDb: mocks.getDb }));
+vi.mock("./guide-worker", () => ({ claimGuideJob: mocks.claim, runGuideJob: mocks.run }));
+vi.mock("./guide-agent", () => ({ planGuide: mocks.plan }));
+import { readGuideConfig, startGuideWorker, stopGuideWorker } from "./guide-runtime";
+import type { getDb } from "./db";
+afterEach(() => { stopGuideWorker(); vi.useRealTimers(); vi.clearAllMocks(); });
+it("使用用户现有模型配置，不泄露或另设供应商", () => { const db = { prepare: () => ({ get: () => ({ provider: "claude", base_url: "https://model.invalid", api_key: "secret", model: "chosen" }) }) } as unknown as ReturnType<typeof getDb>; expect(readGuideConfig(db)).toEqual({ provider: "claude", baseUrl: "https://model.invalid", apiKey: "secret", model: "chosen" }); });
+it("单进程重复装配不重复定时器，退出可停止", async () => { vi.useFakeTimers(); mocks.claim.mockReturnValue(null); startGuideWorker(); startGuideWorker(); expect(vi.getTimerCount()).toBe(1); await vi.advanceTimersByTimeAsync(2000); expect(mocks.claim).toHaveBeenCalledTimes(1); stopGuideWorker(); expect(vi.getTimerCount()).toBe(0); });

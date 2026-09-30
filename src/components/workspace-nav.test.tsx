@@ -12,8 +12,9 @@ function button(text: string): HTMLButtonElement { const node = Array.from(host.
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 describe("WorkspaceNav", () => {
-  it("三个视图入口真正调用导航且保持当前视图标识", () => {
+  it("四个视图入口真正调用导航且保持当前视图标识", () => {
     render(); expect(button("阅读").getAttribute("aria-current")).toBe("page");
+    act(() => button("思维导读").click()); expect(navigate).toHaveBeenLastCalledWith("guide");
     act(() => button("书架").click()); expect(navigate).toHaveBeenLastCalledWith("bookshelf");
     act(() => button("知识库").click()); expect(navigate).toHaveBeenLastCalledWith("knowledge");
     render({ view: "knowledge" }); expect(button("知识库").getAttribute("aria-current")).toBe("page");
@@ -32,7 +33,7 @@ describe("WorkspaceNav", () => {
     render({busy: true}); expect(button("导入书籍").disabled).toBe(true); expect(host.querySelector(".shelf-book")).toBeNull();
     act(() => button("知识库").click()); expect(navigate).toHaveBeenCalledWith("knowledge"); expect(openBook).not.toHaveBeenCalled();
   });
-  it.each(["reader", "bookshelf", "knowledge"] as const)("%s 视图都移除重复书籍列表与说明文字", view => {
+  it.each(["reader", "bookshelf", "knowledge", "guide"] as const)("%s 视图都移除重复书籍列表与说明文字", view => {
     render({view}); expect(host.textContent).not.toContain("我的书籍"); expect(host.textContent).not.toContain("在书架搜索");
     expect(host.querySelector(".book-shelf")).toBeNull(); expect(host.querySelector("[data-edition-id]")).toBeNull();
     expect(host.querySelector(".toc-item") !== null).toBe(view === "reader");

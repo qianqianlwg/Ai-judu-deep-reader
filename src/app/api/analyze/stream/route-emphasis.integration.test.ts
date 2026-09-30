@@ -1,3 +1,4 @@
+import { GUIDE_SCHEMA } from "@/lib/guide-schema";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { getDb } from "@/lib/db";
@@ -24,6 +25,7 @@ const stored = () => JSON.parse(row().structured_output) as Record<string, unkno
 beforeEach(() => {
   // WHY：使用真实内存 SQLite 执行事务和幂等 SQL；只替换上游传输，不访问外网、不启停服务。
   fixture.db = new runtime.DatabaseSync(":memory:");
+  fixture.db.exec(GUIDE_SCHEMA);
   fixture.db.exec(String.raw`
     CREATE TABLE ai_provider_configs (id TEXT PRIMARY KEY, provider TEXT, base_url TEXT, api_key TEXT, model TEXT);
     INSERT INTO ai_provider_configs VALUES ('default', 'openai', 'https://provider.test', 'test-key', 'test-model');
@@ -31,6 +33,8 @@ beforeEach(() => {
     CREATE TABLE chat_messages (id TEXT PRIMARY KEY, thread_id TEXT, role TEXT, content TEXT NOT NULL, raw_content TEXT, structured_output TEXT, status TEXT, model_name TEXT, prompt_version TEXT, created_at TEXT, usage_json TEXT);
     CREATE TABLE agent_tool_runs (id TEXT PRIMARY KEY, message_id TEXT, thread_id TEXT, attempt_id TEXT, tool_name TEXT, input_json TEXT, output_json TEXT, status TEXT, created_at TEXT);
     CREATE TABLE context_snapshots (id TEXT PRIMARY KEY, thread_id TEXT, book_id TEXT, edition_id TEXT, summary TEXT, recent_messages TEXT, token_count INTEGER, version INTEGER, created_at TEXT, checkpoint_json TEXT);
+    CREATE TABLE editions(id TEXT PRIMARY KEY,book_id TEXT);
+    INSERT INTO editions VALUES ('edition-1','book-1'),('edition-2','book-2');
     CREATE TABLE chapters (id TEXT PRIMARY KEY, edition_id TEXT, title TEXT, order_index INTEGER);
     CREATE TABLE paragraphs (id TEXT PRIMARY KEY, chapter_id TEXT, text TEXT, order_index INTEGER);
     INSERT INTO chapters VALUES ('chapter-1', 'edition-1', '导论', 0), ('chapter-2', 'edition-2', '另一版', 0);

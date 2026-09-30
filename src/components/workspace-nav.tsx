@@ -5,7 +5,7 @@ import type { WorkspaceBook } from "./workspace-editions";
 export type { WorkspaceBook } from "./workspace-editions";
 import "./workspace-nav.css";
 
-export type WorkspaceView = "reader" | "bookshelf" | "knowledge";
+export type WorkspaceView = "reader" | "bookshelf" | "knowledge" | "guide";
 type Chapter = { id: string; title: string };
 export type WorkspaceNavProps = {
   collapsed?: boolean;
@@ -29,6 +29,7 @@ export type WorkspaceNavProps = {
 };
 function Icon({ name }: { name: WorkspaceView | "import" | "settings" }) {
   const paths = {
+    guide: "M4 4h6v5H4zM14 15h6v5h-6zM4 15h6v5H4zM7 9v3h10v3M7 12v3",
     reader: "M3 4h6l3 2 3-2h6v15h-6l-3 2-3-2H3zM12 6v15",
     bookshelf: "M4 4h4v16H4zM10 4h4v16h-4zM16 5l4-1 3 15-4 1z",
     knowledge: "M4 4h7v7H4zM14 4h6v7h-6zM4 14h7v6H4zM14 14h6v6h-6z",
@@ -44,7 +45,7 @@ export function WorkspaceNav({ collapsed=false, onToggleCollapse, view, onNaviga
     {onToggleCollapse && <button type="button" className="workspace-collapse-toggle" aria-label={collapsed?"展开左侧导航":"收起左侧导航"} aria-expanded={!collapsed} onClick={onToggleCollapse} title={collapsed?"展开左侧导航":"收起左侧导航"}>{collapsed?"☰":"«"}</button>}
     <div className="workspace-brand"><span aria-hidden="true">句</span><strong>句读</strong><button type="button" className="workspace-nav-close" aria-label="关闭导航" onClick={onDismiss}>×</button></div>
     <nav className="workspace-destinations" aria-label="主导航">
-      {([ ["reader", "阅读"], ["bookshelf", "书架"], ["knowledge", "知识库"] ] as const).map(([id, label]) => <button type="button" key={id}
+      {([ ["reader", "阅读"], ["guide", "思维导读"], ["bookshelf", "书架"], ["knowledge", "知识库"] ] as const).map(([id, label]) => <button type="button" key={id}
         aria-current={view === id ? "page" : undefined} className={"workspace-nav-item" + (view === id ? " active" : "")}
         onClick={() => navigate(id)}><Icon name={id} /><span>{label}</span></button>)}
       <button type="button" className="workspace-nav-item workspace-import-nav" disabled={importDisabled || importing} onClick={() => { onNavigate("bookshelf"); onImport(); }}><Icon name="import" /><span>{importing ? "正在导入…" : "导入书籍"}</span></button>

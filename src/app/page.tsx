@@ -1,4 +1,6 @@
 "use client";
+import { GuideWorkspace } from "@/components/guide-workspace";
+import type { GuideSource } from "@/lib/guide-sources";
 import { useSourceEmphasis } from "@/hooks/use-source-emphasis";
 import { ReadingOptions } from "@/components/reading-options";
 import {useReadingStyle} from '@/components/reading-style-control';
@@ -326,7 +328,7 @@ export default function Home() {
       if (loaded.editionId) { localStorage.setItem("judu:edition:" + loaded.id, loaded.editionId); window.dispatchEvent(new Event(BOOK_RESUME_CHANGED)); }
       if (restoreView) {
         const savedView = localStorage.getItem("judu:workspace-view");
-        if (savedView === "bookshelf" || savedView === "knowledge") setWorkspaceView(savedView);
+        if (savedView === "bookshelf" || savedView === "knowledge" || savedView === "guide") setWorkspaceView(savedView);
       }
     } catch (loadError: unknown) {
       console.error("读取书籍失败", loadError);
@@ -492,6 +494,13 @@ export default function Home() {
     if(paragraph)setReadingAnchor({paragraphId:paragraph.id,offset:selection?.startOffset??0});
     if(!selection)setNotice("搜索摘录无法精确核对，请在正文重新选择需要句读的文字。");
   }
+  function openGuideSource(source: GuideSource, conversation: boolean): void {
+    if (source.bookId !== book.id) { setNotice("导读来源不属于当前书籍，请重新打开导读。"); return; }
+    if (source.editionId === book.editionId) {
+      if (conversation) { setWorkspaceView("reader"); openConversation(source.threadId, source.messageId); }
+      else openKnowledgeSource(source.anchor);
+    } else void loadBook(source.bookId, source.editionId, false, undefined, conversation ? { conversation: { threadId: source.threadId, messageId: source.messageId } } : { anchor: { ...source.anchor, editionId: source.editionId, chapterId: source.chapterId } });
+  }
   function openKnowledgeMaterial(item: KnowledgeMaterial): void {
     if(item.anchor&&item.anchor.editionId!==item.source.editionId){clearSelection();setNotice("来源版本不一致，无法跳转原文。");return;}
     if(item.source.editionId===book.editionId){if(item.anchor)openKnowledgeSource(item.anchor);else {clearSelection();navigateWorkspace("reader");}return;}
@@ -531,7 +540,7 @@ export default function Home() {
     if (target >= 0) setPageIndex(target);
   }
   const assistantMobileOpen=workspaceView==="bookshelf" ? bookshelfAssistant.open : mobileAnalysisOpen;
-  const toggleMobileAssistant=()=>workspaceView==="bookshelf" ? bookshelfAssistant.toggle() : setMobileAnalysisOpen(value=>!value);
+  const toggleMobileAssistant=()=>workspaceView==="guide" ? (setWorkspaceView("reader"),setMobileAnalysisOpen(true)) : workspaceView==="bookshelf" ? bookshelfAssistant.toggle() : setMobileAnalysisOpen(value=>!value);
   return <main className={`app-shell workspace-shell theme-${theme}`} style={getReadingAppearanceVariables(readingAppearance) as CSSProperties}>
     <header className="workspace-mobilebar"><button type="button" aria-label="打开导航" aria-expanded={mobileTocOpen} onClick={() => setMobileTocOpen(value => !value)}>☰</button><strong>句读</strong><button type="button" aria-label={assistantMobileOpen ? "收起对话" : "打开对话"} aria-expanded={assistantMobileOpen} onClick={toggleMobileAssistant}>对话</button></header>
     {notice && <div className="upload-toast" role="status"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={() => setNotice("")}>×</button></div>}
@@ -539,14 +548,14 @@ export default function Home() {
     {indexTask&&<ImportIndexTask key={indexTask.editionId} {...indexTask} onClose={()=>setIndexTask(null)} onReady={()=>setKnowledgeRevision(value=>value+1)} onError={setNotice}/>}
     <input ref={importRef} id="book-file" hidden type="file" accept=".mobi,.epub,.pdf,.fb2,.fbz,.fb2.zip,.cbz,.txt,.md" onChange={event => { void importBook(event); }} />
     {navigation.error && <p role="status">{navigation.error}</p>}
-    <section data-bookshelf-assistant-hidden={workspaceView === "bookshelf" && !bookshelfAssistant.open} data-nav-collapsed={navigation.collapsed} className="reader-layout" ref={layoutRef} style={{"--chat-panel-width":`${chatWidth}px`} as CSSProperties}>
+    <section data-guide-active={workspaceView === "guide"} data-bookshelf-assistant-hidden={workspaceView === "guide" || (workspaceView === "bookshelf" && !bookshelfAssistant.open)} data-nav-collapsed={navigation.collapsed} className="reader-layout" ref={layoutRef} style={{"--chat-panel-width":`${chatWidth}px`} as CSSProperties}>
       <WorkspaceNav collapsed={navigation.collapsed} onToggleCollapse={navigation.toggle} view={workspaceView} onNavigate={navigateWorkspace} books={shelfBooks} currentBookId={book.id} currentEditionId={book.editionId} chapters={book.chapters} currentChapterId={imageChapters.chapter?.id??currentPage?.chapterId}
         busy={loading || conversationLoading || importing} importDisabled={bookLoading || restoringBook || conversationLoading} importing={importing} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onOpenChapter={openChapter} onImport={requestImport} mobileOpen={mobileTocOpen} onDismiss={() => setMobileTocOpen(false)}>
 
       </WorkspaceNav>
       <div className="workspace-main" data-workspace-view={workspaceView}>
       <article data-original-active={readerMode.original} className="reading-pane" data-workspace-hidden={workspaceView !== "reader"} aria-hidden={workspaceView !== "reader"} inert={workspaceView !== "reader"} aria-busy={bookLoading || restoringBook || paginating}>
-        <div className="reading-toolbar"><ReaderModeSwitch book={book} original={readerMode.original} onChange={switchReaderMode} disabled={bookLoading || importing} /><span className="chapter-context">{imageChapters.chapter?.title??currentPage?.chapterTitle ?? "当前章节"}</span><button className="analysis-toggle" disabled={imageChapters.imageOnly} aria-pressed={readingAppearance.showAnalysisHints} onClick={() => saveReadingAppearance({ ...readingAppearance, showAnalysisHints: !readingAppearance.showAnalysisHints })}>句读线 {readingAppearance.showAnalysisHints ? "开" : "关"}</button><button className="concept-toggle" disabled={imageChapters.imageOnly} aria-pressed={showConcepts} onClick={() => setConceptPreference(!showConcepts)}>概念 {showConcepts ? "开" : "关"}</button><SectionReadingAction readingStyle={readingMode.style} onOpenExisting={currentPage?openSectionHistory(currentPage.chapterId):undefined} chapter={book.edition?.fileType===".pdf"||imageChapters.imageOnly?undefined:book.chapters.find(c=>c.id===currentPage?.chapterId)} disabled={loading||bookLoading||conversationLoading} onStart={(selection,sectionId)=>void ask(readingMode.style==="whole"?"请按段落句读本节，直白内容可略过并说明原因":"请按句意细读本节，直白内容可略过并说明原因","analyze",{selection,sectionId,style:readingMode.style})}/><ReaderOptions value={readingAppearance} onChange={saveReadingAppearance}/><ReadingOptions key={book.id} enhancementStatus={sourceEmphasis.status} enhancementBusy={sourceEmphasis.busy} canEnhance={!!currentPage&&!loading&&!sourceEmphasis.busy&&!imageChapters.imageOnly&&book.edition?.fileType!==".pdf"} onGenerateEmphasis={()=>void sourceEmphasis.generate()} style={readingMode.style} onStyleChange={readingMode.change} preferences={readingPreferences} onPreferencesChange={changeReadingPreferences} appearance={readingAppearance} onAppearanceChange={saveReadingAppearance} disabled={bookLoading||importing}/></div>
+        <div className="reading-toolbar"><button type="button" className="guide-reading-entry" disabled={!book.editionId} onClick={() => navigateWorkspace("guide")}>导读</button><ReaderModeSwitch book={book} original={readerMode.original} onChange={switchReaderMode} disabled={bookLoading || importing} /><span className="chapter-context">{imageChapters.chapter?.title??currentPage?.chapterTitle ?? "当前章节"}</span><button className="analysis-toggle" disabled={imageChapters.imageOnly} aria-pressed={readingAppearance.showAnalysisHints} onClick={() => saveReadingAppearance({ ...readingAppearance, showAnalysisHints: !readingAppearance.showAnalysisHints })}>句读线 {readingAppearance.showAnalysisHints ? "开" : "关"}</button><button className="concept-toggle" disabled={imageChapters.imageOnly} aria-pressed={showConcepts} onClick={() => setConceptPreference(!showConcepts)}>概念 {showConcepts ? "开" : "关"}</button><SectionReadingAction readingStyle={readingMode.style} onOpenExisting={currentPage?openSectionHistory(currentPage.chapterId):undefined} chapter={book.edition?.fileType===".pdf"||imageChapters.imageOnly?undefined:book.chapters.find(c=>c.id===currentPage?.chapterId)} disabled={loading||bookLoading||conversationLoading} onStart={(selection,sectionId)=>void ask(readingMode.style==="whole"?"请按段落句读本节，直白内容可略过并说明原因":"请按句意细读本节，直白内容可略过并说明原因","analyze",{selection,sectionId,style:readingMode.style})}/><ReaderOptions value={readingAppearance} onChange={saveReadingAppearance}/><ReadingOptions key={book.id} enhancementStatus={sourceEmphasis.status} enhancementBusy={sourceEmphasis.busy} canEnhance={!!currentPage&&!loading&&!sourceEmphasis.busy&&!imageChapters.imageOnly&&book.edition?.fileType!==".pdf"} onGenerateEmphasis={()=>void sourceEmphasis.generate()} style={readingMode.style} onStyleChange={readingMode.change} preferences={readingPreferences} onPreferencesChange={changeReadingPreferences} appearance={readingAppearance} onAppearanceChange={saveReadingAppearance} disabled={bookLoading||importing}/></div>
         <div className="reading-surface" data-original={readerMode.original}>
         <div className="reading-content" aria-hidden={readerMode.original || undefined} ref={readingRef} onMouseUp={selectText}>
           <div className="reader-sheet" data-measuring={paginating} style={{ ...readingTextStyle, "--reading-scale": renderedScale } as CSSProperties}>
@@ -566,6 +575,7 @@ export default function Home() {
       </article>
       <SpeechPlaybackBar/>
         {workspaceView === "bookshelf" && <Bookshelf assistantOpen={bookshelfAssistant.open} onToggleAssistant={bookshelfAssistant.toggle} preferenceError={bookshelfAssistant.error} books={books} currentBookId={book.id} currentEditionId={book.editionId} loading={libraryLoading} importing={importing} busy={conversationLoading || restoringBook} navigationDisabled={loading} error={libraryError} onBookArchived={id=>{setBooks(items=>items.filter(item=>item.id!==id));setNotice("书籍已下架，文件和阅读记录已保留，可在已下架书籍中恢复。");}} onOpenBook={(id, editionId) => void loadBook(id, editionId)} onImport={requestImport} onRefresh={refreshLibrary} />}
+        {workspaceView === "guide" && <GuideWorkspace key={book.id} bookId={book.editionId ? book.id : null} bookTitle={book.title} onReturnReading={() => navigateWorkspace("reader")} onOpenSource={openGuideSource} />}
         {workspaceView === "knowledge" && <KnowledgeWorkspace editionId={book.editionId ?? null} bookTitle={book.title + (book.edition ? " · " + book.edition.fileName : "")} refreshToken={knowledgeRevision} onRefreshRequested={()=>setKnowledgeRevision(value=>value+1)} onReturnReading={() => navigateWorkspace("reader")} onOpenSource={openKnowledgeSource} onOpenMaterial={openKnowledgeMaterial} onOpenConversation={openConversation} onOpenConversationMaterial={openKnowledgeConversation} advancedSearch={{...semanticSearch,editionId:book.editionId,onResult:jumpToSemanticResult}} />}
       </div>
       <ChatPanelResizer containerRef={layoutRef} getMaxWidth={getMaxChatWidth} onWidthChange={setChatWidth} className="workspace-chat-resizer" controlsId="chat-panel"/>
