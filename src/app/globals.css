@@ -390,3 +390,6 @@ body { background: var(--ui-bg); color: var(--ui-text); }
 .reading-toolbar .guide-reading-entry:active{transform:translateY(1px)}
 .reading-toolbar .guide-reading-entry:focus-visible{outline:2px solid var(--reading-accent,#4b7774);outline-offset:2px}
 .reading-toolbar .guide-reading-entry:disabled{opacity:.5;cursor:not-allowed}
+
+/* WHY：减少动态反馈时保留静态加载/输出标记，停止装饰性脉冲与光标闪烁。 */
+@media (prefers-reduced-motion: reduce) { .loading-orbit, .streaming-cursor::after { animation: none; } }
