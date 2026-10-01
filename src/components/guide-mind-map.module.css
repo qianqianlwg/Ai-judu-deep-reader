@@ -1,5 +1,6 @@
 .board { position:absolute;inset:0;background:var(--reading-paper,#fff); }
 .engine { position:absolute;inset:0;outline:none; }
+.engine:focus-visible { outline:2px solid var(--reading-accent,#598875);outline-offset:-3px;border-radius:4px; }
 .engine :global(.smm-node) { cursor:pointer; }
 .controls { position:absolute;left:18px;bottom:17px;display:flex;align-items:center;gap:3px;padding:6px;border:1px solid var(--guide-line,#e1e5e3);border-radius:10px;background:var(--reading-paper,#fff);z-index:2; }
 .board .controls button { min-height:31px;font-size:12px!important;padding:5px 9px;border:0;color:var(--reading-text,#263b34); }
