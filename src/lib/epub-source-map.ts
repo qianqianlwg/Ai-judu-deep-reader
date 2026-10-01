@@ -2,7 +2,12 @@ import type { LibraryChapter, LibraryParagraph } from "./library";
 import { capReadingSelection, selectionFromParts, selectionParts, type ReadingSelection } from "./reader-selection";
 
 type TextPoint = { node: Text; offset: number };
-export type EpubParagraphMap = { paragraph: LibraryParagraph; element: Element; points: TextPoint[]; offsets: number[] };
+type EpubMapPoints = { element: Element; points: TextPoint[]; offsets: number[] };
+export type EpubParagraphMap = EpubMapPoints & {
+  paragraph: LibraryParagraph;
+  /** Rebuilds a stale map from its format-specific canonical DOM projection. */
+  refresh?: () => EpubMapPoints | null;
+};
 const BLOCKS = "p,blockquote,li";
 const IGNORED = "script,style,svg,noscript,[data-judu-decoration]";
 const compact = (text: string) => text.replace(/\s/gu, "");
@@ -32,6 +37,39 @@ function textPoints(element: Element): { text: string; points: TextPoint[] } {
   return { text, points };
 }
 
+function sourceOffsets(text: string): number[] {
+  const offsets: number[] = [];
+  for (let index = 0; index < text.length; index += 1) if (!/\s/u.test(text[index])) offsets.push(index);
+  return offsets;
+}
+
+function mapPointIsCurrent(map: EpubParagraphMap, index: number): boolean {
+  const point = map.points[index];
+  const sourceOffset = map.offsets[index];
+  return Boolean(point && Number.isInteger(sourceOffset) && sourceOffset >= 0 && sourceOffset < map.paragraph.text.length
+    && point.node.ownerDocument === map.element.ownerDocument && point.node.isConnected && map.element.isConnected && map.element.contains(point.node)
+    && Number.isInteger(point.offset) && point.offset >= 0 && point.offset < point.node.length
+    && point.node.data.charAt(point.offset) === map.paragraph.text.charAt(sourceOffset));
+}
+
+function mapPointsAreCurrent(map: EpubParagraphMap): boolean {
+  return map.points.length === map.offsets.length && map.points.every((_, index) => mapPointIsCurrent(map, index));
+}
+
+function refreshMapPoints(map: EpubParagraphMap): boolean {
+  const current = map.refresh?.();
+  if (!current) return false;
+  map.element = current.element;
+  map.points = current.points;
+  map.offsets = current.offsets;
+  return mapPointsAreCurrent(map);
+}
+
+function refreshedEpubPoints(doc: Document, chapter: LibraryChapter, paragraphId: string, blockSelector: string): EpubMapPoints | null {
+  const current = mapEpubDocument(doc, chapter, blockSelector).find(item => item.paragraph.id === paragraphId);
+  return current ? { element: current.element, points: current.points, offsets: current.offsets } : null;
+}
+
 export function mapEpubDocument(doc: Document, chapter: LibraryChapter, blockSelector=BLOCKS): EpubParagraphMap[] {
   const blocks = Array.from(doc.querySelectorAll(blockSelector)).filter(element => !element.parentElement?.closest(blockSelector));
   const candidates = (blocks.length ? blocks : [doc.body]).filter((element): element is Element => Boolean(element)).map(element => ({ element, ...textPoints(element) }));
@@ -47,25 +85,35 @@ export function mapEpubDocument(doc: Document, chapter: LibraryChapter, blockSel
     const next = candidates.findIndex((item, index) => index >= cursor && item.text === expected);
     if (next < 0) continue;
     const candidate = candidates[next]; cursor = next + 1;
-    const offsets: number[] = [];
-    for (let index = 0; index < paragraph.text.length; index += 1) if (!/\s/u.test(paragraph.text[index])) offsets.push(index);
+    const offsets = sourceOffsets(paragraph.text);
     // WHY：显示 DOM 保留图片、公式与内联样式。映射只核对完整正文字符序列，不重写 DOM，也不把重复摘录猜成锚点。
-    result.push({ paragraph, element: candidate.element, points: candidate.points, offsets });
+    result.push({ paragraph, element: candidate.element, points: candidate.points, offsets,
+      refresh: () => refreshedEpubPoints(doc, chapter, paragraph.id, blockSelector) });
   }
   return result;
+}
+
+function rangeForCurrentAnchor(map: EpubParagraphMap, start: number, end: number): Range | null {
+  const first = map.offsets.findIndex(offset => offset >= start);
+  let last = -1;
+  for (let index = 0; index < map.offsets.length; index += 1) if (map.offsets[index] < end) last = index;
+  if (first < 0 || last < first || !mapPointIsCurrent(map, first) || !mapPointIsCurrent(map, last)) return null;
+  const range = map.element.ownerDocument.createRange();
+  range.setStart(map.points[first].node, map.points[first].offset);
+  range.setEnd(map.points[last].node, map.points[last].offset + 1);
+  return range;
 }
 
 export function rangeForEpubAnchor(maps: readonly EpubParagraphMap[], paragraphId: string, start: number, end: number): Range | null {
   const map = maps.find(item => item.paragraph.id === paragraphId);
   if (!map || !Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > map.paragraph.text.length) return null;
-  const first = map.offsets.findIndex(offset => offset >= start);
-  let last = -1;
-  for (let index = 0; index < map.offsets.length; index += 1) if (map.offsets[index] < end) last = index;
-  if (first < 0 || last < first) return null;
-  const range = map.element.ownerDocument.createRange();
-  range.setStart(map.points[first].node, map.points[first].offset);
-  range.setEnd(map.points[last].node, map.points[last].offset + 1);
-  return range;
+  const expected = compact(map.paragraph.text.slice(start, end));
+  let range = rangeForCurrentAnchor(map, start, end);
+  if (range && compact(range.toString()) === expected) return range;
+  // WHY： 排版器拆分 Text 节点会使旧偏移越界；重建映射并逐字核对后再创建 Range。
+  if (!refreshMapPoints(map)) return null;
+  range = rangeForCurrentAnchor(map, start, end);
+  return range && compact(range.toString()) === expected ? range : null;
 }
 
 export function selectionFromEpubRange(range: Range, maps: readonly EpubParagraphMap[]): ReadingSelection | null {
@@ -77,7 +125,8 @@ export function selectionFromEpubRange(range: Range, maps: readonly EpubParagrap
   const pointRange = doc.createRange();
   const touched: { map: EpubParagraphMap; indices: number[] }[] = [];
   for (const map of maps) {
-    if (!range.intersectsNode(map.element)) continue;
+    if (map.element.ownerDocument !== doc || !range.intersectsNode(map.element)
+      || (!mapPointsAreCurrent(map) && !refreshMapPoints(map))) continue;
     const indices: number[] = [];
     for (let index = 0; index < map.points.length; index += 1) {
       const point = map.points[index];
@@ -108,7 +157,8 @@ function rangeWithoutLeadingHeading(range: Range, maps: readonly EpubParagraphMa
   const end = range.cloneRange(); end.collapse(false);
   let first: TextPoint | undefined;
   for (const map of maps) {
-    if (!range.intersectsNode(map.element)) continue;
+    if (map.element.ownerDocument !== doc || !range.intersectsNode(map.element)
+      || (!mapPointsAreCurrent(map) && !refreshMapPoints(map))) continue;
     for (const point of map.points) {
       pointRange.setStart(point.node, point.offset); pointRange.collapse(true);
       const beforeEnd = pointRange.compareBoundaryPoints(0, end) < 0;
@@ -160,8 +210,17 @@ export function readLimitedEpubSelection(selection: Selection, maps: readonly Ep
 
 /** Canonical first visible character; page start may be inside a long paragraph. */
 export function anchorFromEpubRange(range: Range, maps: readonly EpubParagraphMap[]): { paragraphId: string; offset: number } | null {
+  const doc = range.startContainer.ownerDocument;
   for (const map of maps) {
+    if (map.element.ownerDocument !== doc) continue;
+    let refreshed = false;
     for (let index = 0; index < map.points.length; index += 1) {
+      if (!mapPointIsCurrent(map, index)) {
+        if (refreshed || !refreshMapPoints(map)) break;
+        refreshed = true;
+        index = -1;
+        continue;
+      }
       const point = map.points[index];
       if (range.comparePoint(point.node, point.offset) === 0) return { paragraphId: map.paragraph.id, offset: map.offsets[index] };
     }

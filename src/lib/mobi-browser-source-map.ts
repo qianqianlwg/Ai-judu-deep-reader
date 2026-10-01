@@ -107,7 +107,11 @@ export function mapMobiDocument(doc: Document, chapter: LibraryChapter): EpubPar
       if (!/\s/u.test(paragraph.text[offset])) offsets.push(offset);
     }
     // WHY：保留原 Text 节点与 UTF-16 偏移，直接复用 EPUB 的 Range、分页锚点和选区限长逻辑。
-    result.push({ paragraph, element, points: block.points, offsets });
+    result.push({ paragraph, element, points: block.points, offsets,
+      refresh: () => {
+        const current = mapMobiDocument(doc, chapter).find(item => item.paragraph.id === paragraph.id);
+        return current ? { element: current.element, points: current.points, offsets: current.offsets } : null;
+      } });
   }
   return result;
 }

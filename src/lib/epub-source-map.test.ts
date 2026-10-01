@@ -108,3 +108,27 @@ it("未映射内容不属于开头标题时仍拒绝，不触发自动剔除",()
   expect(omitted).toBe(false);
  }
 });
+it("stale text-node offsets are rebuilt after layout splits a node", () => {
+ const text = "x".repeat(220), doc = fixture(`<p>${text}</p>`), maps = mapEpubDocument(doc, chapter([text]));
+ const paragraph = doc.querySelector("p")!;
+ (paragraph.firstChild as Text).splitText(39);
+ const range = rangeForEpubAnchor(maps, "p0", 177, 178);
+ expect(range?.toString()).toBe("x");
+ expect(maps[0].points[177].node).toBe(paragraph.childNodes[1]);
+ expect(maps[0].points[177].offset).toBe(138);
+ expect(anchorFromEpubRange(range!, maps)).toEqual({ paragraphId: "p0", offset: 177 });
+});
+
+it("selection extraction refreshes stale character points after a text-node split", () => {
+ const text = "y".repeat(100), doc = fixture(`<p>${text}</p>`), maps = mapEpubDocument(doc, chapter([text]));
+ const paragraph = doc.querySelector("p")!;
+ (paragraph.firstChild as Text).splitText(25);
+ const range = doc.createRange(); range.selectNodeContents(paragraph);
+ expect(selectionFromEpubRange(range, maps)?.text).toBe(text);
+});
+
+it("refuses to build a range if the live paragraph no longer matches its source", () => {
+ const text = "x".repeat(220), doc = fixture(`<p>${text}</p>`), maps = mapEpubDocument(doc, chapter([text]));
+ doc.querySelector("p")!.textContent = "short text";
+ expect(rangeForEpubAnchor(maps, "p0", 177, 178)).toBeNull();
+});
