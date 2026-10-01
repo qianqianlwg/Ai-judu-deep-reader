@@ -13,7 +13,7 @@ import { isAnalysis, isRecord, streamingPreview, type Analysis, type ChatMessage
 import { useChatFollow } from "./use-chat-follow";
 import styles from "./analysis-panel.module.css";
 import { MessageSourceCard as SourceCard } from "./message-source-card";
-import { RetrievalActivity } from "./retrieval-activity";
+import { isBookRetrievalTool, RetrievalActivity } from "./retrieval-activity";
 import { MessageActions } from "./message-actions";
 import { SpeechButton } from "./speech-controls";
 import { ComposerOptions, type ReasoningEffort } from "./composer-options";
@@ -129,7 +129,7 @@ const TOOL_LABELS: Record<string, string> = { mark_answer_emphasis: "重点标�
 function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds, includeExtras = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean; toolIds?: readonly string[]; includeExtras?: boolean }) {
   const analysis = includeAnalysis && isAnalysis(message.analysis) ? message.analysis : undefined;
   const searched = message.tools?.some(tool => tool.name === "search_book" || tool.name === "prefetch_book_context") ?? false;
-  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && (toolIds === undefined || toolIds.includes(tool.id)) && tool.name !== "search_book" && tool.name !== "read_source" && !["search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name) && ["running", "completed", "error"].includes(String(tool.status)) && !(tool.name === "mark_answer_emphasis" && tool.status === "completed" && isRecord(tool.result) && tool.result.ok === true && message.emphasis?.marks.length)) : [];
+  const tools = Array.isArray(message.tools) ? message.tools.filter((tool): tool is ToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && (toolIds === undefined || toolIds.includes(tool.id)) && !isBookRetrievalTool(tool.name) && !["search_openalex", "verify_crossref", "search_web", "read_external_source"].includes(tool.name) && ["running", "completed", "error"].includes(String(tool.status)) && !(tool.name === "mark_answer_emphasis" && tool.status === "completed" && isRecord(tool.result) && tool.result.ok === true && message.emphasis?.marks.length)) : [];
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((warning): warning is string => typeof warning === "string") : [];
   return <>
     {analysis && <details className={styles.toolRecord} data-testid="analysis-record"><summary>句读记录 <span>{analysis.provenanceVersion === 1 ? searched ? "已检索" : "未检索" : "工具结果"}</span></summary>

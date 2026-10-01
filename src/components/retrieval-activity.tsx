@@ -8,6 +8,8 @@ import styles from "./retrieval-activity.module.css";
 type Props = { message: ChatMessage; onOpenCitation?: (paragraphId: string, quote: string, messageId?: string) => void };
 type Channel = "keyword" | "semantic" | "reading" | "unrecorded";
 type Source = { sourceId: string; paragraphId: string; chapterTitle: string; text: string; channels: ("keyword"|"semantic")[] };
+// WHY：关联检索也属于本轮检索记录，不能挂在会被逐句结果替换的普通回复区域里。
+export function isBookRetrievalTool(name: string): boolean { return name === 'search_book' || name === 'read_source' || name === 'prefetch_book_context'; }
 const channelLabels:Record<Channel,string>={keyword:"关键词检索",semantic:"语义检索",reading:"补充阅读",unrecorded:"历史检索来源"};
 function sourcesOf(tool:ToolActivity):Source[] {
  const output=isRecord(tool.result)?tool.result:undefined;
@@ -58,20 +60,24 @@ function SearchDetails({tool,message,onOpenCitation}:Props & {tool:ToolActivity}
    if(!branches.length&&!channelSources.length)return null;
    return <ChannelDetails key={channel} channel={channel} branches={branches} sources={channelSources} unknownSources={sources.some(source=>source.channels.length===0)} message={message} onOpenCitation={onOpenCitation}/>;
   })}
+  {typeof output?.message==="string"&&output.message.trim()&&<p className={styles.warning} role="status">{output.message}</p>}
   {!pending&&!sources.length&&!report&&<p className={styles.note}>{tool.status==="running"?"检索已中断，可重试本轮消息。":tool.status==="error"||output?.ok===false?"未取得可用证据，回答不应视为已查证。":"未找到匹配原文，可换关键词或改写问题。"}</p>}
-  {report&&<p className={styles.runMeta}>{report.sourceCount} 段去重参考 · 本轮 {(report.durationMs/1000).toFixed(2)} 秒{report.degraded?" · 部分渠道不可用":""}</p>}
+  {/* WHY：关联检索会排除选文和已提供片段，候选数与最终参考数不能混称。 */}
+  {report&&<p className={styles.runMeta}>{report.sourceCount} {tool.name==="prefetch_book_context"?"段去重候选":"段去重参考"}{tool.name==="prefetch_book_context"&&<> · {new Set(sources.map(source=>source.sourceId)).size} 段关联参考</>} · 本轮 {(report.durationMs/1000).toFixed(2)} 秒{report.degraded?" · 部分渠道不可用":""}</p>}
   {output?.displayLimited===true&&<p className={styles.note}>历史片段已截断，完整内容请定位原文查看。</p>}
  </section>;
 }
 export function RetrievalActivity({message,onOpenCitation}:Props) {
- const tools=(message.tools??[]).filter(tool=>tool.name==="search_book"||tool.name==="read_source");
+ const tools=(message.tools??[]).filter(tool=>isBookRetrievalTool(tool.name));
  if(!tools.length)return null;
+ const associationOnly=tools.every(tool=>tool.name==="prefetch_book_context");
+ const label=associationOnly?"本书关联检索":"本书检索";
  const running=tools.some(t=>t.status==="running")&&message.status==="streaming";
  const interrupted=tools.some(t=>t.status==="running")&&!running;
  const degraded=tools.some(t=>t.status==="error"||(isRecord(t.result)&&(t.result.ok===false||readRetrievalReport(t.result.retrieval)?.degraded)));
  const count=new Set(tools.flatMap(sourcesOf).map(source=>source.sourceId)).size;
  return <details className={styles.card} data-testid="retrieval-activity" data-state={running?"running":interrupted?"interrupted":degraded?"degraded":"completed"}>
-  <summary aria-label="查看本书检索详情"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5"/><path d="m12 12 5 5" stroke="currentColor" strokeWidth="1.5"/></svg><span className={styles.summaryLabel}>{running?"正在检索本书":interrupted?"检索已中断":degraded?(count?"本书检索 · 部分策略不可用":"本书检索未取得可用证据"):count?"已检索本书":"本书检索 · 未找到匹配"}{!running&&count>0&&<small> · {count} 段参考</small>}</span><span className={styles.chevron} aria-hidden="true">⌄</span></summary>
+  <summary aria-label="查看本书检索详情"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5"/><path d="m12 12 5 5" stroke="currentColor" strokeWidth="1.5"/></svg><span className={styles.summaryLabel}>{running?associationOnly?"正在检索本书关联内容":"正在检索本书":interrupted?"检索已中断":degraded?(count?label+" · 部分策略不可用":label+"未取得可用证据"):count?associationOnly?label+"已完成":"已检索本书":label+" · 未找到匹配"}{!running&&count>0&&<small> · {count} 段参考</small>}</span><span className={styles.chevron} aria-hidden="true">⌄</span></summary>
   <div className={styles.content}>{tools.map(tool=><SearchDetails key={tool.id} tool={tool} message={message} onOpenCitation={onOpenCitation}/>)}<details className={styles.about}><summary>来源与隐私说明</summary><ul><li>仅检索本书；选文与检索来源分别保留。</li><li>同一段可能被两路命中，参考总数按段落去重。</li><li>语义查询发送至已配置的向量服务；原文与向量在本地匹配，不自动上传整书。</li><li>检索结果不代表已遍历全书，也不等于回答已采用全部片段。</li></ul></details></div>
  </details>;
 }
