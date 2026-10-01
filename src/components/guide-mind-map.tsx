@@ -5,6 +5,7 @@ import {
   type GuideEngineProps,
 } from "@/hooks/use-guide-map-engine";
 import { guideMapMatches } from "@/lib/guide-map-adapter";
+import { newestGuideNode } from "@/lib/guide-timeline";
 import styles from "./guide-mind-map.module.css";
 export type GuideMindMapProps = GuideEngineProps & {
   selected: string | null;
@@ -27,6 +28,7 @@ export function GuideMindMap(props: GuideMindMapProps) {
     [props.nodes, props.query],
   );
   const selected = props.nodes.find((node) => node.id === props.selected);
+  const newest = newestGuideNode(props.nodes);
   useEffect(() => {
     if (!showMiniMap || !ready) return;
     try {
@@ -95,7 +97,7 @@ export function GuideMindMap(props: GuideMindMapProps) {
         </div>
       )}
       <div className={styles.hint}>
-        拖动平移 · 滚轮缩放 · 双击编辑 · Tab 子主题 · Enter 同级
+        同级分支由旧到新 · 最新内容在下 · 拖动平移 · 滚轮缩放
       </div>
       {selected && (
         <div className={styles.selectionTools}>
@@ -128,6 +130,13 @@ export function GuideMindMap(props: GuideMindMapProps) {
           ＋
         </button>
         <span />
+        <button
+          disabled={!ready || !newest}
+          aria-label="定位最新生成或更新的节点"
+          onClick={() => { if (newest) { props.onSelect(newest.id); action(engine => engine.execCommand("GO_TARGET_NODE", newest.id)); } }}
+        >
+          定位最新 ↓
+        </button>
         <button
           disabled={!ready}
           onClick={() => action((engine) => engine.view.fit())}

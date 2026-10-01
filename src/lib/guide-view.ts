@@ -1,8 +1,9 @@
+import { chronologicalGuideNodes } from "./guide-timeline";
 import type { GuideNode } from "./guide";
 export type GuideRow = { node: GuideNode; depth: number; childCount: number; siblingIndex: number; siblingCount: number };
 export function guideRows(nodes: readonly GuideNode[], expanded: ReadonlySet<string>, query: string): GuideRow[] {
   const children = new Map<string | null, GuideNode[]>(), byId = new Map(nodes.map(node => [node.id, node]));
-  for (const node of nodes) children.set(node.parentId, [...(children.get(node.parentId) ?? []), node]);
+  for (const node of chronologicalGuideNodes(nodes)) children.set(node.parentId, [...(children.get(node.parentId) ?? []), node]);
   const needle = query.trim().toLocaleLowerCase(), allowed = new Set<string>();
   if (needle) for (const node of nodes) if ((node.title + " " + node.summary).toLocaleLowerCase().includes(needle)) {
     let current: GuideNode | undefined = node;

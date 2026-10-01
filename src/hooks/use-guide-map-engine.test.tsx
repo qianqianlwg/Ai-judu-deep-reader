@@ -47,7 +47,7 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 it("加载原生主题并销毁内核，尺寸为零不触发resize", async () => {
   await render(); const map = FakeEngine.current;
-  expect(latest.ready).toBe(true); expect(map.options).toMatchObject({ theme: "default", enableFreeDrag: true });
+  expect(latest.ready).toBe(true); expect(map.options).toMatchObject({ theme: "default", enableFreeDrag: false });
   resize(); expect(map.resize).not.toHaveBeenCalled();
   act(() => root.unmount()); expect(map.destroy).toHaveBeenCalledTimes(1);
   root = createRoot(host);

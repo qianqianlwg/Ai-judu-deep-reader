@@ -1,3 +1,4 @@
+import { chronologicalGuideNodes } from "./guide-timeline";
 import {
   guideCanvasNodeSchema,
   GuideError,
@@ -24,7 +25,7 @@ export function toMindTree(
   collapsed: ReadonlySet<string>,
 ): MindTree {
   const children = new Map<string | null, GuideNode[]>();
-  for (const node of nodes)
+  for (const node of chronologicalGuideNodes(nodes))
     children.set(node.parentId, [...(children.get(node.parentId) ?? []), node]);
   const root: MindTree = {
     data: { uid: GUIDE_ROOT_ID, text: title, expand: true },
@@ -40,7 +41,8 @@ export function toMindTree(
         uid: node.id,
         text: node.title,
         expand: !collapsed.has(node.id),
-        ...(node.position
+        // WHY：默认时间线由内容时间决定上下位置，旧自由坐标不能把最新分支钉在上面；原坐标仍留在持久记录中。
+        ...(node.position && !node.timeline
           ? { customLeft: node.position.x, customTop: node.position.y }
           : {}),
       },

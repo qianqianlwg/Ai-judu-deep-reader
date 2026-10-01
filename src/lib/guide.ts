@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { guideTimelineSchema } from "./guide-timeline";
 
 export const guidePositionSchema = z.object({ x: z.number().finite().min(-1000000).max(1000000), y: z.number().finite().min(-1000000).max(1000000) }).strict();
 const id = z.string().min(1).max(160);
@@ -6,8 +7,10 @@ export const guideNodeSchema = z.object({
   id, parentId: id.nullable(), title: z.string().trim().min(1).max(160),
   summary: z.string().max(6000), position: guidePositionSchema.optional(), sourceIds: z.array(id).max(4000),
 }).strict();
-export type GuideNode = z.infer<typeof guideNodeSchema>;
-export const guideNodesSchema = z.array(guideNodeSchema).max(10000);
+// WHY：时间线是服务端版本元数据，和Agent/用户编辑工具的内容Schema分开，不能伪造生成时间。
+export const storedGuideNodeSchema = guideNodeSchema.extend({ timeline: guideTimelineSchema.optional() }).strict();
+export type GuideNode = z.infer<typeof storedGuideNodeSchema>;
+export const guideNodesSchema = z.array(storedGuideNodeSchema).max(10000);
 export const guideCanvasNodeSchema = z.object({ id, parentId: id.nullable(), title: z.string().trim().min(1).max(160), position: guidePositionSchema.optional() }).strict();
 export type GuideCanvasNode = z.infer<typeof guideCanvasNodeSchema>;
 export const guideChangeSchema = z.discriminatedUnion("type", [

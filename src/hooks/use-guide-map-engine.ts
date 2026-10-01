@@ -90,7 +90,8 @@ export function useGuideMapEngine(props: GuideEngineProps) {
           addHistoryOnInit: false,
           addHistoryTime: 50,
           maxHistoryCount: 2,
-          enableFreeDrag: true,
+          // WHY：时间线模式保留拖动平移和结构编辑，不用自由坐标覆盖从旧到新的节点顺序。
+          enableFreeDrag: false,
           customCheckEnableShortcut: (event: KeyboardEvent) => {
             const target = event.target;
             return target instanceof HTMLElement && (target === document.body || host.contains(target) || target.classList.contains("smm-node-edit-wrap"));

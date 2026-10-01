@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { guideFixture } from "./guide-test-support";
-import { guideTransaction, navigateGuideHistory, readGuideState, restoreGuideRevision, saveGuideRevision } from "./guide-store";
+import { guideNodes, guideTransaction, navigateGuideHistory, readGuideState, restoreGuideRevision, saveGuideRevision } from "./guide-store";
 import { enqueueGuideSource } from "./guide-sources";
 let f: ReturnType<typeof guideFixture>;
 const node = { id: "a", parentId: null, title: "实践", summary: "来自已句读选文", sourceIds: ["m"] };
@@ -23,4 +23,21 @@ it("超过历史面板页数后仍可撤销到空树，旧快照未被裁剪", (
   expect(readGuideState(f.db, "b").nodes[0].title).toBe("修订0");
   guideTransaction(f.db, () => restoreGuideRevision(f.db, "b", 131, newest));
   expect(readGuideState(f.db, "b").nodes[0].title).toBe("修订64");
+});
+
+it('版本事务持久化时间，AI更新旧主题后排序靠后，排版不更新时间', () => {
+  save(0, '第一次', 'ai'); const first = readGuideState(f.db, 'b').nodes[0].timeline!;
+  save(1, '新的AI归纳', 'ai'); const latest = readGuideState(f.db, 'b').nodes[0].timeline!;
+  expect(latest.created).toBe(first.created); expect(latest.updated).toBeGreaterThan(first.updated);
+  const positioned = readGuideState(f.db, 'b').nodes.map(item => ({ ...item, position: { x: 1, y: 2 } }));
+  guideTransaction(f.db, () => saveGuideRevision(f.db, 'b', 2, positioned, 'user', '自动布局'));
+  expect(readGuideState(f.db, 'b').nodes[0].timeline).toEqual(latest);
+  const head = readGuideState(f.db, 'b').revisions.find(item => item.current)!;
+  expect(JSON.parse((f.db.prepare('SELECT nodes_json FROM guide_revisions WHERE id=?').get(head.id) as { nodes_json: string }).nodes_json)[0].timeline).toEqual(latest);
+});
+
+it('生成时间只展示给前端，不进入Agent上下文或工具参数', () => {
+  save(0, '初版', 'ai');const head = readGuideState(f.db, 'b').revisions.find(item => item.current)!;
+  expect(readGuideState(f.db, 'b').nodes[0]).toHaveProperty('timeline');
+  expect(guideNodes(f.db, head.id)[0]).not.toHaveProperty('timeline');
 });

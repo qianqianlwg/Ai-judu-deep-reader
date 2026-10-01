@@ -66,3 +66,23 @@ it("视角恢复拒绝畸形、越界和任意状态字段", () => {
   expect(parseMindView(view)?.state).not.toHaveProperty("injected");
   expect(parseMindView({ ...view, state: { ...view.state, scale: 10 } })).toBeUndefined();
 });
+
+it('画板把最新内容所在分支和最新子节点排最下面，不改变身份层级', () => {
+  const mark = (updated: number) => ({ created: 1, updated, createdAt: 't', updatedAt: 't' });
+  const data = [
+    { ...nodes[0], timeline: mark(1) },
+    { ...nodes[0], id: 'other', timeline: mark(2) },
+    { ...nodes[0], id: 'older', parentId: 'a', timeline: mark(3) },
+    { ...nodes[0], id: 'latest', parentId: 'a', timeline: mark(9) },
+  ];
+  const tree = toMindTree('书', data, new Set());
+  expect(tree.children.map(item => item.data.uid)).toEqual(['other', 'a']);
+  expect(tree.children[1].children.map(item => item.data.uid)).toEqual(['older', 'latest']);
+  expect(data[0].id).toBe('a');
+});
+
+it('时间线不受旧自由拖拽坐标覆盖，但不会删除持久化坐标', () => {
+  const data = [{ ...nodes[0], position: { x: 99, y: -1000 }, timeline: { created: 1, updated: 1, createdAt: 't', updatedAt: 't' } }];
+  const tree = toMindTree('书', data, new Set());expect(tree.children[0].data).not.toHaveProperty('customTop');
+  expect(data[0].position).toEqual({ x: 99, y: -1000 });
+});
