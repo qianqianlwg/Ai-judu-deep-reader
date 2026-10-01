@@ -53,11 +53,12 @@ export function ComposerOptions({ disabled = false, generating = false, modelNam
         {models.length === 0 ? <option value="">未选择模型</option> : models.map(model => <option key={model} value={model}>{model}</option>)}
       </select></label>
     <button type="button" className={styles.plus} aria-label="打开插件和引用菜单" aria-expanded={open} onClick={() => { setOpen(value => !value); setNotice(""); }}>+</button>
-    {open && <div className={styles.menu} role="menu" aria-label="聊天选项">
+    {/* WHY：此面板混合原生表单控件与按钮，不声明缺少方向键模型的 ARIA menu。 */}
+    {open && <div className={styles.menu} role="group" aria-label="聊天选项">
       <div className={styles.section}>
         <span className={styles.sectionTitle}>{disabled ? "正在加载 · 设置暂不可用" : generating ? "生成中 · 设置调整仅对下一轮生效" : "对话选项"}</span>
-        <button type="button" className={styles.option} role="menuitem" disabled={disabled} onClick={choosePlugin}><span className={styles.optionIcon}><OptionIcon kind="plugin" /></span><span className={styles.optionText}><strong>本地插件</strong><small>知识库 · 未接通</small></span><span className={styles.optionChevron} aria-hidden="true">›</span></button>
-        <button type="button" className={styles.option} role="menuitem" disabled={disabled} onClick={chooseCitation}><span className={styles.optionIcon}><OptionIcon kind="quote" /></span><span className={styles.optionText}><strong>引用</strong><small>文献引用 · 未接通</small></span><span className={styles.optionChevron} aria-hidden="true">›</span></button>
+        <button type="button" className={styles.option} disabled={disabled} onClick={choosePlugin}><span className={styles.optionIcon}><OptionIcon kind="plugin" /></span><span className={styles.optionText}><strong>本地插件</strong><small>知识库 · 未接通</small></span><span className={styles.optionChevron} aria-hidden="true">›</span></button>
+        <button type="button" className={styles.option} disabled={disabled} onClick={chooseCitation}><span className={styles.optionIcon}><OptionIcon kind="quote" /></span><span className={styles.optionText}><strong>引用</strong><small>文献引用 · 未接通</small></span><span className={styles.optionChevron} aria-hidden="true">›</span></button>
       </div>
 
 

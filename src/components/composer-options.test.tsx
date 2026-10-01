@@ -12,7 +12,8 @@ describe("聊天输入框选项", () => {
   it("加号菜单显示插件、引用未接通状态和选择控件", async () => {
     await act(() => root.render(<ComposerOptions modelName="模型A" modelOptions={["模型A", "模型B"]} />));
     await clickLabel("打开插件和引用菜单");
-    expect(host.textContent).toContain("知识库 · 未接通"); expect(host.querySelectorAll('[role="menu"] button[role="menuitem"] svg')).toHaveLength(2); expect(host.textContent).toContain("文献引用 · 未接通");
+    expect(host.textContent).toContain("知识库 · 未接通"); expect(host.querySelectorAll('[role="group"] button svg')).toHaveLength(2); expect(host.textContent).toContain("文献引用 · 未接通");
+    expect(host.querySelector('[role="menu"], [role="menuitem"]')).toBeNull();
     expect(host.querySelector('[aria-label="选择模型"]')).not.toBeNull(); expect(host.querySelector('[aria-label="选择思考强度"]')).not.toBeNull();
   });
   it("模型和思考强度通过回调传出，纯前端不保存服务端配置", async () => {
@@ -35,16 +36,16 @@ describe("聊天输入框选项", () => {
     const change = vi.fn();
     await act(() => root.render(<ComposerOptions key="ready" modelOptions={["模型A"]} externalPermissions={preferences} onExternalPermissionsChange={change} />));
     await clickLabel("打开插件和引用菜单");
-    expect(host.querySelector('[role="menu"]')).not.toBeNull();
+    expect(host.querySelector('[role="group"]')).not.toBeNull();
     await act(() => root.render(<ComposerOptions key="busy" disabled modelOptions={["模型A"]} externalPermissions={preferences} onExternalPermissionsChange={change} />));
     const plus = host.querySelector<HTMLButtonElement>('[aria-label="打开插件和引用菜单"]')!;
-    expect(plus.disabled).toBe(false); expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(plus.disabled).toBe(false); expect(host.querySelector('[role="group"]')).toBeNull();
     await clickLabel("打开插件和引用菜单");
     expect(host.textContent).toContain("设置暂不可用");
-    expect(Array.from(host.querySelectorAll('[role="menu"] button')).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
-    expect(Array.from(host.querySelectorAll('[role="menu"] input')).every(input => (input as HTMLInputElement).disabled)).toBe(true);
+    expect(Array.from(host.querySelectorAll('[role="group"] button')).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+    expect(Array.from(host.querySelectorAll('[role="group"] input')).every(input => (input as HTMLInputElement).disabled)).toBe(true);
     await clickLabel("打开插件和引用菜单");
-    expect(host.querySelector('[role="menu"]')).toBeNull(); expect(change).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="group"]')).toBeNull(); expect(change).not.toHaveBeenCalled();
   });
   it("本书关联检索须明确打开，生成时保持只读并披露向量查询", async () => {
     const change = vi.fn();
