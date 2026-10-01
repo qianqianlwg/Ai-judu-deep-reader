@@ -230,10 +230,13 @@
 :global(.app-shell.workspace-shell) .panel :global(.chat-message.assistant .message-content :is(p,li,blockquote)),
 :global(.app-shell.workspace-shell) .panel .composerInput { font-size: max(16px, var(--ui-text-size, 16px)); }
 
-/* WHY：目录与 AI 正文同级，比主导航低一档；输入文字沿用正文大小，不改变工具/Token 等辅助层。 */
+/* WHY：普通回复与小结共用字号，并直接覆盖 Markdown 段落，防止全局 UI 规则把小结降为小字；辅助标签不受影响。 */
+.panel { --chat-response-font-size: max(15px, calc(var(--ui-text-size, 13px) + 2px)); }
 :global(.app-shell.workspace-shell) .panel :global(.chat-message.assistant .message-content),
 :global(.app-shell.workspace-shell) .panel :global(.chat-message.assistant .message-content :is(p,li,blockquote)),
-:global(.app-shell.workspace-shell) .panel .composerInput { font-size: max(15px, calc(var(--ui-text-size, 13px) + 2px)); }
+:global(.app-shell.workspace-shell) .panel :global([aria-label="本次细读小结"] > div),
+:global(.app-shell.workspace-shell) .panel :global([aria-label="本次细读小结"] > div :is(p,li,blockquote)),
+:global(.app-shell.workspace-shell) .panel .composerInput { font-size: var(--chat-response-font-size); }
 
 /* WHY：占位提示是辅助文案，字号低于正文与真实输入；只缩占位文字，不缩用户输入。 */
 :global(.app-shell.workspace-shell) .panel .composerInput::placeholder { font-size: 13px; }

@@ -224,7 +224,7 @@ describe("AnalysisPanel 真 DOM 的滚动和消息复用", () => {
     const css = await readFile("src/components/analysis-panel.module.css", "utf8");
     expect(css).toContain(".latestButton[hidden] { display: none; }");
     expect(css).toContain(":global(.chat-message.assistant .message-content :is(p,li,blockquote))");
-    expect(css).toContain(".composerInput { font-size: max(15px, calc(var(--ui-text-size, 13px) + 2px)); }");
+    expect(css).toContain(".composerInput { font-size: var(--chat-response-font-size); }");
     expect(css).toContain("overflow-anchor: none");
     expect(css).toContain("pointer-events: auto");
   });
