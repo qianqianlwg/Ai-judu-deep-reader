@@ -9,7 +9,7 @@ export function BookCover({book,editionId}:{book:LibraryBook;editionId?:string})
   const [failed,setFailed]=useState(false),[loaded,setLoaded]=useState(false);
   return <span className={"bookshelf-cover cover-tone-"+coverTone(book.id)} aria-hidden="true">
     {!loaded&&<><span>{shelfTitle(book)}</span><small>{book.author||"作者未注明"}</small></>}
-    {supported&&!failed&&<img className={"bookshelf-cover-image"+(loaded?" is-loaded":"")} src={"/api/books/"+encodeURIComponent(book.id)+"/cover?editionId="+encodeURIComponent(edition.id)} alt="" loading="lazy" decoding="async" onLoad={()=>setLoaded(true)} onError={()=>{setFailed(true);console.warn("封面不可用，保留文字封面",book.id,edition.id);}}/>}
+    {supported&&!failed&&<img className={"bookshelf-cover-image"+(loaded?" is-loaded":"")} src={"/api/books/"+encodeURIComponent(book.id)+"/cover?editionId="+encodeURIComponent(edition.id)} alt="" width={300} height={400} loading="lazy" decoding="async" onLoad={()=>setLoaded(true)} onError={()=>{setFailed(true);console.warn("封面不可用，保留文字封面",book.id,edition.id);}}/>}
     {failed&&<small className="bookshelf-cover-fallback">文字封面</small>}
   </span>;
 }
