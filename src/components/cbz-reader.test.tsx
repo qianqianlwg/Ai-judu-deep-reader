@@ -35,7 +35,7 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); lo
 describe("CBZ图片原版阅读器", () => {
   it("按版本和页码请求图片，展示真实尺寸并明确没有文字句读", async () => {
     await render(); await waitImage(); expect(fetch).toHaveBeenCalledWith("/api/books/book/image?editionId=e&page=1", expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }));
-    expect(imageNode()?.src).toContain("blob:cbz-test-1"); expect(imageNode()?.alt).toBe("第 1 页"); expect(imageNode()?.style.width).toBeTruthy(); expect(host.textContent).toContain("OCR 尚未启用"); expect(host.textContent).toContain("不能选择文字句读");
+    expect(imageNode()?.src).toContain("blob:cbz-test-1"); expect(imageNode()?.alt).toBe("第 1 页"); expect(imageNode()?.width).toBe(80); expect(imageNode()?.height).toBe(60); expect(imageNode()?.style.width).toBeTruthy(); expect(host.textContent).toContain("OCR 尚未启用"); expect(host.textContent).toContain("不能选择文字句读");
     expect(host.querySelector(".textLayer,textarea")).toBeNull(); expect(props.onImagePage).toHaveBeenCalledWith(1);
   });
   it("上一页/下一页和PageDown切换页码，旧blob撤销且清理选区", async () => {

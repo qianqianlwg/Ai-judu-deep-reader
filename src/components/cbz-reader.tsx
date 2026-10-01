@@ -42,7 +42,7 @@ export function CbzReader(props:CbzReaderProps){
    {visible&&!error&&<div className="cbz-image-space" style={{width:Math.max(size.width,visible.width*scale+32),minHeight:Math.max(size.height,visible.height*scale+32)}}>
     {/* WHY：展示已核验的原始图片字节，不经过Next图片重编码，也不反转图像颜色冒充阅读主题。 */}
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img key={visible.url} src={visible.url} alt={book.chapters[page-1]?.title??'第 '+page+' 页'} draggable={false} style={{width:visible.width*scale,height:visible.height*scale}} onError={()=>{console.error('CBZ浏览器图片解码失败',{page});setError('浏览器无法显示此图片页，可重试或重新导入原件。');}}/>
+    <img key={visible.url} src={visible.url} alt={book.chapters[page-1]?.title??'第 '+page+' 页'} width={visible.width} height={visible.height} draggable={false} style={{width:visible.width*scale,height:visible.height*scale}} onError={()=>{console.error('CBZ浏览器图片解码失败',{page});setError('浏览器无法显示此图片页，可重试或重新导入原件。');}}/>
    </div>}
   </div>
  </section>;
