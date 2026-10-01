@@ -2,8 +2,8 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ action: vi.fn(), retry: vi.fn() }));
-vi.mock("@/hooks/use-guide-map-engine", () => ({ useGuideMapEngine: () => ({ ...mocks, ready: true, error: "", zoom: 1, revision: 1, element: { current: null }, engine: { current: null } }) }));
+const mocks = vi.hoisted(() => ({ action: vi.fn(), retry: vi.fn(), engine: { current: { miniMap: { calculationMiniMap: vi.fn(() => ({ svgHTML: "<svg></svg>", viewBoxStyle: {} })) } } } }));
+vi.mock("@/hooks/use-guide-map-engine", () => ({ useGuideMapEngine: () => ({ ...mocks, ready: true, error: "", zoom: 1, revision: 1, element: { current: null }, engine: mocks.engine }) }));
 import { GuideMindMap } from "./guide-mind-map";
 it("默认呈现真实画板与视角工具，节点详情不抢双击编辑", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); const host = document.createElement("div"), root = createRoot(host), inspect = vi.fn();
@@ -12,5 +12,6 @@ it("默认呈现真实画板与视角工具，节点详情不抢双击编辑", a
   expect(host.textContent).toContain("1 / 1 个匹配");
   act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "节点详情")!.click()); expect(inspect).toHaveBeenCalledTimes(1);
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="放大画板"]')!.click()); expect(mocks.action).toHaveBeenCalled();
+  act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "导航图")!.click()); await vi.waitFor(() => expect(host.querySelector('[aria-label="思维导图导航缩略图"] img')?.getAttribute("width")).toBe("200")); expect(host.querySelector('[aria-label="思维导图导航缩略图"] img')?.getAttribute("height")).toBe("130");
   act(() => root.unmount()); vi.unstubAllGlobals();
 });

@@ -192,7 +192,7 @@ export function GuideMindMap(props: GuideMindMapProps) {
           }
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={mini.image} alt="全部主题位置" draggable={false} />
+          <img src={mini.image} alt="全部主题位置" width={200} height={130} draggable={false} />
           <div className={styles.miniFrame} style={mini.frame} />
         </div>
       )}
