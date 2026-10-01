@@ -8,7 +8,7 @@ import {
   normalizeReadingAppearance, parseReadingAppearance, readReadingAppearance, serializeReadingAppearance, writeReadingAppearance,
 } from "./reading-appearance";
 
-beforeEach(() => { localStorage.clear(); document.documentElement.removeAttribute("style"); delete document.documentElement.dataset.readingTheme; });
+beforeEach(() => { localStorage.clear(); document.documentElement.removeAttribute("style"); delete document.documentElement.dataset.readingTheme; document.head.querySelectorAll('meta[name="theme-color"]').forEach((node) => node.remove()); });
 afterEach(() => vi.restoreAllMocks());
 describe("阅读外观纯函数与本地迁移", () => {
   it.each([undefined, null, [], "dark", 1, false, { version: 999 }])("非法输入 %j 返回独立默认对象", (input) => {
@@ -80,12 +80,14 @@ describe("阅读外观纯函数与本地迁移", () => {
 describe("根节点主题应用", () => {
   it("应用变量与 bootstrap 使用同一套主题契约，不改文档语言", () => {
     const root = document.createElement("html"); document.documentElement.lang = "zh-CN";
+    const themeColor = document.createElement("meta"); themeColor.name = "theme-color"; document.head.append(themeColor);
     const result = applyReadingAppearanceToRoot(root, { ...defaults, theme: "dark" });
     expect(result.theme).toBe("dark");
     expect(root.dataset.readingTheme).toBe("dark");
     expect(root.style.getPropertyValue("--reading-paper")).toBe("#191C1F");
     expect(root.style.getPropertyValue("--reading-font-size")).toBe("16px");
     expect(root.style.colorScheme).toBe("dark");
+    expect(themeColor.content).toBe("#191C1F");
     expect(document.documentElement.lang).toBe("zh-CN");
   });
 });
@@ -147,12 +149,15 @@ describe("与可见正文和测量器共用的排版契约", () => {
 describe("首屏主题防闪脚本", () => {
   function bootstrap() { window.eval(getReadingAppearanceBootstrapScript()); }
   it.each(READING_THEMES.map((theme) => theme.id))("挂载前即设置 %s 的全部主题变量", (theme) => {
-    writeReadingAppearance(localStorage, { ...defaults, theme }); bootstrap();
+    writeReadingAppearance(localStorage, { ...defaults, theme });
+    const themeColor = document.createElement("meta"); themeColor.name = "theme-color"; document.head.append(themeColor);
+    bootstrap();
     expect(document.documentElement.dataset.readingTheme).toBe(theme);
     for (const [key, value] of Object.entries(getReadingThemeVariables(theme))) {
       expect(document.documentElement.style.getPropertyValue(key)).toBe(value);
     }
     expect(document.documentElement.style.colorScheme).toBe(theme === "dark" ? "dark" : "light");
+    expect(themeColor.content).toBe(READING_THEMES.find((item) => item.id === theme)!.paper);
   });
   it.each([null, "{}", '{"version":2}', '{"fontSize":18}', '{"theme":null}', '{"theme":"__proto__"}', '{"theme":"<script>"}'])("迁移/非法主题与主读取器规则一致：%s", (raw) => {
     localStorage.setItem(keys.legacyTheme, "dark");

@@ -225,6 +225,8 @@ export function applyReadingAppearanceToRoot(target: HTMLElement, value: Reading
   for (const [key, cssValue] of Object.entries(getReadingAppearanceVariables(preferences))) target.style.setProperty(key, cssValue);
   target.style.colorScheme = preferences.theme === "dark" ? "dark" : "light";
   target.dataset.readingTheme = preferences.theme;
+  target.ownerDocument.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    ?.setAttribute("content", getReadingThemeVariables(preferences.theme)["--reading-paper"]);
   return preferences;
 }
 export function getReadingAppearanceVariables(value: ReadingAppearancePreferences): ReadingAppearanceVariables {
@@ -270,5 +272,6 @@ export function getReadingAppearanceBootstrapScript(): string {
     "if(valid&&typeof v.emphasisPalette==='string'&&Object.prototype.hasOwnProperty.call(c.themes[theme],v.emphasisPalette))palette=v.emphasisPalette;" +
     "}catch(e){console.error('[reading-appearance] 无法读取主题偏好',e)}" +
     "const colors=c.themes[theme][palette],root=document.documentElement;for(const [key,value] of Object.entries(colors))root.style.setProperty(key,value);" +
+    "const themeColor=document.querySelector('meta[name=\"theme-color\"]');if(themeColor)themeColor.setAttribute('content',colors['--reading-paper']);" +
     "root.style.colorScheme=colors['--reading-color-scheme'];root.dataset.readingTheme=theme;})();";
 }

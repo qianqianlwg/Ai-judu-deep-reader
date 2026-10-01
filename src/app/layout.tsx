@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import {
   DEFAULT_READING_APPEARANCE, getReadingAppearanceBootstrapScript, getReadingAppearanceVariables,
@@ -17,6 +17,10 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "句读｜AI 深度阅读器",
   description: "基于原著上下文的 AI 深度阅读器",
+};
+
+export const viewport: Viewport = {
+  themeColor: getReadingAppearanceVariables(DEFAULT_READING_APPEARANCE)["--reading-paper"],
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
