@@ -1,0 +1,8 @@
+.conclusion { margin-top: 20px; padding: 18px 0 4px; border-top: 1px solid var(--reading-border); }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.heading h4 { margin: 0; font-size: 14px; font-weight: 600; }
+.heading span, .note { color: var(--reading-muted); font-size: 12px; }
+.note { line-height: 1.8; }
+.error { color: var(--red, #b4443c); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
+.retry { margin-top: 8px; padding: 5px 10px; border: 1px solid var(--reading-border); border-radius: 6px; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
+.retry:disabled { opacity: .5; cursor: default; }

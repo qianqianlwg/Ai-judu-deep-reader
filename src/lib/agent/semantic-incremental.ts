@@ -10,12 +10,13 @@ import { readingDetailSpec } from '../reading-detail';
 import { readingDifficultyPrompt } from '../reading-preferences';
 import { SemanticPlanError } from '../semantic-plan-input';
 import type { ToolRun } from './runtime';
+import { readProviderFailure } from './provider-failure';
 import { namedToolChoice, TOOL_NAMES } from './tool-choice';
 
 export const SENTENCE_TOOL=TOOL_NAMES.submitReadingSentence;
 export const SENTENCE_DESCRIPTION='提交当前一句的完整句读及原文标注。一次只提交一句，按顺序连续覆盖所有原文，不跳过、不重复、不改写。sourceStart/sourceEnd提供原文首尾5至8个字符；尾部匹配不唯一时请提供更长尾部。sourceAnnotations包含keywords、keySentences、concepts，没有内容填none；answerEmphasis包含keywords、keySentences，没有内容填none。所有字段必填。来源、格式或标注核验失败时，按照具体错误反馈修正当前句，不重新生成已完成句。';
 export type SentenceStep={chunk:AIMessageChunk;usage:TokenUsage};
-export type IncrementalOptions={config:ProviderConfig;sources:SemanticSource[];context:string;messages:ProviderMessage[];readingStyle?:ReadingStyle;detail:string;difficulty:string;previous?:SemanticReading;signal:AbortSignal;contextWindow:number;onUsage:(u:TokenUsage)=>void;publish:(s:SemanticReading,c:string)=>void;commit:(u:SemanticUnit,s:SemanticReading)=>void;audit:(r:ToolRun)=>Promise<void>;step:(messages:BaseMessageLike[],onStart:()=>void)=>Promise<SentenceStep>};
+export type IncrementalOptions={config:ProviderConfig;sources:SemanticSource[];context:string;messages:ProviderMessage[];readingStyle?:ReadingStyle;detail:string;difficulty:string;previous?:SemanticReading;signal:AbortSignal;contextWindow:number;onUsage:(u:TokenUsage)=>void;publish:(s:SemanticReading,c:string)=>void;commit:(u:SemanticUnit,s:SemanticReading)=>void;audit:(r:ToolRun)=>Promise<void>;conclude:(state:SemanticReading,onText:(content:string)=>void)=>Promise<{content:string;usage:TokenUsage}>;step:(messages:BaseMessageLike[],onStart:()=>void)=>Promise<SentenceStep>};
 export async function streamSentence(config:ProviderConfig,messages:BaseMessageLike[],signal:AbortSignal,contextWindow:number,onStart:()=>void):Promise<SentenceStep>{
   const submit=tool(async value=>value,{name:SENTENCE_TOOL,description:SENTENCE_DESCRIPTION,schema:semanticSubmissionSchema});
   const bound=createReadingModel(config).bindTools([submit],namedToolChoice(SENTENCE_TOOL));
@@ -81,6 +82,16 @@ export async function runIncrementalReading(o:IncrementalOptions){
         accepted=true;
       }
     }
-    state.phase='completed';state.pending=undefined;publish();return state;
-  }catch(error:unknown){state.phase='interrupted';publish();throw error;}
+    // WHY：全部工具提交成功后再由 AI 总述；小结失败只保留已提交句读，重试不重做标注。
+    o.signal.throwIfAborted();
+    state.phase='reading';state.pending=undefined;state.conclusion={status:'streaming',content:''};publish();
+    const conclusion=await o.conclude(structuredClone(state),content=>{o.signal.throwIfAborted();state.conclusion={status:'streaming',content};publish();});
+    o.onUsage(conclusion.usage);o.signal.throwIfAborted();
+    state.conclusion={status:'completed',content:conclusion.content};
+    state.phase='completed';publish();return state;
+  }catch(error:unknown){
+    state.phase='interrupted';
+    if(state.conclusion?.status==='streaming')state.conclusion={...state.conclusion,status:'error',error:error instanceof Error?(readProviderFailure(error)?.message??error.message):String(error)};
+    publish();throw error;
+  }
 }

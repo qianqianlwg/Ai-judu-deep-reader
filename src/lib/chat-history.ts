@@ -1,4 +1,4 @@
-import { isSemanticReading } from './semantic-reading';
+import { interruptSemanticReading, isSemanticReading } from './semantic-reading';
 import { isTokenUsage, type TokenUsage } from "./token-usage";
 import { readAnswerEmphasis } from "./answer-emphasis";
 import { isAnalysis, isRecord, type ChatMessage, type HistoricalToolActivity, type MessageAnchor, type ToolActivity } from "./chat-stream";
@@ -20,9 +20,9 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
   const trustedEmphasis = isRecord(value) && value.emphasisSource === "agent";
   // WHY：旧记录没有标注来源证明，可能来自被移除的代码推断；保留正文但不将其冒充 AI 选择。
   const analysis=isAnalysis(value)?{...value,emphasis:trustedEmphasis?value.emphasis:undefined}:undefined;
-  const semantic=isRecord(value)&&isSemanticReading(value.semantic)?structuredClone(value.semantic):undefined;
+  let semantic=isRecord(value)&&isSemanticReading(value.semantic)?structuredClone(value.semantic):undefined;
   if(semantic)for(const unit of semantic.units)if(unit.analysis?.emphasisSource!=="agent"&&unit.analysis)unit.analysis.emphasis=undefined;
-  if(semantic&&(message.status==='streaming'||message.status==='error')){semantic.phase='interrupted';for(const unit of semantic.units)if(unit.status==='streaming'){unit.status='error';unit.error='上次生成中断，可继续此块。';}}
+  if(semantic&&(message.status==='streaming'||message.status==='error'))semantic=interruptSemanticReading(semantic,'上次生成中断，可重试未完成内容。');
   let usage = isTokenUsage(message.usage) ? message.usage : undefined;
   const tools: ToolActivity[] = Array.isArray(message.tools) ? message.tools.flatMap(item => isRecord(item) && typeof item.id === "string" && typeof item.name === "string" && (item.status === "completed" || item.status === "error" || item.status === "running") ? [{ id: item.id, name: item.name, status: item.status === "running" ? "error" : item.status, result: item.result, contentOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && isRecord(value._request.timeline.tools) && Number.isSafeInteger(value._request.timeline.tools[item.id]) && (value._request.timeline.tools[item.id] as number) >= 0 && (value._request.timeline.tools[item.id] as number) <= message.content.length ? value._request.timeline.tools[item.id] as number : undefined }] : []) : [];
   const historicalTools = readHistoricalTools(message.historicalTools);

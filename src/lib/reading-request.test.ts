@@ -264,3 +264,9 @@ it("只有失败或取消才能显式更换重试模型，不接受空模型", (
   expect(withRetryModel({...first,status:"cancelled"}," new-model ").payload.retryModel).toBe("new-model");
   for(const value of [undefined,"","x\ny","x".repeat(201)])expect(()=>readRetryModel(value)).toThrow();
 });
+
+it('恢复中断请求时小结不保持生成中，内容与错误保留用于原请求重试',()=>{
+ const initial=request(),semantic={version:1,phase:'reading',units:[],conclusion:{status:'streaming',content:'部分总述'}};
+ const restored=restoreReadingRequest(initial.payload.threadId,{id:initial.payload.clientAssistantMessageId,role:'assistant',content:'部分总述',status:'error',structuredOutput:JSON.stringify({_request:{version:1,clientUserMessageId:initial.payload.clientUserMessageId,clientAssistantMessageId:initial.payload.clientAssistantMessageId,input:initial.payload,failure:{message:'用户停止'}},semantic})});
+ expect(restored?.semantic?.conclusion).toEqual({status:'error',content:'部分总述',error:'用户停止'});expect(restored?.semantic?.phase).toBe('interrupted');
+});

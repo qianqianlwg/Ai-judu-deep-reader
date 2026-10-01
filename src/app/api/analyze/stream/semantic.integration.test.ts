@@ -16,6 +16,7 @@ const texts=['这是第一个完整意思。','这是第二个完整意思。','
 const payload={threadId:'thread-semantic',clientUserMessageId:'user-semantic',clientAssistantMessageId:'parent-semantic',editionId:'edition-1',bookId:'book-1',chapterId:'chapter-1',paragraphId:'p1',mode:'analyze',readingStyle:'semantic',question:'请按句意细读',selectedText:original,selectionStart:0,selectionEnd:original.length,selectionAnchors:[{paragraphId:'p1',startOffset:0,endOffset:original.length,selectedText:original}]};
 function submission(text:string,title='商品关系') {const size=Math.min(8,Array.from(text).length);return {sourceStart:Array.from(text).slice(0,size).join(''),sourceEnd:Array.from(text).slice(-size).join(''),title,content:'这一句说明了对应的关系。',sourceAnnotations:{keywords:'none',keySentences:'none',concepts:'none'},answerEmphasis:{keywords:'none',keySentences:'none'}};}
 function upstream(args:unknown){const chunks=[{choices:[{index:0,delta:{role:'assistant',tool_calls:[{index:0,id:crypto.randomUUID(),type:'function',function:{name:'submit_reading_sentence',arguments:''}}]},finish_reason:null}]},{choices:[{index:0,delta:{tool_calls:[{index:0,function:{arguments:JSON.stringify(args)}}]},finish_reason:null}]},{choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:20000,completion_tokens:18000,total_tokens:38000}}];return new Response(new ReadableStream<Uint8Array>({start(c){for(const part of chunks)c.enqueue(encoder.encode('data: '+JSON.stringify(part)+'\n\n'));c.enqueue(encoder.encode('data: [DONE]\n\n'));c.close();}}),{headers:{'Content-Type':'text/event-stream'}});}
+function conclusionUpstream(content='AI 小结：整体关系贯穿全部选文。',finish='stop'){return new Response(new ReadableStream<Uint8Array>({start(c){for(const part of [{choices:[{index:0,delta:{role:'assistant',content},finish_reason:null}]},{choices:[{index:0,delta:{},finish_reason:finish}],usage:{prompt_tokens:100,completion_tokens:20,total_tokens:120}}])c.enqueue(encoder.encode('data: '+JSON.stringify(part)+'\n\n'));c.enqueue(encoder.encode('data: [DONE]\n\n'));c.close();}}),{headers:{'Content-Type':'text/event-stream'}});}
 async function call(extra:Record<string,unknown>={}){const response=await POST(new NextRequest('http://localhost/api/analyze/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,...extra})}));return {status:response.status,text:await response.text()};}
 function parent(){return fixture.db!.prepare('SELECT * FROM chat_messages WHERE id=?').get(payload.clientAssistantMessageId) as {id:string;role:'assistant';content:string;status:string;structured_output:string};}
 function state():SemanticReading {const v:unknown=JSON.parse(parent().structured_output).semantic;if(!isSemanticReading(v))throw new Error('状态缺失');return v;}
@@ -34,7 +35,7 @@ beforeEach(()=>{fixture.db=new runtime.DatabaseSync(':memory:');fixture.db.exec(
  CREATE TABLE editions(id TEXT PRIMARY KEY,book_id TEXT,file_type TEXT);
  INSERT INTO editions VALUES('edition-1','book-1','.epub'),('edition-2','book-2','.epub');
  CREATE TABLE annotations(id TEXT PRIMARY KEY,paragraph_id TEXT,start_offset INTEGER,end_offset INTEGER,text_hash TEXT,thread_id TEXT,summary TEXT,concepts TEXT,created_at TEXT,concept_details TEXT,message_id TEXT);
-`);fixture.db.prepare('UPDATE paragraphs SET text=? WHERE id=?').run(original,'p1');fetcher.mockReset();vi.stubGlobal('fetch',fetcher);vi.spyOn(console,'error').mockImplementation(()=>{});vi.spyOn(console,'info').mockImplementation(()=>{});});
+`);fixture.db.prepare('UPDATE paragraphs SET text=? WHERE id=?').run(original,'p1');fetcher.mockReset().mockImplementation(async()=>conclusionUpstream());vi.stubGlobal('fetch',fetcher);vi.spyOn(console,'error').mockImplementation(()=>{});vi.spyOn(console,'info').mockImplementation(()=>{});});
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();fixture.db?.close();fixture.db=undefined;});
 describe('逐句增量细读 API 集成',()=>{
  it('第二句请求仍在等待时，浏览器已收到首句事件且标注已保存',async()=>{
@@ -60,7 +61,8 @@ describe('逐句增量细读 API 集成',()=>{
   expect(rows).toHaveLength(3);expect(rows[0]).toMatchObject({start_offset:0,end_offset:texts[0].length});
   const history=fixture.db!.prepare('SELECT id,role,content,status,structured_output AS structuredOutput FROM chat_messages ORDER BY created_at').all() as Parameters<typeof hydrateChatHistory>[0];
   expect(hydrateChatHistory(history)).toHaveLength(2);
-  for(const outgoing of fetcher.mock.calls){const request=JSON.parse(String(outgoing[1]?.body));expect(request.tools).toHaveLength(1);expect(request.tools[0].function.name).toBe('submit_reading_sentence');expect(request.max_tokens).toBeUndefined();expect(request.max_completion_tokens).toBeUndefined();}
+  for(const outgoing of fetcher.mock.calls.slice(0,-1)){const request=JSON.parse(String(outgoing[1]?.body));expect(request.tools).toHaveLength(1);expect(request.tools[0].function.name).toBe('submit_reading_sentence');expect(request.max_tokens).toBeUndefined();expect(request.max_completion_tokens).toBeUndefined();}
+  expect(JSON.parse(String(fetcher.mock.calls.at(-1)?.[1]?.body)).tools).toBeUndefined();expect(state().conclusion).toMatchObject({status:'completed',content:'AI 小结：整体关系贯穿全部选文。'});expect(parent().content).toContain('本次细读小结');
   const count=fetcher.mock.calls.length;await call();expect(fetcher).toHaveBeenCalledTimes(count);
  });
  it('第二句失败时首句和标注已持久化，恢复仅继续剩余原文',async()=>{
@@ -68,7 +70,7 @@ describe('逐句增量细读 API 集成',()=>{
   expect((await call()).text).toContain('event: error');expect(state().phase).toBe('interrupted');expect(state().units).toHaveLength(1);
   const stored=parent(),restored=restoreReadingRequest(payload.threadId,{...stored,structuredOutput:stored.structured_output});expect(restored?.semantic?.units[0].status).toBe('completed');
   fetcher.mockResolvedValueOnce(upstream(submission(texts[1]))).mockResolvedValueOnce(upstream(submission(texts[2])));
-  expect((await call()).text).toContain('event: done');expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:3});expect(fetcher).toHaveBeenCalledTimes(4);
+  expect((await call()).text).toContain('event: done');expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:3});expect(fetcher).toHaveBeenCalledTimes(5);
  });
  it('错误首尾定位反馈给Agent修正，既不伪造结果也不重做首句',async()=>{
   fetcher.mockResolvedValueOnce(upstream(submission(texts[0]))).mockResolvedValueOnce(upstream({...submission(texts[1]),sourceEnd:'找不到尾。'})).mockResolvedValueOnce(upstream(submission(texts[1]))).mockResolvedValueOnce(upstream(submission(texts[2])));
@@ -97,8 +99,43 @@ describe('逐句增量细读 API 集成',()=>{
   fetcher.mockResolvedValueOnce(Response.json({error:{message:'没有可用渠道',code:'channel_unavailable'}},{status:403}));
   expect((await call()).text).toContain('没有可用渠道');const before=JSON.parse(parent().structured_output)._request;
   for(const t of texts)fetcher.mockResolvedValueOnce(upstream(submission(t)));
-  expect((await call({retryModel:'new-model'})).text).toContain('event: done');expect(fetcher.mock.calls.slice(1).map(c=>JSON.parse(String(c[1]?.body)).model)).toEqual(['new-model','new-model','new-model']);
+  expect((await call({retryModel:'new-model'})).text).toContain('event: done');expect(fetcher.mock.calls.slice(1).map(c=>JSON.parse(String(c[1]?.body)).model)).toEqual(['new-model','new-model','new-model','new-model']);
   expect(JSON.parse(parent().structured_output)._request).toMatchObject({fingerprint:before.fingerprint,input:before.input,executionModel:'new-model'});
   expect(fixture.db!.prepare("SELECT count(*) AS n FROM chat_messages WHERE role='user'").get()).toEqual({n:1});
  });
+});
+
+it('小结文本先流式发布再完成，刷新恢复原文与总述，累计小结用量',async()=>{
+ for(const t of texts)fetcher.mockResolvedValueOnce(upstream(submission(t)));
+ const r=await call();const events=r.text.split('\n\n').filter(b=>b.startsWith('event: semantic')).map(b=>JSON.parse(b.split('\ndata: ')[1]).result as SemanticReading);
+ expect(events.some(s=>s.phase==='reading'&&s.conclusion?.status==='streaming'&&s.conclusion.content.includes('AI 小结'))).toBe(true);
+ const restored=hydrateChatHistory([{id:parent().id,role:'assistant',content:parent().content,status:'completed',structuredOutput:parent().structured_output}])[0];
+ expect(restored.semantic?.conclusion).toEqual(state().conclusion);expect(JSON.parse((fixture.db!.prepare('SELECT usage_json FROM chat_messages WHERE id=?').get(payload.clientAssistantMessageId) as {usage_json:string}).usage_json).totalTokens).toBe(114120);
+});
+it('小结上游失败显示错误，换模型重试只生成小结、不重复句读或标注',async()=>{
+ for(const t of texts)fetcher.mockResolvedValueOnce(upstream(submission(t)));
+ fetcher.mockResolvedValueOnce(Response.json({error:{message:'小结渠道不可用',code:'channel_unavailable'}},{status:403}));
+ const failed=await call();expect(failed.text).toContain('小结渠道不可用');expect(failed.text).not.toContain('event: done');expect(state().conclusion).toMatchObject({status:'error',error:JSON.stringify({message:'小结渠道不可用',code:'channel_unavailable'},null,2)});
+ const ids=state().units.map(u=>u.id);fixture.db!.exec("CREATE TABLE ai_model_choices(model TEXT PRIMARY KEY,position INTEGER);INSERT INTO ai_model_choices VALUES('summary-model',0)");
+ const retried=await call({retryModel:'summary-model'});expect(retried.text).toContain('event: done');expect(fetcher).toHaveBeenCalledTimes(5);expect(state().units.map(u=>u.id)).toEqual(ids);
+ const last=JSON.parse(String(fetcher.mock.calls.at(-1)?.[1]?.body));expect(last.model).toBe('summary-model');expect(last.tools).toBeUndefined();expect(last.messages.at(-1).content).toContain('这一句说明了对应的关系');
+ expect(fixture.db!.prepare('SELECT count(*) AS n FROM annotations').get()).toEqual({n:3});
+});
+it('截断小结保留片段，但不把完整选文覆盖当作任务完成',async()=>{
+ for(const t of texts)fetcher.mockResolvedValueOnce(upstream(submission(t)));fetcher.mockResolvedValueOnce(conclusionUpstream('小结片段','length'));
+ const r=await call();expect(r.text).toContain('截断了本次细读小结');expect(state().phase).toBe('interrupted');expect(state().conclusion).toMatchObject({status:'error',content:'小结片段'});expect(state().units).toHaveLength(3);
+});
+
+it('生成小结时停止，数据库明确保存中断而非永久生成中，重试仍只调用小结',async()=>{
+ let release:()=>void=()=>{};const wait=new Promise<void>(resolve=>{release=resolve;});
+ for(const t of texts)fetcher.mockResolvedValueOnce(upstream(submission(t)));
+ let markStarted:()=>void=()=>{};const started=new Promise<void>(resolve=>{markStarted=resolve;});
+ fetcher.mockImplementationOnce(async()=>{markStarted();await wait;return conclusionUpstream();});
+ const controller=new AbortController();const response=await POST(new NextRequest('http://localhost/api/analyze/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal}));
+ const reader=response.body!.getReader(),decoder=new TextDecoder();let received='';
+ try{
+  while(!received.includes('"conclusion":{"status":"streaming"')){const part=await reader.read();if(part.done)throw new Error('小结前结束');received+=decoder.decode(part.value,{stream:true});}
+  await started;controller.abort();expect(parent().status).toBe('error');expect(state().conclusion?.status).toBe('error');expect(state().units).toHaveLength(3);
+ }finally{release();while(!(await reader.read()).done){/* WHY：结束受控上游，避免遗留异步数据库访问。 */}}
+ expect((await call()).text).toContain('event: done');expect(fetcher).toHaveBeenCalledTimes(5);
 });

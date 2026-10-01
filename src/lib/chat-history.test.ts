@@ -78,3 +78,11 @@ it("没有 Agent 来源证明的旧兜底标注不再显示，正文原样保留
   expect(message.content).toBe(content);
   expect(message.emphasis).toBeUndefined();
 });
+
+it('刷新保留已完成小结，断流只标记活动小结为失败',()=>{
+ for(const status of ['completed','streaming','error'] as const){
+  const conclusion={status:status==='completed'?'completed':'streaming',content:'AI小结内容'};
+  const saved={id:'a',role:'assistant' as const,content:'AI小结内容',status,structuredOutput:JSON.stringify({semantic:{version:1,phase:status==='completed'?'completed':'reading',units:[],conclusion}})};
+  const restored=hydrateChatHistory([saved])[0];expect(restored.semantic?.conclusion?.content).toBe('AI小结内容');expect(restored.semantic?.conclusion?.status).toBe(status==='completed'?'completed':'error');
+ }
+});

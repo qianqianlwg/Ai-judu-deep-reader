@@ -14,3 +14,12 @@ it('进度条按10+90字数比例显示，当前句只有占位而没有伪来�
 import {act} from 'react';
 import {createRoot} from 'react-dom/client';
 it('整组列表可折叠，后续句读更新不强制重新展开',async()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const host=document.createElement('div'),root=createRoot(host);document.body.append(host);try{await act(async()=>root.render(<SemanticReadingResult state={{version:1,phase:'reading',title:'商品两重性',units:[unit]}}/>));const list=host.querySelector<HTMLDetailsElement>('.semantic-list')!;await act(async()=>{list.open=false;list.dispatchEvent(new Event('toggle'));});await act(async()=>root.render(<SemanticReadingResult state={{version:1,phase:'completed',title:'商品两重性',units:[unit,{...unit,id:'v'}]}}/>));expect(list.open).toBe(false);}finally{await act(async()=>root.unmount());host.remove();vi.unstubAllGlobals();}});
+
+it('小结位于句读折叠列表之后，历史无小结时不造占位',()=>{
+ const state={version:1 as const,phase:'completed' as const,units:[unit]};const html=renderToStaticMarkup(<SemanticReadingResult state={{...state,conclusion:{status:'completed',content:'整段关系小结'}}}/>);
+ expect(html.indexOf('aria-label="本次细读小结"')).toBeGreaterThan(html.lastIndexOf('</details>'));expect(html).toContain('整段关系小结');expect(renderToStaticMarkup(<SemanticReadingResult state={state}/>)).not.toContain('本次细读小结');
+});
+it('生成小结时不显示虚假的下一句工具占位',()=>{
+ const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'reading',units:[unit],conclusion:{status:'streaming',content:''}}}/>);
+ expect(html).toContain('正在生成小结');expect(html).not.toContain('semantic-pending');
+});

@@ -9,6 +9,7 @@ import type { SemanticReading, SemanticUnit } from '@/lib/semantic-reading';
 import type { ReadingAnchor } from '@/lib/reading-anchors';
 import { anchorParts } from '@/lib/reading-anchors';
 import './semantic-reading.css';
+import { SemanticReadingConclusion } from './semantic-reading-conclusion';
 type Props={state:SemanticReading;disabled?:boolean;onOpenSource?:(a:ReadingAnchor)=>void;onReadUnit?:(unit:SemanticUnit)=>void;onRetry?:()=>void;onDiscussUnit?:(unit:SemanticUnit)=>void;onOpenCitation?:(paragraphId:string,quote:string,messageId?:string)=>void};
 export function SemanticReadingResult({state,disabled,onOpenSource,onReadUnit,onRetry,onDiscussUnit,onOpenCitation}:Props){
  const label=state.readingStyle==='whole'?'整段句读':'按句意细读';
@@ -17,7 +18,7 @@ export function SemanticReadingResult({state,disabled,onOpenSource,onReadUnit,on
  const progress=semanticProgress(state);
  const [expanded,setExpanded]=useState(true);
  const pending=state.pending??(state.phase==='reading'&&!state.units.length?{index:1}:undefined);
- const heading=state.phase==='planning'?'正在思考…':state.phase==='completed'?(read.length?'本次细读完成':'Agent 建议略过这些内容'):state.phase==='interrupted'?(state.units.length?'进度已保留':'本次细读尚未生成'):pending?.error?'正在修正当前句':'正在逐句细读';
+ const heading=state.phase==='planning'?'正在思考…':state.phase==='completed'?(read.length?'本次细读完成':'Agent 建议略过这些内容'):state.phase==='interrupted'?(state.units.length?'进度已保留':'本次细读尚未生成'):state.conclusion?.status==='streaming'?'正在生成小结…':pending?.error?'正在修正当前句':'正在逐句细读';
  function source(u:SemanticUnit){return <details className='semantic-source'><summary>原文 · {anchorParts(u.anchor).length} 段来源</summary><blockquote>{anchorParts(u.anchor).map((p,i)=><span key={p.paragraphId+':'+p.startOffset}>{i>0?'\n\n':''}<EnhancedSourceExcerpt text={p.selectedText} ranges={(u.sourceEmphasis??[]).filter(m=>m.paragraphId===p.paragraphId&&m.startOffset>=p.startOffset&&m.endOffset<=p.endOffset&&p.selectedText.slice(m.startOffset-p.startOffset,m.endOffset-p.startOffset)===m.quote).map(m=>({start:m.startOffset-p.startOffset,end:m.endOffset-p.startOffset,kind:m.kind}))}/></span>)}</blockquote></details>;}
  return <section className='semantic-reading' aria-label={label+"结果"}>
   <header className={'semantic-progress-card'+(state.phase==='reading'?' is-active':'')}>
@@ -44,5 +45,6 @@ export function SemanticReadingResult({state,disabled,onOpenSource,onReadUnit,on
   </div>
   {skipped.length>0&&<details className='semantic-skipped'><summary>略过 {skipped.length} 处 <span>查看原因，也可要求句读</span></summary>{skipped.map(unit=><article key={unit.id} className='semantic-skip-item'><h4>{unit.label}</h4><p>{unit.reason}</p>{source(unit)}<div className='semantic-actions'><button type='button' disabled={!onOpenSource} onClick={()=>onOpenSource?.(unit.anchor)}>定位原文</button><button type='button' disabled={disabled||!onReadUnit} onClick={()=>onReadUnit?.(unit)}>仍然句读</button></div></article>)}</details>}
   </details>
+  {state.conclusion&&<SemanticReadingConclusion conclusion={state.conclusion} disabled={disabled} onRetry={onRetry}/>}
  </section>;
 }

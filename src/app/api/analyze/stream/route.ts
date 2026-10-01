@@ -1,6 +1,6 @@
 import { enqueueGuideSource } from "@/lib/guide-sources";
 import { SemanticPlanError } from "@/lib/semantic-plan-input";
-import { isSemanticReading, semanticSummary, MAX_SECTION_CHARACTERS, type SemanticReading } from '@/lib/semantic-reading';
+import { interruptSemanticReading, isSemanticReading, semanticSummary, MAX_SECTION_CHARACTERS, type SemanticReading } from '@/lib/semantic-reading';
 import { executeSemanticFlow } from '@/lib/agent/semantic-flow';
 import { commitSemanticUnit, resolveChapterSelection } from '@/lib/semantic-storage';
 import { createBookRetrieval } from "@/lib/book-retrieval";
@@ -260,6 +260,8 @@ function createReadingStream(request: NextRequest, db: Db, threadId: string, met
   };
   const fail = (code: string, message: string) => {
     if (terminal) return;
+    // WHY：取消会先结束响应；先持久化中断小结，避免刷新后仍显示正在生成。
+    meta.semantic = interruptSemanticReading(meta.semantic, message);
     try { persistAssistant(db, threadId, meta, raw, "error", analysis, { code, message, retryable: true }, usage, emphasis); }
     catch (error: unknown) { console.error("保存失败状态失败", error); code = "persistence_failed"; message = "保存失败状态失败，请重试"; }
     terminal = true;

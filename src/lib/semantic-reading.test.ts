@@ -30,3 +30,17 @@ it("原文标注必填，有明确无才允许不显示，失配交回Agent修�
   expect(resolveSemanticPlan({units:[proposal]},source,()=>"u")[0].sourceEmphasis).toEqual([]);
   expect(()=>resolveSemanticPlan({units:[{...proposal,sourceEmphasis:[{paragraphId:"p",kind:"term",quote:"不存在",occurrence:1}]}]},source,()=>"u")).toThrow("原文标注没有全部精确匹配");
 });
+
+it('小结字段兼容历史并校验状态与正文类型',async()=>{
+ const {isSemanticReading}=await import('./semantic-reading');const state={version:1,phase:'completed',units:[]};
+ expect(isSemanticReading(state)).toBe(true);expect(isSemanticReading({...state,conclusion:{status:'completed',content:'AI总述'}})).toBe(true);
+ for(const conclusion of [{status:'invalid',content:'正文'},{status:'completed',content:''},{status:'streaming',content:1},{status:'error',content:'',error:42}])expect(isSemanticReading({...state,conclusion})).toBe(false);
+});
+it('停止保留小结片段并显式中断，不修改已完成句读',()=>{
+ const state={version:1 as const,phase:'reading' as const,units:[],conclusion:{status:'streaming' as const,content:'部分小结'}};
+ expect(interruptSemanticReading(state,'用户停止')?.conclusion).toEqual({status:'error',content:'部分小结',error:'用户停止'});expect(state.conclusion.status).toBe('streaming');
+});
+it('会话记录追加真实AI小结，没有小结时不编造总结',async()=>{
+ const {semanticSummary}=await import('./semantic-reading');const state={version:1 as const,phase:'completed' as const,units:[]};
+ expect(semanticSummary(state)).not.toContain('小结');expect(semanticSummary({...state,conclusion:{status:'completed',content:'AI总结'}})).toContain('### 本次细读小结\n\nAI总结');
+});
