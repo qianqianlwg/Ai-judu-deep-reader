@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {embedTexts,EMBEDDING_PROFILE,type EmbeddingConfig} from './embedding-provider';
+import {embedTexts,EMBEDDING_BATCH_LEASE_MS,EMBEDDING_PROFILE,type EmbeddingConfig} from './embedding-provider';
 import {ensureEmbeddingSchema,type EmbeddingStore} from './embedding-store';
 export type IndexParagraph={id:string;chapterId:string;chapterTitle:string;paragraphIndex:number;text:string};
 export type VectorChunk={paragraphId:string;start:number;end:number;text:string;hash:string};
@@ -28,7 +28,7 @@ export async function buildVectorBatch(db:EmbeddingStore,editionId:string,config
  if(!config.apiKey)throw new Error('请先在设置中保存向量模型 API Key');
  const token=randomUUID(),now=Date.now();
  // WHY：持久租约跨进程防止重复付费；每批提交后释放，取消/重启可从已完成切块继续。
- const lease=db.prepare('INSERT INTO embedding_build_leases(edition_id,token,expires_at) VALUES(?,?,?) ON CONFLICT(edition_id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at WHERE embedding_build_leases.expires_at<? RETURNING token').get(editionId,token,now+90000,now);
+ const lease=db.prepare('INSERT INTO embedding_build_leases(edition_id,token,expires_at) VALUES(?,?,?) ON CONFLICT(edition_id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at WHERE embedding_build_leases.expires_at<? RETURNING token').get(editionId,token,now+EMBEDDING_BATCH_LEASE_MS,now);
  if(!lease)throw new Error('本书正在建立索引，请等待当前批次完成后重试');
  try{
   const paragraphs=indexParagraphs(db,editionId),keys=indexedKeys(db,editionId),pending=paragraphs.flatMap(splitVectorChunks).filter(chunk=>!keys.has(chunkKey(chunk))).slice(0,8);

@@ -37,3 +37,18 @@ it("再次打开已完成的书籍时立即报告就绪，无须重新同意", a
   try { await act(async () => root.render(<VectorIndexControls editionId="e" onReady={ready}/>)); expect(ready).toHaveBeenCalledOnce(); expect(host.textContent).toContain("已准备好"); }
   finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
 });
+
+it("索引失败状态在界面显示服务商诊断详情", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const providerError = "向量服务返回 HTTP 429：rate limit exceeded（已重试 3 次）";
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+    ...base, job: { state: "failed", error: providerError },
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<VectorIndexControls editionId="e" onReady={vi.fn()}/>));
+    expect(host.textContent).toContain(providerError);
+  } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
+});

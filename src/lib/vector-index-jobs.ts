@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { ensureEmbeddingSchema, type EmbeddingStore } from "./embedding-store";
 import { buildVectorBatch, vectorIndexStatus } from "./vector-index";
-import type { EmbeddingConfig } from "./embedding-provider";
+import { EMBEDDING_BATCH_LEASE_MS, type EmbeddingConfig } from "./embedding-provider";
 
 type BatchResult = Pick<ReturnType<typeof vectorIndexStatus>, "vectorIndexed" | "chunkCount">;
 type Build = (db: EmbeddingStore, editionId: string, config: EmbeddingConfig) => Promise<BatchResult>;
 type JobRow = { token: string; status: "running" | "pausing" | "paused" | "completed" | "failed"; error: string; updatedAt: number };
 export type IndexJobStatus = { state: JobRow["status"] | "idle" | "interrupted"; error: string };
-const STALE_MS = 90_000;
+const STALE_MS = EMBEDDING_BATCH_LEASE_MS;
 
 export function createVectorIndexJobs(build: Build = buildVectorBatch) {
   function row(db: EmbeddingStore, editionId: string): JobRow | undefined {
@@ -53,8 +53,9 @@ export function createVectorIndexJobs(build: Build = buildVectorBatch) {
         }
       } catch (cause: unknown) {
         console.error("后台向量索引失败", { name: cause instanceof Error ? cause.name : "UnknownError" });
-        // WHY：上游异常可能包含密钥或正文；只写入固定错误提示，不持久化原始异常。
-        update(db, editionId, token, "failed", "索引批次失败，请检查向量服务连接，稍后可继续准备。");
+        // WHY：向量适配器已脱敏供应商诊断；持久化有界错误详情，便于用户定位并在刷新后继续。
+        const message = cause instanceof Error ? cause.message.replace(/[\u0000-\u001f\u007f]/gu, " ").trim().slice(0, 1_000) : "索引批次失败：未知异常";
+        update(db, editionId, token, "failed", message || "索引批次失败：未知异常");
       }
     })();
     return { state: "running", error: "" };

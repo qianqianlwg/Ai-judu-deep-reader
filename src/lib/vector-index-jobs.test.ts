@@ -62,3 +62,10 @@ it("连续批次逐次落库，切页后可从状态接口看见完成进度", a
   expect(vectorIndexStatus(db, "e")).toMatchObject({ indexedChunkCount: 10, vectorIndexed: true });
   expect(embed).toHaveBeenCalledTimes(2);
 });
+
+it("后台任务状态保留已脱敏的供应商原始错误，供界面显示", async () => {
+  const jobs = createVectorIndexJobs(async () => { throw new Error("向量服务返回 HTTP 429：rate limit exceeded（已重试 3 次）"); });
+  jobs.start(db, "e", { apiKey: "fake" });
+  await vi.waitFor(() => expect(jobs.status(db, "e").state).toBe("failed"));
+  expect(jobs.status(db, "e").error).toBe("向量服务返回 HTTP 429：rate limit exceeded（已重试 3 次）");
+});
