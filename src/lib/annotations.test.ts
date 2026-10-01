@@ -54,7 +54,8 @@ describe("分页标注与独立历史", () => {
     const result = segmentAnnotatedText({ paragraphId: "p", text: source, annotations: [annotation, overlapping], showConcepts: true });
     expect(result.map((item) => item.text).join("")).toBe(source);
     expect(result.find((item) => item.startOffset === 3)?.annotations).toHaveLength(2);
-    expect(result.find((item) => item.concept)?.concept?.definitions).toHaveLength(2);
+    expect(result.find((item) => item.concept)?.concept?.definitions).toHaveLength(1);
+    expect(result.find((item) => item.concept)?.concept?.versions).toHaveLength(2);
     expect(result.flatMap((item) => item.endingAnnotations)).toHaveLength(2);
   });
   it("相同范围的不同消息生成独立 ID，去重只移除重复 ID", () => {
@@ -108,10 +109,10 @@ describe("\u53e5\u8bfb\u951a\u70b9\u8303\u56f4\u5185\u7684\u6982\u5ff5", () => {
     const result = segmentAnnotatedText({ paragraphId: "p", text: "\u81ea\u6211\u610f\u8bc6", annotations: [other], bookConcepts: dictionary, showConcepts: true });
     expect(result.some((item) => item.concept)).toBe(false);
   });
-  it("the current definition wins and the book dictionary only supplements it without duplicates", () => {
+  it("the current reading definition stays local and never imports book dictionary definitions", () => {
     const local = createAnnotation({ paragraphId: "p", startOffset: 3, endOffset: 7, threadId: "t", summary: "\u4e0d\u80fd\u501f\u7528\u53e5\u8bfb\u6458\u8981", concepts: [], conceptDetails: [{ name: "\u81ea\u6211\u610f\u8bc6", text: " \u672c\u6bb5\u5b9a\u4e49 " }], createdAt: "2026-09-30" }, fullText);
     const result = segmentAnnotatedText({ ...slice(3, 7), annotations: [local], bookConcepts: [{ name: " \u81ea\u6211\u610f\u8bc6 ", text: "\u672c\u6bb5\u5b9a\u4e49" }, ...dictionary, ...dictionary] });
-    expect(result[0].concept?.definitions).toEqual([{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u672c\u6bb5\u5b9a\u4e49" }, dictionary[0]]);
+    expect(result[0].concept?.definitions).toEqual([{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u672c\u6bb5\u5b9a\u4e49" }]);
   });
   it("concept matching stays literal and requires a concept declared by this annotation", () => {
     const text = "C++ \u4e0d\u7b49\u4e8e C\uff0ca.b \u4e0d\u7b49\u4e8e axb\u3002";

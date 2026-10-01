@@ -51,14 +51,14 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
   let frame:number|undefined,disposed=false;
   const paint=()=>{
    frame=undefined;const bounds=container.getBoundingClientRect();
-   const seenConcepts=new Set<string>();
+   const seenConcepts=new Map<Document,Set<string>>();
    const next:Located[]=targets.flatMap(({doc,target})=>{
     const source=Array.from(target.range.getClientRects()).filter(rect=>rect.width>0&&rect.height>0);
     const raw=target.kind==="history" ? source.slice(-1) : source;
     const rects=raw.map(rect=>epubRectToHost(doc,rect)).flatMap(rect=>{const clipped=clipReaderRect(rect,bounds);return clipped?[clipped]:[];});
     if(!rects.length)return [];
-    // WHY：只在可见页中保留同词首个交互，先过滤不可见项，翻页后重新计数。
-    if(target.kind==="concept"){if(seenConcepts.has(target.concept.name))return [];seenConcepts.add(target.concept.name);}
+    // WHY：同名词在不同原文位置拥有独立解释；只去重同一文档的同一位置目标。
+    if(target.kind==="concept"){const seen=seenConcepts.get(doc)??new Set<string>();if(seen.has(target.key))return [];seen.add(target.key);seenConcepts.set(doc,seen);}
     const last=rects[rects.length-1];
     // WHY：末端标识只在真实结束点所在页显示，不把跨页裁剪的假末尾当作句读结尾。
     if(target.kind==="history"&&source.length){const end=epubRectToHost(doc,source[source.length-1]);if(end.right>bounds.right+1||end.bottom>bounds.bottom+1||end.right<=bounds.left)return [];}

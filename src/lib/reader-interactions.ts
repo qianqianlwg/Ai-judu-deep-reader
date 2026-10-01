@@ -1,3 +1,4 @@
+import { conceptLocationKey } from "./concept-reading";
 import { analysisHistoryMarkerIds } from "./analysis-history-markers";
 import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type TextAnnotation } from "./annotations";
 import type {LibraryParagraph} from "./library";
@@ -13,7 +14,7 @@ export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],r
     const range=rangeFor(paragraph.id,segment.startOffset,segment.endOffset);
     if(range){
      if(previousConcept?.concept===segment.concept){previousConcept.range.setEnd(range.endContainer,range.endOffset);}
-     else {previousConcept={kind:"concept",paragraphId:paragraph.id,key:paragraph.id+":concept:"+segment.startOffset,range,concept:segment.concept};result.push(previousConcept);}
+     else {previousConcept={kind:"concept",paragraphId:paragraph.id,key:segment.concept.location?conceptLocationKey(segment.concept.name,segment.concept.location):paragraph.id+":concept:"+segment.startOffset,range,concept:segment.concept};result.push(previousConcept);}
     } else previousConcept=undefined;
    } else previousConcept=undefined;
    const history=segment.endingAnnotations.filter(annotation=>(!annotation.kind||annotation.kind==="analysis")&&historyMarkerIds.has(annotation.id));

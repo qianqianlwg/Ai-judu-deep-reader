@@ -1,0 +1,11 @@
+﻿.content { overflow-wrap: anywhere; }
+.current { display: grid; gap: 6px; }
+.meta { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; color: var(--reading-muted, #708580); font-size: 11px; line-height: 1.6; }
+.meta time { font-variant-numeric: tabular-nums; }
+.history { margin-top: 12px; padding-top: 10px; border-top: 1px solid #95aaa64a; white-space: normal; }
+.history summary { width: fit-content; color: var(--reading-muted, #708580); cursor: pointer; font-size: 12px; }
+.history summary:hover { color: inherit; }
+.history summary:focus-visible { outline: 2px solid #4f8b88; outline-offset: 4px; border-radius: 2px; }
+.history ol { list-style: none; margin: 10px 0 0; padding: 0; }
+.history li { display: grid; gap: 6px; white-space: pre-wrap; }
+.history li + li { margin-top: 12px; padding-top: 10px; border-top: 1px solid #95aaa630; }

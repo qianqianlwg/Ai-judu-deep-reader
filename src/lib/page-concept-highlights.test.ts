@@ -16,9 +16,9 @@ function slice(paragraphId: string, text: string, sourceText = text, sourceStart
 }
 
 describe("\u53e5\u8bfb\u6982\u5ff5\u6309\u672c\u6bb5\u8303\u56f4\u9ad8\u4eae", () => {
-  it("same concept remains available in each paragraph; repeats within one paragraph are deduplicated", () => {
+  it("same-name terms remain available at each original location, including within one paragraph", () => {
     const page = pageConceptHighlights([slice("p1", "\u7406\u6027\u7406\u6027\u7ecf\u9a8c"), slice("p2", "\u7ecf\u9a8c\u7406\u6027")]);
-    expect([...page.get("p1")!]).toEqual([0, 4]);
+    expect([...page.get("p1")!]).toEqual([0, 2, 4]);
     expect([...page.get("p2")!]).toEqual([0, 2]);
   });
   it("pagination keeps original paragraph offsets", () => {
@@ -39,4 +39,16 @@ describe("\u53e5\u8bfb\u6982\u5ff5\u6309\u672c\u6bb5\u8303\u56f4\u9ad8\u4eae", (
   it("disabled concepts produce no highlight entries", () => {
     expect([...pageConceptHighlights([{ ...slice("p", "\u7406\u6027"), showConcepts: false }]).get("p")!]).toEqual([]);
   });
+});
+
+it("同段不同句读块的同名词均可标亮，重读只保留同词位一个入口", () => {
+  const text = "理性。理性", base = slice("p", text);
+  const first = { ...base.annotations[0], id: "a", messageId: "unit-a", endOffset: 2 };
+  const second = { ...first, id: "b", messageId: "unit-b", startOffset: 3, endOffset: 5 };
+  const reread = { ...first, id: "c", messageId: "unit-c", createdAt: "2026-10-02" };
+  expect([...pageConceptHighlights([{ ...base, annotations: [first, second, reread] }]).get("p")!]).toEqual([0, 3]);
+});
+it("概念被其他标注边界切开时每个片段均保留入口，不丢跨页后半词", () => {
+  const base = slice("p", "理性"), edge = { ...base.annotations[0], id: "edge", startOffset: 1, endOffset: 2, concepts: [], conceptDetails: [] };
+  expect([...pageConceptHighlights([{ ...base, annotations: [...base.annotations, edge] }]).get("p")!]).toEqual([0, 1]);
 });

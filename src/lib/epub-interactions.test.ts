@@ -52,12 +52,12 @@ describe("EPUB 非侵入交互投影", () => {
     expect(JSON.stringify(target.concept)).not.toContain(annotation().summary);
   });
 
-  it("本段定义优先并合并不同全书定义，不重复同文定义", () => {
+  it("仅展示本句定义，不混入其他位置的全书定义", () => {
     const { maps } = fixture();
     const target = buildEpubInteractions(maps, [annotation({ conceptDetails: [{ name: "财政体制", text: "本段定义" }] })], [
       { name: "财政体制", text: "本段定义" }, { name: "财政体制", text: "全书定义" },
     ]).find(item => item.kind === "concept");
-    expect(target?.kind === "concept" && target.concept.definitions.map(item => item.text)).toEqual(["本段定义", "全书定义"]);
+    expect(target?.kind === "concept" && target.concept.definitions.map(item => item.text)).toEqual(["本段定义"]);
   });
 
   it("标注边界将同一概念分段时仍只有一个完整概念目标", () => {

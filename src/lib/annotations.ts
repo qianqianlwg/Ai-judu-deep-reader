@@ -1,3 +1,4 @@
+import { contextualConcept, conceptReadingVersion, type ContextualConcept } from "./concept-reading";
 import { hashText } from "./hash";
 import type { ReadingAnchorPart } from "./reading-anchors";
 
@@ -205,7 +206,7 @@ export function annotationConceptDetails(annotation: Pick<TextAnnotation, "conce
   }));
 }
 
-export type AnnotationConcept = { name: string; definitions: ConceptDetail[] };
+export type AnnotationConcept = ContextualConcept;
 export type AnnotationSegment = {
   text: string;
   startOffset: number;
@@ -277,13 +278,7 @@ function matchParagraphConcepts(input: AnnotationSlice, source: string, sourceOf
     for (const detail of annotationConceptDetails(annotation)) {
       const name = detail.name.trim();
       if (!name) continue;
-      const definitions = [detail, ...(input.bookConcepts ?? []).filter((item) => item.name.trim() === name)];
-      // WHY：当前句读的逐词定义优先，全书字典只补充已由本段句读声明的概念；空定义不能遮蔽可用释义。
-      const nonEmptyDefinitions = definitions.filter((item) => item.text.trim());
-      const usableDefinitions = nonEmptyDefinitions.length ? nonEmptyDefinitions : definitions;
-      const uniqueDefinitions = usableDefinitions
-        .filter((item, index) => usableDefinitions.findIndex((other) => other.text.trim() === item.text.trim()) === index)
-        .map((item) => ({ name, text: item.text.trim() }));
+      const version = conceptReadingVersion(annotation, detail);
       let offset = source.indexOf(name, scopeStart - sourceOffset);
       while (offset !== -1 && sourceOffset + offset + name.length <= scopeEnd) {
         const start = sourceOffset + offset;
@@ -291,10 +286,9 @@ function matchParagraphConcepts(input: AnnotationSlice, source: string, sourceOf
         const key = JSON.stringify([start, end, name]);
         const existing = exactMatches.get(key);
         if (existing) {
-          const merged = [...existing.concept.definitions, ...uniqueDefinitions];
-          existing.concept.definitions = merged.filter((item, index) => merged.findIndex((other) => other.text.trim() === item.text.trim()) === index);
+          existing.concept = contextualConcept(name, { paragraphId: input.paragraphId, startOffset: start, endOffset: end }, [...(existing.concept.versions ?? []), version]);
         } else {
-          const match = { start, end, concept: { name, definitions: uniqueDefinitions } };
+          const match = { start, end, concept: contextualConcept(name, { paragraphId: input.paragraphId, startOffset: start, endOffset: end }, [version]) };
           exactMatches.set(key, match);
           candidates.push(match);
         }

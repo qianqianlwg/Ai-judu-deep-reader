@@ -34,7 +34,7 @@ describe("共享概念交互来源与非侵入性", () => {
   it("同文跨段落不猜首个来源，生成独立key", () => {
     const f = fixture(["财政体制", "财政体制"]), before = f.root.innerHTML;
     const result = conceptsOf(f.build([], [{ name: "财政体制", text: "定义" }]));
-    expect(result.map(item => item.key)).toEqual(["p0:concept:0", "p1:concept:0"]);
+    expect(result.map(item => item.key)).toEqual([JSON.stringify(["p0", 0, 4, "财政体制"]), JSON.stringify(["p1", 0, 4, "财政体制"])]);
     expect(result.map(item => item.range.startContainer)).toEqual(f.elements.map(el => el.firstChild));
     expect(f.root.innerHTML).toBe(before);
   });
@@ -56,11 +56,11 @@ describe("共享概念交互来源与非侵入性", () => {
     expect(result.map(item => item.range.toString())).toEqual(["😀 财政", "财政体制"]);
     expect(result[0].range.startOffset).toBe(2); expect(result[0].range.endOffset).toBe(7);
   });
-  it("局部定义优先，同文定义去重，缺定义不借用句读摘要", () => {
+  it("仅使用当前句读块的定义，不借用全书定义或句读摘要", () => {
     const f = fixture(["财政体制"]), result = conceptsOf(f.build([annotation({ concepts: ["财政体制"], conceptDetails: [{ name: "财政体制", text: "本段定义" }] })], [
       { name: "财政体制", text: "本段定义" }, { name: "财政体制", text: "全书定义" },
     ]));
-    expect(result[0].concept.definitions.map(d => d.text)).toEqual(["本段定义", "全书定义"]);
+    expect(result[0].concept.definitions.map(d => d.text)).toEqual(["本段定义"]);
     const empty = conceptsOf(f.build([annotation({ concepts: ["财政体制"] })], [{ name: "财政体制", text: "" }]));
     expect(empty[0].concept.definitions).toEqual([{ name: "财政体制", text: "" }]); expect(JSON.stringify(empty)).not.toContain(annotation().summary);
   });
@@ -159,4 +159,24 @@ it("多段同一次句读只在完整选文末尾生成历史入口，下横线�
  const items=f.paragraphs.map((p,i)=>annotation({id:"part-"+i,paragraphId:p.id,startOffset:0,endOffset:p.text.length}));
  const before=JSON.stringify(items),result=historiesOf(f.build(items));
  expect(result).toHaveLength(1);expect(result[0].key).toContain("p2:history:");expect(JSON.stringify(items)).toBe(before);
+});
+
+it("原版交互同段同词不同句读使用各自定义、unitId和物理词位", () => {
+  const f = fixture(["财政体制与财政体制"]);
+  const a = annotation({ endOffset: 4, concepts: ["财政体制"], conceptDetails: [{ name: "财政体制", text: "前句解释" }] });
+  const b = annotation({ id: "b", messageId: "unit-b", startOffset: 5, endOffset: 9, concepts: ["财政体制"], conceptDetails: [{ name: "财政体制", text: "后句解释" }] });
+  const result = conceptsOf(f.build([a, b], [{ name: "财政体制", text: "不应混入的全书解释" }]));
+  expect(result.map(item => item.concept.definitions[0].text)).toEqual(["前句解释", "后句解释"]);
+  expect(result.map(item => item.concept.versions?.[0].unitId)).toEqual(["message-1", "unit-b"]);
+  expect(result.map(item => [item.range.startOffset, item.range.endOffset])).toEqual([[0, 4], [5, 9]]);
+  expect(new Set(result.map(item => item.key)).size).toBe(2);
+});
+it("原版同处重读目标保持稳定身份且只默认展示最新定义，历史完整保留", () => {
+  const f = fixture(["财政体制"]), concepts = [{ name: "财政体制", text: "旧定义" }];
+  const old = annotation({ concepts: ["财政体制"], conceptDetails: concepts });
+  const fresh = annotation({ id: "new", messageId: "new-unit", createdAt: "2026-10-02", concepts: ["财政体制"], conceptDetails: [{ name: "财政体制", text: "新定义" }] });
+  const before = conceptsOf(f.build([old], concepts))[0], after = conceptsOf(f.build([fresh, old], concepts))[0];
+  expect(after.key).toBe(before.key);
+  expect(after.concept.definitions).toEqual([{ name: "财政体制", text: "新定义" }]);
+  expect(after.concept.versions?.map(item => item.unitId)).toEqual(["new-unit", "message-1"]);
 });

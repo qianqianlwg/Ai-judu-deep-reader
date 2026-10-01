@@ -11,7 +11,7 @@ import { PdfInteractionLayer } from "./pdf-interaction-layer";
 type Props = ComponentProps<typeof PdfInteractionLayer>;
 const firstText = "理解财政体制，才能理解地方发展。", secondText = "第二页展示财政体制以及地方工作。";
 const box = (x: number, y: number, w: number, h: number) => new DOMRect(x, y, w, h);
-const analysis = (extra: Partial<TextAnnotation> = {}): TextAnnotation => ({ id: "a1", paragraphId: "p1", startOffset: 0, endOffset: 6, textHash: "h", threadId: "t1", messageId: "m1", kind: "analysis", summary: "第一次句读完整概述", concepts: ["财政体制"], createdAt: "2026-09-18T01:00:00Z", ...extra });
+const analysis = (extra: Partial<TextAnnotation> = {}): TextAnnotation => ({ id: "a1", paragraphId: "p1", startOffset: 0, endOffset: 6, textHash: "h", threadId: "t1", messageId: "m1", kind: "analysis", summary: "第一次句读完整概述", concepts: ["财政体制"], conceptDetails: [{ name: "财政体制", text: "中央与地方之间财政关系的制度安排" }], createdAt: "2026-09-18T01:00:00Z", ...extra });
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (cause: Error) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 let props: Props, host: HTMLDivElement, mount: HTMLDivElement, layers: HTMLDivElement[], texts: HTMLSpanElement[], external: HTMLTextAreaElement, root: Root, mounted: boolean;
 let frames: Map<number, FrameRequestCallback>, frameId: number;
@@ -69,7 +69,7 @@ describe("PDF真实适配到共享浮层", () => {
   it("文字层概念hover显示逐词定义，使用真实共用portal而非Foliate假对象", async () => {
     await render(); await mouse(texts[0], "mousemove"); expect(dialog()?.classList.contains("judu-annotation-popover")).toBe(true);
     expect(dialog()?.textContent).toContain("中央与地方之间财政关系"); expect(dialog()?.parentElement).toBe(document.body);
-    expect(host.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(2);
     expect(pdf.getDestination).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
   });
   it("全程不向PDF正文插入节点或改写已存在Range", async () => {
@@ -94,14 +94,14 @@ describe("PDF真实适配到共享浮层", () => {
     expect(dialog()?.textContent).not.toContain("查看完整句读"); expect(props.onOpenAnnotation).not.toHaveBeenCalled();
   });
   it("缺定义时不使用句读摘要冒充", async () => {
-    await render({ concepts: [{ name: "财政体制", text: "" }], annotations: [analysis()] }); await mouse(texts[0], "mousemove");
+    await render({ concepts: [{ name: "财政体制", text: "其他位置定义" }], annotations: [analysis({ conceptDetails: [] })] }); await mouse(texts[0], "mousemove");
     expect(dialog()?.textContent).toContain("暂无定义"); expect(dialog()?.textContent).not.toContain("第一次句读完整概述");
   });
   it("同host Document的浮窗不因resize要求iframe而消失", async () => {
     await render(); await mouse(texts[0], "mousemove"); await act(async () => window.dispatchEvent(new Event("resize"))); await flushFrames(); expect(dialog()).not.toBeNull();
   });
   it("流式定义更新保留浮窗并显示新定义", async () => {
-    await render(); await mouse(texts[0], "mousemove"); await render({ concepts: [{ name: "财政体制", text: "更新后的真实定义" }] });
+    await render(); await mouse(texts[0], "mousemove"); await render({ annotations: props.annotations.map(item => ({ ...item, conceptDetails: [{ name: "财政体制", text: "更新后的真实定义" }] })) });
     expect(dialog()?.textContent).toContain("更新后的真实定义");
   });
   it("历史更新仍指向新的messageId而不是过时闭包", async () => {

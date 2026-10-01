@@ -206,26 +206,26 @@ describe("AnnotatedParagraph \u672c\u6bb5\u53e5\u8bfb\u6982\u5ff5", () => {
     expect(element("p").textContent).toBe(text);
   });
 
-  it("local definition wins and the book dictionary only supplements it without duplicates", () => {
+  it("only this reading definition is shown; the book dictionary never supplies it", () => {
     render({ bookConcepts: [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u610f\u8bc6\u4ee5\u81ea\u8eab\u4f5c\u4e3a\u5bf9\u8c61" }, ...bookConcepts, ...bookConcepts] });
     click(element(".judu-concept-term"));
-    expect(Array.from(document.querySelectorAll(".judu-concept-definition > div")).map((item) => item.textContent)).toEqual(["\u610f\u8bc6\u4ee5\u81ea\u8eab\u4f5c\u4e3a\u5bf9\u8c61", "\u672c\u4e66\u4fdd\u5b58\u7684\u9010\u8bcd\u5b9a\u4e49"]);
+    expect(Array.from(document.querySelectorAll(".judu-concept-definition [data-concept-text]")).map((item) => item.textContent)).toEqual(["\u610f\u8bc6\u4ee5\u81ea\u8eab\u4f5c\u4e3a\u5bf9\u8c61"]);
     render({ annotations: [{ ...annotation, conceptDetails: undefined }], bookConcepts });
-    expect(element(".judu-concept-definition").textContent).toBe("\u672c\u4e66\u4fdd\u5b58\u7684\u9010\u8bcd\u5b9a\u4e49");
+    expect(element(".judu-concept-definition [data-concept-text]").textContent).toBe("暂无定义");
     expect(element(".judu-concept-definition").textContent).not.toContain(annotation.summary);
   });
 
   it("a scoped concept with no available definition shows the empty-state text", () => {
     render({ annotations: [{ ...annotation, concepts: ["\u81ea\u6211\u610f\u8bc6"], conceptDetails: undefined }], bookConcepts: [{ name: "\u81ea\u6211\u610f\u8bc6", text: "" }] });
     click(element(".judu-concept-term"));
-    expect(element(".judu-concept-definition").textContent).toBe("\u6682\u65e0\u5b9a\u4e49");
+    expect(element(".judu-concept-definition [data-concept-text]").textContent).toBe("暂无定义");
   });
 
   it("definition updates live and the popup closes when its local annotation is removed", () => {
     const current = { ...annotation, conceptDetails: undefined };
     render({ annotations: [current], bookConcepts }); click(element(".judu-concept-term"));
-    render({ annotations: [current], bookConcepts: [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u5237\u65b0\u540e\u7684\u8bcd\u4e49" }] });
-    expect(element(".judu-concept-definition").textContent).toBe("\u5237\u65b0\u540e\u7684\u8bcd\u4e49");
+    render({ annotations: [{ ...current, conceptDetails: [{ name: "自我意识", text: "刷新后的词义" }] }], bookConcepts });
+    expect(element(".judu-concept-definition [data-concept-text]").textContent).toBe("刷新后的词义");
     render({ annotations: [], bookConcepts: [] });
     expect(document.querySelector(".judu-concept-term, [role=\"dialog\"]")).toBeNull();
   });
@@ -278,4 +278,27 @@ it("同次多段句读只在终点显示历史入口，前段保留下横线",()
  const last=renderToStaticMarkup(<AnnotatedParagraph paragraphId="p2" text="第二段" annotations={items} historyMarkerIds={ids} showConcepts={false} onOpenAnnotation={()=>{}}/>);
  expect(first).not.toContain('class="judu-history-marker"');expect(first).toContain("judu-annotation-text");
  expect(last).toContain('class="judu-history-marker"');expect(last).toContain("第二段");
+});
+
+it("精读同段同名词按句读块独立展示，当前词位重读后实时更新并折叠旧版", () => {
+  const text = "自我意识成立。自我意识发展。", name = "自我意识";
+  const a = { ...annotation, id: "a", messageId: "unit-a", startOffset: 0, endOffset: 7, conceptDetails: [{ name, text: "前句解释" }] };
+  const b = { ...a, id: "b", messageId: "unit-b", startOffset: 7, endOffset: text.length, conceptDetails: [{ name, text: "后句解释" }] };
+  render({ text, sourceText: text, annotations: [a, b], highlightedConceptStarts: new Set([0, 7]), bookConcepts: [{ name, text: "全书定义" }] });
+  expect(document.querySelectorAll(".judu-concept-term")).toHaveLength(2);
+  click(document.querySelectorAll<HTMLElement>(".judu-concept-term")[0]);
+  expect(element(".judu-concept-definition").textContent).toContain("前句解释");
+  expect(element(".judu-concept-definition").textContent).not.toContain("后句解释");
+  click(document.querySelectorAll<HTMLElement>(".judu-concept-term")[1]);
+  expect(element(".judu-concept-definition").textContent).toContain("后句解释");
+  expect(element(".judu-concept-definition").textContent).not.toContain("前句解释");
+  click(document.querySelectorAll<HTMLElement>(".judu-concept-term")[0]);
+  const fresh = { ...a, id: "fresh", messageId: "unit-fresh", createdAt: "2026-10-02", conceptDetails: [{ name, text: "重新句读前句" }] };
+  render({ text, sourceText: text, annotations: [a, b, fresh], highlightedConceptStarts: new Set([0, 7]) });
+  expect(element('[data-concept-unit-id="unit-fresh"]').textContent).toContain("重新句读前句");
+  expect(element(".judu-concept-definition").textContent).not.toContain("后句解释");
+  const history = element(".judu-concept-definition details") as HTMLDetailsElement;
+  expect(history.open).toBe(false);
+  expect(history.textContent).toContain("前句解释");
+  expect(element("p").textContent).toBe(text);
 });

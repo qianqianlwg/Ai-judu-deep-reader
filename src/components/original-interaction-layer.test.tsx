@@ -98,7 +98,7 @@ describe("共享原版浮层：真实内容和host Document", () => {
     await act(async () => vi.advanceTimersByTime(200)); expect(dialog()).not.toBeNull();
   });
   it("同Document可复制浮窗定义文本而不把它当正文选文关闭", async () => {
-    await render(); await mouse(paragraph, "mousemove"); const node = dialog()!.querySelector(".judu-concept-definition div")!.firstChild!;
+    await render(); await mouse(paragraph, "mousemove"); const node = dialog()!.querySelector(".judu-concept-definition [data-concept-text]")!.firstChild!;
     await select(node); expect(dialog()).not.toBeNull(); expect(document.getSelection()!.toString()).toBe("中央");
   });
   it("真实点击历史入口包含pointerdown后仍能打开正确完整句读", async () => {
@@ -350,13 +350,13 @@ describe("引用预览默认长度与展开", () => {
  });
 });
 
-it("同页同词只保留首个弹窗入口，翻页后可在新页首处查看", async () => {
+it("同页不同词位的同名词独立打开解释，翻页只移除不可见入口", async () => {
  const first=concept("财政体制","首处",sourceRange(2,6,box(40,40,80,20)));
  const second={...concept("财政体制","重复处",sourceRange(2,6,box(180,40,80,20))),key:"second"};
  await render({documents:[{...props.documents[0],targets:[first,second]}]});
- expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
- await mouse(paragraph,"mousemove",190,50);expect(dialog()).toBeNull();
- await mouse(paragraph,"click",190,50);expect(dialog()).toBeNull();
+ expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(2);
+ await mouse(paragraph,"mousemove",190,50);expect(dialog()?.textContent).toContain("重复处");
+ expect(dialog()?.textContent).not.toContain("首处");
  await mouse(paragraph,"mousemove",55,50);expect(dialog()?.textContent).toContain("首处");
  geometries.set(first.range,[box(-200,40,80,20)]);
  await act(async()=>window.dispatchEvent(new Event("resize")));await flushFrames();

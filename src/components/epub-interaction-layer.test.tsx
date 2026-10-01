@@ -37,11 +37,11 @@ const button = (label: string) => Array.from(document.querySelectorAll<HTMLButto
 async function render(next: Partial<Props> = {}) {
   props = { ...props, ...next };
   if (!("annotations" in next) && props.annotations.length === 0) {
-    // WHY：测试中的全书字典只能补充释义；概念名称必须由预设的本地句读记录声明，且不让概念样例伪造历史图标。
+    // WHY：测试显式声明本地句读的逐词定义；全书字典不再补齐定义，且概念样例不伪造历史图标。
     const localNames = ["\u8d22\u653f\u4f53\u5236", "\u5730\u65b9"];
     props.annotations = props.documents.flatMap(({ maps }) => maps.flatMap(({ paragraph }) => {
       const concepts = localNames.filter((name) => paragraph.text.includes(name));
-      return concepts.length ? [{ id: "local-" + paragraph.id, paragraphId: paragraph.id, startOffset: 0, endOffset: paragraph.text.length, textHash: "h", threadId: "local-test", kind: "analysis" as const, summary: "", concepts, createdAt: "now" }] : [];
+      return concepts.length ? [{ id: "local-" + paragraph.id, paragraphId: paragraph.id, startOffset: 0, endOffset: paragraph.text.length, textHash: "h", threadId: "local-test", kind: "analysis" as const, summary: "", concepts, conceptDetails: [{ name: "财政体制", text: "中央与地方之间财政关系的制度安排" }, { name: "地方", text: "地方层级" }].filter(item => concepts.includes(item.name)), createdAt: "now" }] : [];
     }));
     props.historyMarkerIds ??= new Set();
   }
@@ -279,7 +279,7 @@ describe("补充：键盘回路、版本异步与实时内容", () => {
   });
   it("流式补充或修改概念定义刷新已打开内容，不改变书内 DOM", async () => {
     const before = doc.body.innerHTML; await render(); await hover();
-    await render({ concepts: [{ name: "财政体制", text: "补充后的真实定义" }] });
+    await render({ annotations: props.annotations.map(item => ({ ...item, conceptDetails: [{ name: "财政体制", text: "补充后的真实定义" }] })) });
     expect(dialog()?.textContent).toContain("补充后的真实定义"); expect(dialog()?.textContent).not.toContain("中央与地方"); expect(doc.body.innerHTML).toBe(before);
   });
   it("删除当前概念/关闭概念显示后，旧浮窗和原文触发器一并清理", async () => {
