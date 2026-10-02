@@ -14,7 +14,7 @@
   line-height: inherit;
   letter-spacing: inherit;
   font-weight: inherit;
-  cursor: help;
+  cursor: pointer;
   text-underline-offset: .2em;
 }
 .judu-history-anchor {

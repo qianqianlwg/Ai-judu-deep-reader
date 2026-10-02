@@ -6,6 +6,7 @@ import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type 
 import { AnnotationPopover } from "./annotation-popover";
 import { ConceptPopoverContent, HistoryPopoverContent } from "./reading-popover-content";
 import "./annotation-popover.css";
+import { sentenceRectsForElement } from "@/lib/reader-sentence-geometry";
 
 type Props = {
   paragraphId: string;
@@ -32,6 +33,7 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
   const segments = segmentAnnotatedText({ paragraphId, text, sourceStartOffset, sourceEndOffset, sourceText, bookConcepts, annotations, showConcepts });
   const markerIds = historyMarkerIds ?? analysisHistoryMarkerIds(annotations, [paragraphId]);
   const historyAt = (items: readonly TextAnnotation[]) => items.filter(item => markerIds.has(item.id));
+  const [placementNotice,setPlacementNotice] = useState("");
   const [active, setActive] = useState<ActivePopover | null>(null);
   const ignoreFocus = useRef<HTMLElement | null>(null);
   const id = useId();
@@ -47,6 +49,7 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
 
   function open(next: ActivePopover, isFocus = false) {
     if (isFocus && ignoreFocus.current === next.anchor) { ignoreFocus.current = null; return; }
+    setPlacementNotice("");
     setActive((previous) => previous?.key === next.key && previous.anchor === next.anchor ? { ...next, pinned: previous.pinned || next.pinned } : next);
   }
   function close(restoreFocus: boolean) {
@@ -75,8 +78,6 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
           {concept ? <span className="judu-concept-term" role="button" tabIndex={0} data-concept-word={concept.name}
             aria-label={"查看概念：" + concept.name} aria-haspopup="dialog" aria-expanded={visible?.key === termKey}
             aria-controls={visible?.key === termKey ? id : undefined}
-            onMouseEnter={(event) => { if(event.buttons===0) termOpen(event.currentTarget, false); }}
-            onFocus={(event) => termOpen(event.currentTarget, false, true)}
             onClick={(event) => { event.stopPropagation(); termOpen(event.currentTarget, true); }}
             onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); termOpen(event.currentTarget, true); } }}>
             {segment.text}
@@ -94,7 +95,8 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
         </span>}
       </Fragment>;
     })}
-    {visible && <AnnotationPopover key={visible.key} id={id} anchor={visible.anchor} title={visible.kind === "concept" ? visible.concept.name : "句读历史"} pinned={visible.pinned} onClose={close}>
+    {placementNotice&&<span data-reader-decoration="" role="status">{placementNotice}</span>}
+    {visible && <AnnotationPopover key={visible.key} id={id} anchor={visible.anchor} avoidRects={visible.kind==='concept'?()=>sentenceRectsForElement(visible.anchor):undefined} onPlacementUnavailable={setPlacementNotice} title={visible.kind === "concept" ? visible.concept.name : "句读历史"} pinned={visible.pinned} onClose={close}>
       {visible.kind === "concept" ? <ConceptPopoverContent concept={visible.concept}/> : <HistoryPopoverContent annotations={visible.annotations} onOpen={annotation=>{onOpenAnnotation(annotation);close(false);}}/>}
     </AnnotationPopover>}
   </p>;

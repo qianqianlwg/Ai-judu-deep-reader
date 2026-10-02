@@ -135,3 +135,15 @@ describe("AnnotationPopover DOM 交互与重定位", () => {
     expect(close).toHaveBeenCalledWith(false); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 });
+
+it('真实卡片多行句子避让，内容过长时缩短滚动高度而不压回句子', async () => {
+  const avoid=[rect(240,180,520,28),rect(240,212,520,28),rect(240,244,300,28)];
+  act(()=>root.render(<AnnotationPopover id="protected" title="概念" anchor={anchor} pinned avoidRects={()=>avoid} onClose={close}><p>定义内容</p></AnnotationPopover>));
+  const first=card().getBoundingClientRect();
+  expect(avoid.some(line=>first.left<line.right&&line.left<first.right&&first.top<line.bottom&&line.top<first.bottom)).toBe(false);
+  popupHeight=2000;
+  act(()=>observerCallback?.([],{} as ResizeObserver)); await flush();
+  const resized=card().getBoundingClientRect();
+  expect(resized.height).toBeLessThan(2000);
+  expect(avoid.some(line=>resized.left<line.right&&line.left<resized.right&&resized.top<line.bottom&&line.top<resized.bottom)).toBe(false);
+});

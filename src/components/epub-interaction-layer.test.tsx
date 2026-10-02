@@ -6,6 +6,7 @@ import { EpubInteractionLayer } from "./epub-interaction-layer";
 import { EpubReader, type EpubReaderProps } from "./epub-reader";
 import { DEFAULT_READING_APPEARANCE } from "@/lib/reading-appearance";
 import { View } from "../../public/vendor/foliate/view.js";
+import { paintEpubAnnotations } from "@/lib/epub-annotations";
 import { mapEpubDocument } from "@/lib/epub-source-map";
 import type { TextAnnotation } from "@/lib/annotations";
 import type { FoliateBook, FoliateSection, FoliateView } from "@/lib/foliate-types";
@@ -61,6 +62,7 @@ function link(id: string, href: string) {
   const element = doc.createElement("a"); element.id = id; element.href = href; element.textContent = id; element.setAttribute("epub:type", "noteref");
   doc.body.append(element); Object.defineProperty(element, "getBoundingClientRect", { value: () => box(id === "ref2" ? 260 : 160, 90, 30, 20) }); return element;
 }
+async function activate(x = 50, y = 50, target: EventTarget = doc.querySelector("p")!) { await event(target, "click", { clientX: x, clientY: y }); }
 async function hoverLink(element: HTMLElement) { const rect = element.getBoundingClientRect(); await hover(rect.left + 1, rect.top + 1, element); }
 function selectBookText() { const range = doc.createRange(); range.selectNodeContents(doc.querySelector("p")!); const selection = doc.defaultView!.getSelection()!; selection.removeAllRanges(); selection.addRange(range); return range; }
 
@@ -94,7 +96,7 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); fo
 describe("原版概念/历史共用浮窗", () => {
   it("原书悬停使用共用 AnnotationPopover 的 portal 和内容，不修改 DOM 或 CFI", async () => {
     const before = doc.documentElement.outerHTML, paragraph = doc.querySelector("p")!, node = paragraph.firstChild;
-    await render(); await hover();
+    await render(); await activate();
     expect(dialog()?.classList.contains("judu-annotation-popover")).toBe(true);
     expect(dialog()?.parentElement).toBe(document.body);
     expect(dialog()?.textContent).toContain("中央与地方之间财政关系的制度安排");
@@ -103,30 +105,30 @@ describe("原版概念/历史共用浮窗", () => {
     expect(view.getCFI).not.toHaveBeenCalled();
   });
   it("缺少逐词定义显示暂无定义而非句读摘要", async () => {
-    await render({ annotations: [annotation()], concepts: [{ name: "财政体制", text: "" }] }); await hover();
+    await render({ annotations: [annotation()], concepts: [{ name: "财政体制", text: "" }] }); await activate();
     expect(dialog()?.textContent).toContain("暂无定义"); expect(dialog()?.textContent).not.toContain(annotation().summary);
   });
   it("点击原文固定概念，其他概念悬停不能替换，点外部可以关闭", async () => {
-    await render(); await hover(); await event(doc.querySelector("p")!, "click", { clientX: 50, clientY: 50 });
+    await render(); await activate(); await event(doc.querySelector("p")!, "click", { clientX: 50, clientY: 50 });
     await hover(230, 50); expect(dialog()?.textContent).toContain("中央与地方");
     await event(doc.body, "pointerdown", { clientX: 500, clientY: 300 }); expect(dialog()).toBeNull();
   });
   it("未固定的浮窗离开源位置后关闭，可在关闭前进入卡片", async () => {
-    await render(); await hover(); await hover(600, 400);
+    await render({annotations:[annotation({kind:"note",concepts:[],summary:"手动标记"})],concepts:[]}); await hover(20,50); await hover(600,400);
     await event(dialog()!, "mouseover"); await act(async () => { vi.advanceTimersByTime(200); }); expect(dialog()).not.toBeNull();
     await event(dialog()!, "mouseout", { relatedTarget: document.body }); await act(async () => { vi.advanceTimersByTime(200); }); expect(dialog()).toBeNull();
   });
   it("键盘聚焦概念触发器可以查看定义", async () => {
-    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus());
+    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger,"Enter");
     expect(dialog()?.textContent).toContain("中央与地方"); expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
   it("键盘从实际概念触发器 ArrowDown 进入浮窗，Escape 回到实际触发器", async () => {
-    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger, "ArrowDown");
+    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger,"Enter"); await key(trigger, "ArrowDown");
     expect(document.activeElement).toBe(button("关闭浮层"));
     await key(document.activeElement!, "Escape"); expect(dialog()).toBeNull(); expect(document.activeElement).toBe(trigger);
   });
   it("关闭按钮将焦点恢复至概念触发器，不能丢到隐藏代理节点", async () => {
-    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus());
+    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger,"Enter");
     await act(async () => button("关闭浮层").focus()); await click(button("关闭浮层"));
     expect(dialog()).toBeNull(); expect(document.activeElement).toBe(trigger);
   });
@@ -140,7 +142,7 @@ describe("原版概念/历史共用浮窗", () => {
   });
   it.each(["note", "favorite"] as const)("手动 %s 只打开手动标注，不展示 AI 历史或打开会话", async kind => {
     await render({ annotations: [annotation({ kind, concepts: [], summary: "手工保存的文字" })], concepts: [] });
-    await hover(20, 50); expect(dialog()?.textContent).toContain("手工保存的文字");
+    await activate(20, 50); expect(dialog()?.textContent).toContain("手工保存的文字");
     expect(mount.querySelector(".epub-history-marker")).toBeNull(); expect(button("查看完整句读")).toBeUndefined();
     await event(doc.querySelector("p")!, "click", { clientX: 20, clientY: 50 }); expect(props.onOpenAnnotation).not.toHaveBeenCalled();
   });
@@ -159,7 +161,7 @@ describe("原版概念/历史共用浮窗", () => {
   });
   it("跨行概念任一可见文本矩形都能悬停，行间留白不算命中", async () => {
     rangeRects = range => range.toString() === "财政体制" ? [box(40, 40, 40, 20), box(0, 80, 40, 20)] : [];
-    await render(); await hover(10, 90); expect(dialog()?.textContent).toContain("中央与地方");
+    await render(); await activate(10, 90); expect(dialog()?.textContent).toContain("中央与地方");
     await event(doc.body, "pointerdown", { clientX: 100, clientY: 70 }); expect(dialog()).toBeNull();
     await hover(10, 70); expect(dialog()).toBeNull();
   });
@@ -228,7 +230,7 @@ describe("引用预览与异步生命周期", () => {
   });
   it("旧跳转完成不能关闭之后新打开的概念浮窗", async () => {
     const pending = deferred<void>(); const reference = link("ref", "#note"); await render({ onJump: vi.fn(() => pending.promise) }); await hoverLink(reference);
-    await click(button("跳转到原文")); await event(doc.body, "pointerdown", { clientX: 500, clientY: 300 }); await hover();
+    await click(button("跳转到原文")); await event(doc.body, "pointerdown", { clientX: 500, clientY: 300 }); await activate();
     expect(dialog()?.textContent).toContain("中央与地方"); await act(async () => pending.resolve()); expect(dialog()?.textContent).toContain("中央与地方");
   });
   it("卸载后移除旧文档监听，不再创建预览请求", async () => {
@@ -246,7 +248,7 @@ describe("浮窗不干扰原生选文", () => {
     doc.defaultView!.getSelection()?.removeAllRanges(); await event(doc.querySelector("p")!, "mousemove", { clientX: 50, clientY: 50, buttons: 1 }); expect(dialog()).toBeNull();
   });
   it("新选区关闭已打开浮窗，但不清除用户选文", async () => {
-    await render(); await hover(); const range = selectBookText(); await act(async () => doc.dispatchEvent(new Event("selectionchange")));
+    await render(); await activate(); const range = selectBookText(); await act(async () => doc.dispatchEvent(new Event("selectionchange")));
     expect(dialog()).toBeNull(); expect(doc.defaultView!.getSelection()?.toString()).toBe(text); expect(range.toString()).toBe(text);
   });
   it("选文存在时操作宿主概念触发器也不重新打开遮挡浮窗", async () => {
@@ -254,14 +256,14 @@ describe("浮窗不干扰原生选文", () => {
     await act(async () => button("查看概念：财政体制").focus()); expect(dialog()).toBeNull();
   });
   it("portal 内文字选择事件不冒泡回阅读器选文处理器", async () => {
-    const handler = vi.fn(); await render(); await act(async () => root.render(<div onMouseUp={handler}><EpubInteractionLayer {...props} /></div>)); await hover();
+    const handler = vi.fn(); await render(); await act(async () => root.render(<div onMouseUp={handler}><EpubInteractionLayer {...props} /></div>)); await activate();
     await event(dialog()!.querySelector(".judu-concept-definition")!, "mouseup"); expect(handler).not.toHaveBeenCalled(); expect(doc.defaultView!.getSelection()?.isCollapsed).toBe(true);
   });
 });
 
 describe("补充：键盘回路、版本异步与实时内容", () => {
   it("概念浮窗第一个控件 Shift+Tab 返回真正的概念触发器", async () => {
-    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger, "ArrowDown");
+    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger,"Enter"); await key(trigger, "ArrowDown");
     const first = button("关闭浮层"); expect(document.activeElement).toBe(first);
     await act(async () => { first.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })); });
     expect(document.activeElement).toBe(trigger);
@@ -278,12 +280,12 @@ describe("补充：键盘回路、版本异步与实时内容", () => {
     await act(async () => pending.resolve(parse('<aside id="n">旧版本内容</aside>'))); expect(dialog()).toBeNull();
   });
   it("流式补充或修改概念定义刷新已打开内容，不改变书内 DOM", async () => {
-    const before = doc.body.innerHTML; await render(); await hover();
+    const before = doc.body.innerHTML; await render(); await activate();
     await render({ annotations: props.annotations.map(item => ({ ...item, conceptDetails: [{ name: "财政体制", text: "补充后的真实定义" }] })) });
     expect(dialog()?.textContent).toContain("补充后的真实定义"); expect(dialog()?.textContent).not.toContain("中央与地方"); expect(doc.body.innerHTML).toBe(before);
   });
   it("删除当前概念/关闭概念显示后，旧浮窗和原文触发器一并清理", async () => {
-    await render(); await hover(); await render({ concepts: [] }); expect(dialog()).toBeNull(); expect(button("查看概念：财政体制")).toBeUndefined();
+    await render(); await activate(); await render({ concepts: [] }); expect(dialog()).toBeNull(); expect(button("查看概念：财政体制")).toBeUndefined();
   });
   it("新历史更新后完整句读入口使用最新记录而不是闭包里的旧记录", async () => {
     await render({ annotations: [annotation()] }); await click(button("查看句读历史（1条）"));
@@ -317,7 +319,7 @@ describe("EPUB适配器P1回归：禁用与identity往返", () => {
     const reference = kind === "link" ? link("ref", "#note") : null;
     return {
       expected: kind === "concept" ? "中央与地方" : kind === "history" ? "完整概述而非概念定义" : "本地脚注正文",
-      open: async () => { if (reference) await hoverLink(reference); else if (kind === "history") await click(button("查看句读历史（1条）")); else await hover(); },
+      open: async () => { if (reference) await hoverLink(reference); else if (kind === "history") await click(button("查看句读历史（1条）")); else await activate(); },
     };
   }
   it.each(["concept", "history", "link"] as const)("%s 禁用再恢复不能复活，保留同源DOM后新交互仍有效", async kind => {
@@ -427,4 +429,29 @@ describe("真实view.js与EpubReader链接策略（仅替换加载/排版/导航
     }
     expect(fetch).not.toHaveBeenCalled(); expect(window.open).not.toHaveBeenCalled();
   });
+});
+
+it("EPUB 黄色高亮与浮窗入口完全一致，重复未标黄词及普通后文都不弹窗", async () => {
+  const source = "价值对象性，普通后文，价值对象性";
+  doc.body.innerHTML = `<p>${source}</p>`;
+  const node = doc.querySelector("p")!.firstChild!;
+  const maps = mapEpubDocument(doc, { id: "c", title: "章", paragraphs: [{ id: "p", text: source }] });
+  rangeRects = range => [box(range.startOffset === 0 ? 40 : 240, 40, 100, 20)];
+  const registry = new Map<string, Range[]>();
+  const win = doc.defaultView!;
+  Object.defineProperty(win, "CSS", { configurable: true, value: { highlights: { set: (key: string, ranges: Range[]) => registry.set(key, ranges), delete: (key: string) => registry.delete(key) } } });
+  Object.defineProperty(win, "Highlight", { configurable: true, value: class extends Array<Range> { constructor(...ranges: Range[]) { super(...ranges); } } });
+  const concepts = [{ name: "价值对象性", text: "商品作为价值的客观存在。" }];
+  const annotations = [annotation({ endOffset: source.length, concepts: concepts.map(item => item.name), conceptDetails: concepts })];
+  const clean = paintEpubAnnotations(doc, maps, annotations, concepts, { enabled: true, opacity: .25 }, { bounds: () => box(100, 50, 800, 600), changes: view });
+  try {
+    await render({ documents: [{ doc, index: 0, maps }], annotations, concepts });
+    expect(registry.get("judu-concept")?.map(range => [range.startOffset, range.endOffset])).toEqual([[0, 5]]);
+    expect(document.querySelectorAll('button[aria-label="查看概念：价值对象性"]')).toHaveLength(1);
+    await hover(250, 50, doc.querySelector("p")!); expect(dialog()).toBeNull();
+    await hover(170, 50, doc.querySelector("p")!); expect(dialog()).toBeNull();
+    await activate(50, 50, doc.querySelector("p")!); expect(dialog()?.textContent).toContain("商品作为价值的客观存在");
+    expect(doc.querySelector("p")!.firstChild).toBe(node);
+    expect(doc.querySelector("p")!.textContent).toBe(source);
+  } finally { clean(); }
 });

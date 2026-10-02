@@ -64,8 +64,8 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     render({ active: false }); expect(element("p").dataset.activeSource).toBe("false");
   });
 
-  it("概念 hover 仅展示逐词定义，portal 位于正文之外", () => {
-    render(); hover(element(".judu-concept-term"));
+  it("概念 click 仅展示逐词定义，portal 位于正文之外", () => {
+    render(); click(element(".judu-concept-term"));
     const dialog = element('[role="dialog"]');
     expect(dialog.textContent).toContain("意识以自身作为对象");
     expect(dialog.textContent).not.toContain(annotation.summary);
@@ -96,9 +96,9 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     expect(onOpen).toHaveBeenCalledWith(annotation); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it("概念 focus/Enter 和图标 click 相互独立，Escape 关闭", () => {
+  it("概念 Enter 和图标 click 相互独立，Escape 关闭", () => {
     render(); const term = element(".judu-concept-term");
-    act(() => term.focus()); expect(element('[role="dialog"]').textContent).toContain("意识以自身作为对象");
+    act(() => term.focus()); click(term); expect(element('[role="dialog"]').textContent).toContain("意识以自身作为对象");
     act(() => term.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -133,7 +133,7 @@ describe("AnnotatedParagraph 实测组件交互", () => {
   });
 
   it("换页或关闭概念开关时旧浮层不残留", () => {
-    render(); hover(element(".judu-concept-term")); render({ showConcepts: false });
+    render(); click(element(".judu-concept-term")); render({ showConcepts: false });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     render(); hover(element(".judu-history-marker"));
     render({ paragraphId: "other", text: "另页内容" }); expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -155,7 +155,6 @@ describe("AnnotatedParagraph 实测组件交互", () => {
   });
 });
 
-
 describe("AnnotatedParagraph \u672c\u6bb5\u53e5\u8bfb\u6982\u5ff5", () => {
   const bookConcepts = [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u672c\u4e66\u4fdd\u5b58\u7684\u9010\u8bcd\u5b9a\u4e49" }] as const;
   const local = (text: string, startOffset = 0, endOffset = text.length, definition = "\u672c\u6bb5\u5b9a\u4e49"): TextAnnotation => ({ ...annotation, paragraphId: "p1", startOffset, endOffset, concepts: ["\u81ea\u6211\u610f\u8bc6"], conceptDetails: [{ name: "\u81ea\u6211\u610f\u8bc6", text: definition }] });
@@ -174,7 +173,7 @@ describe("AnnotatedParagraph \u672c\u6bb5\u53e5\u8bfb\u6982\u5ff5", () => {
     const terms = document.querySelectorAll<HTMLElement>(".judu-concept-term");
     expect(terms).toHaveLength(1);
     expect(terms[0].textContent).toBe("\u81ea\u6211\u610f\u8bc6");
-    hover(terms[0]);
+    click(terms[0]);
     expect(element('[role="dialog"]').textContent).toContain("\u672c\u6bb5\u5b9a\u4e49");
     expect(element("p").textContent).toBe(text);
   });
@@ -192,7 +191,7 @@ describe("AnnotatedParagraph \u672c\u6bb5\u53e5\u8bfb\u6982\u5ff5", () => {
     expect(term.textContent).toBe("\u610f\u8bc6");
     expect(term.closest<HTMLElement>("[data-reader-text]")?.dataset.sourceStart).toBe("5");
     expect(term.closest<HTMLElement>("[data-reader-text]")?.dataset.sourceEnd).toBe("7");
-    act(() => term.focus());
+    act(() => term.focus()); click(term);
     expect(element('[data-concept-definition="\u81ea\u6211\u610f\u8bc6"]').textContent).toContain("\u672c\u6bb5\u5b9a\u4e49");
     expect(element("p").textContent).toBe(full.slice(5));
   });
@@ -301,4 +300,13 @@ it("精读同段同名词按句读块独立展示，当前词位重读后实时�
   expect(history.open).toBe(false);
   expect(history.textContent).toContain("前句解释");
   expect(element("p").textContent).toBe(text);
+});
+
+it('精读概念只响应点击或 Enter，悬停和聚焦不弹窗', () => {
+  render(); const term=element('.judu-concept-term');
+  hover(term); act(()=>term.focus()); expect(document.querySelector('[role="dialog"]')).toBeNull();
+  act(()=>term.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
+  expect(element('[role="dialog"]').textContent).toContain('意识以自身作为对象');
+  click(element('[aria-label="关闭浮层"]')); expect(document.querySelector('[role="dialog"]')).toBeNull();
+  click(term); expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 });

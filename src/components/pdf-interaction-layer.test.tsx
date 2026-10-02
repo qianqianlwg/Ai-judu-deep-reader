@@ -66,15 +66,15 @@ describe("PDF真实适配到共享浮层", () => {
     await render({ annotations: [analysis({ endOffset: 2 })] });
     expect(host.querySelectorAll('[aria-label="\u67e5\u770b\u6982\u5ff5\uff1a\u8d22\u653f\u4f53\u5236"]')).toHaveLength(0);
   });
-  it("文字层概念hover显示逐词定义，使用真实共用portal而非Foliate假对象", async () => {
-    await render(); await mouse(texts[0], "mousemove"); expect(dialog()?.classList.contains("judu-annotation-popover")).toBe(true);
+  it("文字层概念click显示逐词定义，使用真实共用portal而非Foliate假对象", async () => {
+    await render(); await mouse(texts[0], "click"); expect(dialog()?.classList.contains("judu-annotation-popover")).toBe(true);
     expect(dialog()?.textContent).toContain("中央与地方之间财政关系"); expect(dialog()?.parentElement).toBe(document.body);
     expect(host.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(2);
     expect(pdf.getDestination).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
   });
   it("全程不向PDF正文插入节点或改写已存在Range", async () => {
     const html = layers.map(layer => layer.innerHTML), node = texts[0].firstChild!, range = document.createRange(); range.setStart(node, 2); range.setEnd(node, 6);
-    await render({ annotations: [analysis()] }); await mouse(texts[0], "mousemove"); await click(button("关闭浮层"));
+    await render({ annotations: [analysis()] }); await mouse(texts[0], "click"); await click(button("关闭浮层"));
     await click(button("查看句读历史（1条）")); expect(layers.map(layer => layer.innerHTML)).toEqual(html); expect(texts[0].firstChild).toBe(node); expect(range.toString()).toBe("财政体制");
   });
   it("同一结束点多次句读只有一个标识，历史按新到旧且准确回调", async () => {
@@ -89,19 +89,19 @@ describe("PDF真实适配到共享浮层", () => {
     expect(props.onOpenAnnotation).toHaveBeenCalledExactlyOnceWith(analysis());
   });
   it.each(["note", "favorite"] as const)("手动%s不进入AI会话、不产生句读历史图标", async kind => {
-    await render({ concepts: [], annotations: [analysis({ kind, threadId: "manual-mark", summary: "我的手动文字" })] }); await mouse(texts[0], "mousemove");
+    await render({ concepts: [], annotations: [analysis({ kind, threadId: "manual-mark", summary: "我的手动文字" })] }); await mouse(texts[0], "click");
     expect(dialog()?.textContent).toContain("我的手动文字"); expect(host.querySelector(".epub-history-marker")).toBeNull();
     expect(dialog()?.textContent).not.toContain("查看完整句读"); expect(props.onOpenAnnotation).not.toHaveBeenCalled();
   });
   it("缺定义时不使用句读摘要冒充", async () => {
-    await render({ concepts: [{ name: "财政体制", text: "其他位置定义" }], annotations: [analysis({ conceptDetails: [] })] }); await mouse(texts[0], "mousemove");
+    await render({ concepts: [{ name: "财政体制", text: "其他位置定义" }], annotations: [analysis({ conceptDetails: [] })] }); await mouse(texts[0], "click");
     expect(dialog()?.textContent).toContain("暂无定义"); expect(dialog()?.textContent).not.toContain("第一次句读完整概述");
   });
   it("同host Document的浮窗不因resize要求iframe而消失", async () => {
-    await render(); await mouse(texts[0], "mousemove"); await act(async () => window.dispatchEvent(new Event("resize"))); await flushFrames(); expect(dialog()).not.toBeNull();
+    await render(); await mouse(texts[0], "click"); await act(async () => window.dispatchEvent(new Event("resize"))); await flushFrames(); expect(dialog()).not.toBeNull();
   });
   it("流式定义更新保留浮窗并显示新定义", async () => {
-    await render(); await mouse(texts[0], "mousemove"); await render({ annotations: props.annotations.map(item => ({ ...item, conceptDetails: [{ name: "财政体制", text: "更新后的真实定义" }] })) });
+    await render(); await mouse(texts[0], "click"); await render({ annotations: props.annotations.map(item => ({ ...item, conceptDetails: [{ name: "财政体制", text: "更新后的真实定义" }] })) });
     expect(dialog()?.textContent).toContain("更新后的真实定义");
   });
   it("历史更新仍指向新的messageId而不是过时闭包", async () => {
@@ -138,7 +138,7 @@ describe("PDF引用显式跳转、scope与键盘", () => {
   it("第二页概念只根据第二页坐标命中，不被第一页doc监听吞掉", async () => {
     // WHY：同词仅标记可见范围的首次出现；模拟翻到第二页，而非让两页同时可见。
     firstPageVisible = false;
-    await render(); await mouse(texts[1], "mousemove", 85, 270); expect(dialog()?.textContent).toContain("中央与地方之间财政关系");
+    await render(); await mouse(texts[1], "click", 85, 270); expect(dialog()?.textContent).toContain("中央与地方之间财政关系");
     expect(host.querySelector('[data-epub-target^="pdf:2:"]')?.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector('[data-epub-target^="pdf:1:"]')).toBeNull();
   });
@@ -150,14 +150,14 @@ describe("PDF引用显式跳转、scope与键盘", () => {
     const event = await key(external, "ArrowDown"); expect(event.defaultPrevented).toBe(false); expect(document.activeElement).toBe(external);
   });
   it("概念按钮ArrowDown进入、Shift+Tab和Escape回真实触发器", async () => {
-    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger, "ArrowDown");
+    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger,"Enter"); await key(trigger, "ArrowDown");
     expect(document.activeElement).toBe(button("关闭浮层")); await key(document.activeElement!, "Tab", true); expect(document.activeElement).toBe(trigger);
     await key(trigger, "ArrowDown"); await key(document.activeElement!, "Escape"); expect(dialog()).toBeNull(); expect(document.activeElement).toBe(trigger);
   });
   it("原生正文选文不被hover/点击新浮窗扰动", async () => {
     await render(); const range = document.createRange(); range.setStart(texts[0].firstChild!, 0); range.setEnd(texts[0].firstChild!, 6);
     await act(async () => { document.getSelection()!.addRange(range); document.dispatchEvent(new Event("selectionchange")); });
-    await mouse(texts[0], "mousemove"); await mouse(texts[0], "click"); expect(dialog()).toBeNull(); expect(document.getSelection()!.toString()).toBe("理解财政体制");
+    await mouse(texts[0], "click"); await mouse(texts[0], "click"); expect(dialog()).toBeNull(); expect(document.getSelection()!.toString()).toBe("理解财政体制");
   });
 });
 
@@ -175,7 +175,7 @@ describe("PDF版本、虚拟页、缩放和迟到引用", () => {
     const replacement = texts[0].parentElement!.cloneNode(true) as HTMLDivElement; layers[0].replaceChild(replacement, texts[0].parentElement!);
     const newText = replacement.querySelector("span")!; const page = bindPdfTextLayer(props.index.pages[0], replacement, [newText], [firstText]);
     await render({ pages: [page, props.pages[1]] }); await act(async () => gate.resolve([1])); expect(dialog()).toBeNull();
-    await mouse(texts[0], "mousemove"); expect(dialog()).toBeNull(); await mouse(newText, "mousemove"); expect(dialog()?.textContent).toContain("财政关系");
+    await mouse(texts[0], "click"); expect(dialog()).toBeNull(); await mouse(newText, "click"); expect(dialog()?.textContent).toContain("财政关系");
   });
   it("同版本仅定义变化不取消进行中的真实引用解析", async () => {
     const gate = deferred<unknown>(); pdf.getDestination.mockReturnValue(gate.promise); const reference = link(1, "named"); await render(); await mouse(reference, "mouseover", 230, 50);
@@ -188,7 +188,7 @@ describe("PDF版本、虚拟页、缩放和迟到引用", () => {
     await render({ document: replacement }); await act(async () => gate.resolve([1])); expect(dialog()).toBeNull();
   });
   it("卸载已预览的虚拟页后不保留可交互的旧触发器", async () => {
-    await render(); await mouse(texts[0], "mousemove"); await render({ pages: [props.pages[1]] });
+    await render(); await mouse(texts[0], "click"); await render({ pages: [props.pages[1]] });
     expect(dialog()).toBeNull(); expect(host.querySelector('[data-epub-target^="pdf:1:"]')).toBeNull();
   });
   it("引用页不可解析时给用户可恢复反馈并记录日志", async () => {
@@ -204,5 +204,3 @@ describe("PDF版本、虚拟页、缩放和迟到引用", () => {
     expect(button("查看完整句读").disabled).toBe(true);
   });
 });
-
-

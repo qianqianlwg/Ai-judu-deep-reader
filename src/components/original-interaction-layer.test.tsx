@@ -55,18 +55,18 @@ afterEach(async () => { await unmount(); host.remove(); document.getSelection()?
 describe("共享原版浮层：真实内容和host Document", () => {
   it("同Document不需要iframe，hover展示真实定义且不插入正文", async () => {
     const html = scope.innerHTML, node = paragraph.firstChild, range = props.documents[0].targets[0].range, text = range.toString();
-    await render(); await mouse(paragraph, "mousemove");
+    await render(); await mouse(paragraph, "click");
     expect(dialog()?.textContent).toContain("中央与地方财政关系"); expect(dialog()?.classList.contains("judu-annotation-popover")).toBe(true);
     expect(dialog()?.parentElement).toBe(document.body); expect(scope.innerHTML).toBe(html); expect(paragraph.firstChild).toBe(node); expect(range.toString()).toBe(text);
     await act(async () => window.dispatchEvent(new Event("resize"))); await flushFrames(); expect(dialog()).not.toBeNull();
   });
   it("禁用后重新启用不会恢复旧浮窗，需重新触发", async () => {
-    await render(); await mouse(paragraph, "mousemove"); expect(dialog()).not.toBeNull();
+    await render(); await mouse(paragraph, "click"); expect(dialog()).not.toBeNull();
     await render({ disabled: true }); expect(dialog()).toBeNull();
     await render({ disabled: false }); expect(dialog()).toBeNull();
-    await mouse(paragraph, "mousemove"); expect(dialog()?.textContent).toContain("中央与地方财政关系");
+    await mouse(paragraph, "click"); expect(dialog()?.textContent).toContain("中央与地方财政关系");
   });  it("缺失概念定义明确显示暂无定义", async () => {
-    await render({ documents: [{ ...props.documents[0], targets: [concept("财政体制", "")] }] }); await mouse(paragraph, "mousemove");
+    await render({ documents: [{ ...props.documents[0], targets: [concept("财政体制", "")] }] }); await mouse(paragraph, "click");
     expect(dialog()?.textContent).toContain("暂无定义"); expect(dialog()?.textContent).not.toContain("句读概述");
   });
   it("原版历史标符悬停与聚焦不打开浮窗，仅点击触发", async () => {
@@ -86,19 +86,19 @@ describe("共享原版浮层：真实内容和host Document", () => {
   });
   it.each(["note", "favorite"] as const)("手动%s只显示本地内容不伪装AI", async kind => {
     const annotation = mark({ kind, summary: "我的手动笔记", threadId: "manual-mark" });
-    await render({ documents: [{ ...props.documents[0], targets: [{ kind: "mark", key: "mark", range: sourceRange(0, 6), annotation }] }] }); await mouse(paragraph, "mousemove");
+    await render({ documents: [{ ...props.documents[0], targets: [{ kind: "mark", key: "mark", range: sourceRange(0, 6), annotation }] }] }); await mouse(paragraph, "click");
     expect(dialog()?.textContent).toContain("我的手动笔记"); expect(dialog()?.textContent).not.toContain("查看完整句读"); expect(props.onOpenAnnotation).not.toHaveBeenCalled();
   });
   it("在同Document浮窗正文pointerdown不会被当作原文外部点击关闭", async () => {
-    await render(); await mouse(paragraph, "mousemove"); const content = dialog()!.querySelector(".judu-concept-definition")!;
+    await render(); await mouse(paragraph, "click"); const content = dialog()!.querySelector(".judu-concept-definition")!;
     await mouse(content, "pointerdown", 300, 180); expect(dialog()).not.toBeNull();
   });
   it("同Document移入浮窗后经过关闭延时仍保持可读", async () => {
-    await render(); await mouse(paragraph, "mousemove"); await mouse(dialog()!, "mouseover", 300, 180); await mouse(dialog()!, "mousemove", 300, 180);
+    await render(); await mouse(paragraph, "click"); await mouse(dialog()!, "mouseover", 300, 180); await mouse(dialog()!, "mousemove", 300, 180);
     await act(async () => vi.advanceTimersByTime(200)); expect(dialog()).not.toBeNull();
   });
   it("同Document可复制浮窗定义文本而不把它当正文选文关闭", async () => {
-    await render(); await mouse(paragraph, "mousemove"); const node = dialog()!.querySelector(".judu-concept-definition [data-concept-text]")!.firstChild!;
+    await render(); await mouse(paragraph, "click"); const node = dialog()!.querySelector(".judu-concept-definition [data-concept-text]")!.firstChild!;
     await select(node); expect(dialog()).not.toBeNull(); expect(document.getSelection()!.toString()).toBe("中央");
   });
   it("真实点击历史入口包含pointerdown后仍能打开正确完整句读", async () => {
@@ -122,7 +122,7 @@ describe("共享原版浮层：scope、焦点、选文", () => {
     const range = document.createRange(); range.selectNodeContents(p); geometries.set(range, [box(40, 40, 80, 20)]);
     const target: ReaderInteraction = { kind: "concept", paragraphId: "p-second", key: "second", range, concept: { name: "第二页", definitions: [{ name: "第二页", text: "第二页独有定义" }] } };
     await render({ documents: [...props.documents, { doc: document, index: 2, scope: second, targets: [target] }] });
-    await mouse(p, "mousemove"); expect(dialog()?.textContent).toContain("第二页独有定义"); expect(dialog()?.textContent).not.toContain("中央与地方");
+    await mouse(p, "click"); expect(dialog()?.textContent).toContain("第二页独有定义"); expect(dialog()?.textContent).not.toContain("中央与地方");
   });
   it("引用打开后外部输入ArrowDown/Tab不能被阅读层劫持", async () => {
     const reference = link(); await render(); await mouse(reference, "mouseover", 170, 50); await act(async () => outside.focus());
@@ -130,7 +130,7 @@ describe("共享原版浮层：scope、焦点、选文", () => {
     const tab = await key(outside, "Tab"); expect(tab.defaultPrevented).toBe(false);
   });
   it("概念实际触发器进入卡片并Shift+Tab返回，不落隐藏代理", async () => {
-    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger, "ArrowDown");
+    await render(); const trigger = button("查看概念：财政体制"); await act(async () => trigger.focus()); await key(trigger,"Enter"); await key(trigger, "ArrowDown");
     expect(document.activeElement).toBe(button("关闭浮层")); await key(document.activeElement!, "Tab", true); expect(document.activeElement).toBe(trigger);
   });
   it("引用真实链接键盘进入后Escape恢复链接焦点", async () => {
@@ -140,11 +140,11 @@ describe("共享原版浮层：scope、焦点、选文", () => {
   it("正文非折叠选区屏蔽鼠标与宿主触发器，不破坏Range", async () => {
     await render(); await select(paragraph.firstChild!, 0, 6); const selected = document.getSelection()!.toString();
     // WHY：纯jsdom无产品代码时button.focus也折叠Selection；此处只发真实focusin验证处理器，焦点移动由独立键盘用例覆盖。
-    await mouse(paragraph, "mousemove"); await act(async () => button("查看概念：财政体制").dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
+    await mouse(paragraph, "click"); await act(async () => button("查看概念：财政体制").dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
     expect(dialog()).toBeNull(); expect(document.getSelection()!.toString()).toBe(selected);
   });
   it("新正文选文关闭现有浮窗但保留选文", async () => {
-    await render(); await mouse(paragraph, "mousemove"); await select(paragraph.firstChild!, 0, 6); expect(dialog()).toBeNull(); expect(document.getSelection()!.toString()).toBe("理解财政体制");
+    await render(); await mouse(paragraph, "click"); await select(paragraph.firstChild!, 0, 6); expect(dialog()).toBeNull(); expect(document.getSelection()!.toString()).toBe("理解财政体制");
   });
   it("拖选按钮按住时不悬停开窗", async () => { await render(); await mouse(paragraph, "mousemove", 55, 55, { buttons: 1 }); expect(dialog()).toBeNull(); });
 });
@@ -181,11 +181,11 @@ describe("共享原版浮层：引用隔离和生命周期", () => {
   });
   it("旧跳转完成不能关闭之后打开的概念", async () => {
     const gate = deferred<void>(), reference = link(); vi.mocked(props.onJump).mockReturnValue(gate.promise); await render();
-    await mouse(reference, "mouseover", 170, 50); await click(button("跳转到原文")); await click(button("关闭浮层")); await mouse(paragraph, "mousemove");
+    await mouse(reference, "mouseover", 170, 50); await click(button("跳转到原文")); await click(button("关闭浮层")); await mouse(paragraph, "click");
     await act(async () => gate.resolve()); expect(dialog()?.textContent).toContain("中央与地方财政关系");
   });
   it("同documentsIdentity的定义更新不关闭浮窗并使用最新内容", async () => {
-    await render({ documentsIdentity: scope }); await mouse(paragraph, "mousemove");
+    await render({ documentsIdentity: scope }); await mouse(paragraph, "click");
     await render({ documents: [{ ...props.documents[0], targets: [concept("财政体制", "新定义")] }] }); expect(dialog()?.textContent).toContain("新定义");
   });
   it("引用读取中仅targets更新不永久停在正在读取", async () => {
@@ -195,7 +195,7 @@ describe("共享原版浮层：引用隔离和生命周期", () => {
     await act(async () => gate.resolve({ title: "引用", text: "应完成的引用正文" })); expect(dialog()?.textContent).toContain("应完成的引用正文");
   });
   it("移出可见阅读区域关闭旧概念，重新布局不改正文", async () => {
-    await render(); await mouse(paragraph, "mousemove"); const html = scope.innerHTML;
+    await render(); await mouse(paragraph, "click"); const html = scope.innerHTML;
     geometries.set(props.documents[0].targets[0].range, [box(40, 900, 80, 20)]);
     await act(async () => window.dispatchEvent(new Event("resize"))); await flushFrames(); expect(dialog()).toBeNull(); expect(scope.innerHTML).toBe(html);
   });
@@ -206,7 +206,6 @@ describe("共享原版浮层：引用隔离和生命周期", () => {
   });
 });
 
-
 describe("P1回归：清除状态而非暂时隐藏", () => {
   function target(kind: "concept" | "history" | "link") {
     if (kind === "history") props.documents = [{ ...props.documents[0], targets: [{ kind: "history", key: "history", range: sourceRange(5, 6), annotations: [mark()] }] }];
@@ -215,7 +214,7 @@ describe("P1回归：清除状态而非暂时隐藏", () => {
     const open = async () => {
       if (reference) await mouse(reference, "mouseover", 170, 50);
       else if (kind === "history") await click(button("查看句读历史（1条）"));
-      else await mouse(paragraph, "mousemove");
+      else await mouse(paragraph, "click");
     };
     return { expected, open };
   }
@@ -276,7 +275,7 @@ describe("P1回归：清除状态而非暂时隐藏", () => {
   it("返回原identity后迟到preview失败只记日志，不恢复错误浮窗或覆盖新概念", async () => {
     const pending = deferred<ReferencePreview>(), reference = link(), bookA = props.book; vi.mocked(props.previewLink!).mockReturnValue(pending.promise);
     await render(); await mouse(reference, "mouseover", 170, 50); await render({ book: {} }); await render({ book: bookA });
-    expect(dialog()).toBeNull(); await mouse(paragraph, "mousemove");
+    expect(dialog()).toBeNull(); await mouse(paragraph, "click");
     const failure = new Error("旧书籍预览失败"); await act(async () => pending.reject(failure));
     expect(console.warn).toHaveBeenCalledWith("引用预览失败", failure); expect(dialog()?.textContent).toContain("中央与地方财政关系");
     expect(dialog()?.querySelector("header strong")?.textContent).toBe("财政体制");
@@ -355,11 +354,46 @@ it("同页不同词位的同名词独立打开解释，翻页只移除不可见�
  const second={...concept("财政体制","重复处",sourceRange(2,6,box(180,40,80,20))),key:"second"};
  await render({documents:[{...props.documents[0],targets:[first,second]}]});
  expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(2);
- await mouse(paragraph,"mousemove",190,50);expect(dialog()?.textContent).toContain("重复处");
+ await mouse(paragraph, "click",190,50);expect(dialog()?.textContent).toContain("重复处");
  expect(dialog()?.textContent).not.toContain("首处");
- await mouse(paragraph,"mousemove",55,50);expect(dialog()?.textContent).toContain("首处");
+ await mouse(paragraph, "click",55,50);expect(dialog()?.textContent).toContain("首处");
  geometries.set(first.range,[box(-200,40,80,20)]);
  await act(async()=>window.dispatchEvent(new Event("resize")));await flushFrames();
  expect(dialog()).toBeNull();expect(document.querySelectorAll('[aria-label="查看概念：财政体制"]')).toHaveLength(1);
- await mouse(paragraph,"mousemove",190,50);expect(dialog()?.textContent).toContain("重复处");
+ await mouse(paragraph, "click",190,50);expect(dialog()?.textContent).toContain("重复处");
+});
+
+describe("概念高亮与入口的一致性", () => {
+  it("EPUB 只为同页同段首个已标黄词提供鼠标和键盘入口，翻页重新计数", async () => {
+    paragraph.textContent = "理性普通后文理性末尾";
+    const first = { ...concept("理性", "第一处解释", sourceRange(0, 2, box(40, 40, 40, 20))), key: "first" };
+    const second = { ...concept("理性", "第二处解释", sourceRange(6, 8, box(200, 40, 40, 20))), key: "second" };
+    const changes = new EventTarget();
+    await render({ deduplicatePageConcepts: true, relocationSources: [changes], documents: [{ doc: document, index: 1, scope, targets: [first, second] }] });
+    expect(mount.querySelectorAll('button[aria-label="查看概念：理性"]')).toHaveLength(1);
+    await mouse(paragraph, "click", 210, 50); await mouse(paragraph, "click", 210, 50);
+    expect(dialog()).toBeNull();
+    await mouse(paragraph, "click", 55, 50); expect(dialog()?.textContent).toContain("第一处解释");
+    await click(button("关闭浮层"));
+    await mouse(paragraph, "click", 130, 50); expect(dialog()).toBeNull();
+    geometries.set(first.range, [box(-100, 40, 40, 20)]);
+    await act(async () => changes.dispatchEvent(new Event("relocate"))); await flushFrames();
+    expect(mount.querySelectorAll('button[aria-label="查看概念：理性"]')).toHaveLength(1);
+    await mouse(paragraph, "click", 210, 50); expect(dialog()?.textContent).toContain("第二处解释");
+  });
+  it("PDF 默认保留全部已标黄同名词，不误套 EPUB 去重", async () => {
+    const first = { ...concept("财政体制", "第一处", sourceRange(2, 6)), key: "first" };
+    const second = { ...concept("财政体制", "第二处", sourceRange(2, 6, box(200, 40, 80, 20))), key: "second" };
+    await render({ documents: [{ doc: document, index: 1, scope, targets: [first, second] }] });
+    expect(mount.querySelectorAll('button[aria-label="查看概念：财政体制"]')).toHaveLength(2);
+    await mouse(paragraph, "click", 210, 50); expect(dialog()?.textContent).toContain("第二处");
+  });
+});
+
+it('原版概念鼠标经过和聚焦不弹窗，点击打开后离开不自动消失', async () => {
+  await render();const trigger=button('查看概念：财政体制');
+  await mouse(paragraph,'mousemove');await mouse(trigger,'mouseover');await act(async()=>trigger.focus());
+  expect(dialog()).toBeNull();await key(trigger,'Enter');expect(dialog()).not.toBeNull();
+  await mouse(paragraph,'mousemove',600,500);await act(async()=>vi.advanceTimersByTime(300));expect(dialog()).not.toBeNull();
+  await click(button('关闭浮层'));expect(dialog()).toBeNull();await mouse(paragraph,'click');expect(dialog()).not.toBeNull();
 });

@@ -3,6 +3,10 @@ import { analysisHistoryMarkerIds } from "./analysis-history-markers";
 import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type TextAnnotation } from "./annotations";
 import type {LibraryParagraph} from "./library";
 export type ReaderInteraction = {key:string;range:Range} & ({kind:"concept";paragraphId:string;concept:AnnotationConcept}|{kind:"history";annotations:TextAnnotation[]}|{kind:"mark";annotation:TextAnnotation});
+/** WHY：EPUB 同页同段同名词只标第一处；黄底与浮窗共用去重键，不能留下未标黄的入口。 */
+export function readerConceptPageKey(target: Extract<ReaderInteraction, {kind: "concept"}>): string {
+ return JSON.stringify([target.paragraphId, target.concept.name]);
+}
 export type ReaderRect={left:number;right:number;top:number;bottom:number;width:number;height:number};
 export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],rangeFor:(paragraphId:string,start:number,end:number)=>Range|null,annotations:readonly TextAnnotation[],concepts:readonly ConceptDetail[],historyMarkerIds:ReadonlySet<string>=analysisHistoryMarkerIds(annotations,paragraphs.map(p=>p.id))):ReaderInteraction[]{
  const result:ReaderInteraction[]=[];

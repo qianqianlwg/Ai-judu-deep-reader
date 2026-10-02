@@ -1,3 +1,4 @@
+import { readerConceptPageKey } from './reader-interactions';
 import { sourceEmphasisRanges,type SourceEmphasis } from "./source-enhancement";
 import { getReadingThemeVariables, type ReadingAppearancePreferences } from "./reading-appearance";
 import { type TextAnnotation, type ConceptDetail } from "./annotations";
@@ -60,9 +61,9 @@ export function paintEpubAnnotations(doc: Document, maps: readonly EpubParagraph
     const selected: Range[] = [];
     const bounds = page?.bounds();
     for (const item of candidates) {
-      if (item.kind !== "concept" || seen.has(JSON.stringify([item.paragraphId, item.concept.name]))) continue;
+      if (item.kind !== "concept" || seen.has(readerConceptPageKey(item))) continue;
       if (page && (!bounds || !Array.from(item.range.getClientRects()).some(rect => clipReaderRect(epubRectToHost(doc, rect), bounds)))) continue;
-      seen.add(JSON.stringify([item.paragraphId, item.concept.name])); selected.push(item.range);
+      seen.add(readerConceptPageKey(item)); selected.push(item.range);
     }
     registry.set("judu-concept", new Constructor(...selected));
   };
