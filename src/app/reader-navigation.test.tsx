@@ -52,7 +52,7 @@ async function selectA() {
     const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   }); await settle();
-  expect(element(".selection-actions").textContent).toContain("已选 2 / 3000 字符");
+  expect(button("句读一下")).toBeDefined();
 }
 async function searchB() { await click(button("知识库")); await click(button("打开知识命中")); }
 beforeEach(() => {
@@ -126,13 +126,13 @@ describe("A选区→搜索B→真实句读请求", () => {
   it("概括excerpt不精确时清除A旧选区且不提交请求", async () => {
     result = { paragraphId: "b", chapterId: "chapter-b", chapterTitle: "乙章", excerpt: "乙段…后文" };
     await mount(); await selectA(); await searchB();
-    expect(element(".selection-actions").textContent).toContain("选择一句或一段原文");
+    expect(host.querySelector(".selection-bar")).toBeNull();
     expect([...host.querySelectorAll("button")].some(item => item.textContent === "句读一下")).toBe(false);
     expect(element('[role="status"]').textContent).toContain("重新选择"); expect(requests).toHaveLength(0);
   });
   it("B偏移与命中不一致也不能继续沿用A锚点", async () => {
     result.startOffset = 0; await mount(); await selectA(); await searchB();
-    expect(element(".selection-actions").textContent).not.toContain("已选"); expect(requests).toHaveLength(0);
+    expect([...host.querySelectorAll("button")].some(item => item.textContent === "句读一下")).toBe(false); expect(requests).toHaveLength(0);
   });
 });
 

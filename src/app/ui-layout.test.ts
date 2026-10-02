@@ -11,6 +11,13 @@ describe("工作台布局契约", () => {
     expect(page).toContain('inert={workspaceView !== "reader"}');
     expect(page).not.toContain("knowledgeOpen ?"); expect(page).not.toContain("top-actions");
   });
+  it("移除底部字号与选文提示栏，顶部阅读选项保持可用", async () => {
+    const page = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    expect(page).not.toContain('className="selection-bar"');
+    expect(page).not.toContain("setReaderScale");
+    expect(page).toContain("<ReaderOptions");
+    expect(page).toContain("<SelectionActions");
+  });
   it("减少动态效果时停用加载脉冲和流式光标闪烁", async () => {
     const css = await readFile(new URL("./globals.css", import.meta.url), "utf8");
     expect(css).toContain("@media (prefers-reduced-motion: reduce) { .loading-orbit, .streaming-cursor::after { animation: none; } }");
@@ -18,7 +25,7 @@ describe("工作台布局契约", () => {
   it("保留独立正文实测与聊天滚动容器", async () => {
     const css = await readFile(new URL("../components/reader-workspace.css", import.meta.url), "utf8");
     const global = await readFile(new URL("./globals.css", import.meta.url), "utf8");
-    expect(css).toContain(".reader-sheet > p"); expect(css).toContain("grid-template-rows: 52px minmax(0, 1fr) auto 42px");
+    expect(css).toContain(".reader-sheet > p"); expect(css).toContain("grid-template-rows: 52px minmax(0, 1fr) auto");
     expect(global).toContain(".chat-messages { flex: 1 1 auto; min-height: 0; overflow-y: auto");
   });
 });

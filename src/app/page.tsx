@@ -283,14 +283,6 @@ export default function Home() {
     if (box) setSelectionMenu({ left: box.left + box.width / 2, top: Math.max(58, box.top - 8) });
   }
 
-  function setReaderScale(change: number): void {
-    setReadingAppearance((value) => {
-      const next = Math.min(32, Math.max(14, Number((value.fontSize + change * 16).toFixed(0))));
-      const updated = { ...value, fontSize: next };
-      try { writeReadingAppearance(localStorage, updated); window.dispatchEvent(new Event("judu:settings-updated")); } catch (cause: unknown) { console.error("\u4fdd\u5b58\u5b57\u53f7\u5931\u8d25", cause); setNotice("\u5b57\u53f7\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5"); }
-      return updated;
-    });
-  }
   async function loadBook(bookId: string, editionId?: string, restoreView = false, importedBook?: unknown, target?: {anchor?: KnowledgeMaterial["anchor"]; conversation?: NonNullable<KnowledgeMaterial["conversation"]>}): Promise<void> {
     if (activeRequestRef.current || conversationPendingRef.current || importing) { setNotice("请等待当前回答或会话操作完成后再切换书籍。"); return; }
     const loadSequence = ++bookLoadSequence.current;
@@ -562,7 +554,6 @@ export default function Home() {
             selectedDocumentRef.current?.getSelection()?.removeAllRanges();
             window.getSelection()?.removeAllRanges();setSelectionMenu(null);setNotice("请翻到相邻页继续选择连续正文，合计最多 3000 字符。");}} left={selectionMenu.left} top={selectionMenu.top} disabled={bookLoading || restoringBook || conversationLoading || (!readerMode.original && paginating)} speechDisabled={bookLoading || restoringBook || conversationLoading || (!readerMode.original && paginating)} analyzeDisabled={loading || importing || Boolean(readingMode.style==="whole"?readingSelectionError(selected):!selected.trim())} reason={loading ? "正在生成，可继续选文、标注和朗读；下一轮句读需等待完成。" : readingMode.style==="whole"?readingSelectionError(selected) ?? undefined:undefined} onClose={() => setSelectionMenu(null)} onAnalyze={() => { setSelectionMenu(null); void ask(); }} onHighlight={color => void saveManualMark("highlight", "", color)} onFavorite={() => void saveManualMark("favorite")} onNote={(note) => void saveManualMark("note", note)} />}
         </div>
-        <div className="selection-bar"><div className="reading-settings" aria-label="阅读设置"><span>Aa</span><button aria-label="缩小字号" onClick={() => setReaderScale(-0.05)}>−</button><button aria-label="放大字号" onClick={() => setReaderScale(0.05)}>+</button></div><div className="selection-actions">{selected ? <span>已选 {countReadingCharacters(selected)} / 3000 字符</span> : <span>{imageChapters.imageOnly?"图片页无文字来源，OCR尚未启用":"选择一句或一段原文开始句读"}</span>}</div></div>
         <div className="page-nav" style={readerMode.original ? {display:"none"} : undefined}><button disabled={paginating || safePageIndex === 0} onClick={() => setPageIndex(safePageIndex - 1)}>上一页</button><span>{pages.length ? safePageIndex + 1 : 0} / {pages.length}</span><button disabled={paginating || safePageIndex >= pages.length - 1} onClick={() => setPageIndex(safePageIndex + 1)}>下一页</button></div>
       </article>
       <SpeechPlaybackBar/>

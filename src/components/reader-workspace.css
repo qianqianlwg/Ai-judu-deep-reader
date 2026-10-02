@@ -2,7 +2,7 @@
 .app-shell { height: 100dvh; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .app-shell .topbar { flex: 0 0 58px; min-height: 58px; }
 .app-shell .reader-layout { flex: 1; height: auto; min-height: 0; overflow: hidden; }
-.app-shell .reading-pane { display: grid; grid-template-rows: 52px minmax(0, 1fr) auto 42px; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.app-shell .reading-pane { display: grid; grid-template-rows: 52px minmax(0, 1fr) auto; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .app-shell .reading-toolbar { height: 52px; min-height: 0; padding: 0 24px; }
 .app-shell .reading-content { box-sizing: border-box; width: 100%; min-width: 0; min-height: 0; height: 100%; padding: 20px 32px 10px; margin: 0; overflow: hidden; position: relative; }
 .reader-sheet { box-sizing: border-box; display: flow-root; max-width: 650px; margin: 0 auto; font-family: var(--reading-font-family, Georgia, "Songti SC", "SimSun", serif); font-size: var(--reading-font-size, calc(16px * var(--reading-scale, 1))); color: var(--reading-text, #455457); }

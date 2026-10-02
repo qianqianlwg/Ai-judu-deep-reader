@@ -159,8 +159,8 @@ describe("全部书籍和版本的页面入口", () => {
     expect(element('[data-message-id="assistant-edition-new"]').getAttribute("data-history-target")).toBe("true");
     expect(requestUrls("/api/threads/" + threadId("edition-new")).at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await click(button("打开原文"));
-    expect(element(".selection-actions").textContent).toContain("已选 2 / 3000 字符");
-    await search(); await click(element<HTMLButtonElement>('.material-passage button[aria-label="打开原文"]')); expect(element(".selection-actions").textContent).toContain("已选");
+    expect(element('[data-active-source="true"]').getAttribute("data-paragraph-id")).toBe("paragraph-edition-new");
+    await search(); await click(element<HTMLButtonElement>('.material-passage button[aria-label="打开原文"]')); expect(element('[data-active-source="true"]').getAttribute("data-paragraph-id")).toBe("paragraph-edition-new");
     expect(requests).toHaveLength(0);
     expect(requestUrls("/api/knowledge/materials").at(-1)?.searchParams.get("editionId")).toBe("edition-new");
     await reload(); expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);
@@ -180,7 +180,8 @@ describe("全部书籍和版本的页面入口", () => {
     delayedSearch = Promise.withResolvers<Response>(); await mount(); await search(); await chooseEdition("edition-new");
     await act(async () => delayedSearch?.resolve(searchResponse("edition-old"))); await settle();
     expect(host.querySelector(".material-passage button")).toBeNull();
-    expect(element(".selection-actions").textContent).toContain("选择一句或一段");
+    expect(host.querySelector(".selection-bar")).toBeNull();
+    expect([...host.querySelectorAll("button")].some(item => item.textContent === "句读一下")).toBe(false);
     expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);
   });
 });

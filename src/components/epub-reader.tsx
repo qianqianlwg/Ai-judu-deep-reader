@@ -13,7 +13,6 @@ import { rangeForEpubPosition, anchorFromEpubRange, mapEpubDocument, sameEpubRes
 import { paintEpubAnnotations, supportsEpubHighlights } from "@/lib/epub-annotations";
 import { originalPositionKey, readOriginalPosition, convertedPositionKey, readConvertedPosition, sameReadingAnchor } from "@/lib/epub-position";
 import { resolveConvertedEpub, verifyConvertedEpub, type ConvertedEpubArtifact } from "@/lib/converted-epub-artifact";
-import type { FoliateTocItem } from "@/lib/foliate-types";
 import type { EpubLinkPreview } from "@/lib/epub-link-preview";
 import { EpubInteractionLayer, type EpubInteractionDocument } from "./epub-interaction-layer";
 import "./epub-reader.css";
@@ -256,20 +255,12 @@ export function EpubReader(props:EpubReaderProps) {
     } catch(cause:unknown){console.warn("引用跳转失败",cause);if(cause instanceof ReaderOperationTimeout){failSession(s,cause);return;}if(currentSession(s))latest.current.onNotice("引用跳转失败，请从原书目录重试。");}
   }
   async function turn(direction:"next"|"prev") {const s=sessionRef.current;if(!s||!currentSession(s)||(props.navigationDisabled ?? props.disabled))return;try{s.shouldSave=true;await s.operations.run("翻页",()=>s.view[direction]());}catch(cause:unknown){failSession(s,cause);}}
-  const toc:FoliateTocItem[]=[];
-  const collect=(items:FoliateTocItem[])=>{for(const item of items){toc.push(item);if(item.subitems)collect(item.subitems);}};
-  collect(session?.book.toc ?? []);
-  async function openToc(href:string) {
-    const s=session;if(!s||!currentSession(s))return;
-    try{const target=s.book.resolveHref?.(href);if(!target)throw new Error("目录目标无效");s.shouldSave=true;await s.operations.run("跳转目录",()=>s.view.renderer.goTo({index:target.index,anchor:doc=>{const anchor=target.anchor(doc);return typeof anchor==="number"?doc.body:anchor;}}));}
-    catch(cause:unknown){failSession(s,cause);}
-  }
   return <section className="epub-reader" aria-label={readerLabel+"阅读器"} aria-busy={!ready&&!error}>
     <div className="epub-host" ref={host}/>
     {status&&!error&&<div className="epub-status" role="status">{status}</div>}
     {error&&<div className="epub-error" role="alert"><p>{error}</p><button onClick={()=>setRetry(x=>x+1)}>重试{modeLabel}</button><button onClick={props.onFallback}>切回精读</button></div>}
     {conversionState.kind==="ready"&&<div className="epub-conversion-notice" role="note"><span>UMD → EPUB 转换版 · 保留原文，不代表原文件版式</span><a href={conversionState.artifact.originalUrl} download aria-label="下载 UMD 原件（未经转换）">下载 UMD 原件</a></div>}
-    <nav className="epub-navigation" aria-label={modeLabel+"翻页"}><button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("prev")}>{modeLabel}上一页</button><span>{progress || (converted?"转换章节":"原书布局")}</span>{toc.length>0&&<select aria-label="原书目录" value="" disabled={!ready||props.disabled} onChange={event=>void openToc(event.target.value)}><option value="" disabled>原书目录</option>{toc.map((item,index)=><option key={index} value={item.href}>{item.label}</option>)}</select>}<button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("next")}>{modeLabel}下一页</button></nav>
+    <nav className="epub-navigation" aria-label={modeLabel+"翻页"}><button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("prev")}>{modeLabel}上一页</button><span>{progress || (converted?"转换章节":"原书布局")}</span><button disabled={!ready||(props.navigationDisabled ?? props.disabled)} onClick={()=>void turn("next")}>{modeLabel}下一页</button></nav>
     {session&&!session.closed&&!error&&<EpubInteractionLayer host={host} documents={documents} view={session.view} book={session.book} annotations={props.annotations} concepts={props.concepts} historyMarkerIds={historyMarkerIds} disabled={props.disabled} onOpenAnnotation={props.onOpenAnnotation} onJump={jumpPreview} onNotice={props.onNotice}/>}
   </section>;
 }
