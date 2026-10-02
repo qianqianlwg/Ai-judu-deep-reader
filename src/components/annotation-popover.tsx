@@ -103,6 +103,8 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     const paragraph = anchor.closest<HTMLElement>("[data-paragraph-id]") ?? anchor;
     const reader = anchor.closest<HTMLElement>("[data-reading-pane], .reading-pane");
     const content = anchor.closest<HTMLElement>("[data-reading-viewport], .reading-content");
+    const shell = anchor.closest(".app-shell");
+    const rail = shell?.querySelector<HTMLElement>(".analysis-panel .chat-messages");
     const update = () => {
       const visual = win.visualViewport;
       const viewport = { left: visual?.offsetLeft ?? 0, top: visual?.offsetTop ?? 0, right: (visual?.offsetLeft ?? 0) + (visual?.width ?? win.innerWidth), bottom: (visual?.offsetTop ?? 0) + (visual?.height ?? win.innerHeight) };
@@ -113,15 +115,16 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
         onCloseRef.current(false); return;
       }
       const bounds = getPopoverBounds(viewport, readerRect);
-      card.style.maxWidth = Math.max(0, bounds.right - bounds.left) + "px";
-      card.style.maxHeight = Math.max(0, bounds.bottom - bounds.top) + "px";
+      const avoid = avoidRects?.();
+      // WHY：概念卡优先使用右栏，不能先被正文窄栏压小；最终尺寸由真实停靠区约束。
+      const measureBounds = avoid?.length ? getPopoverBounds(viewport, viewport) : bounds;
+      card.style.maxWidth = Math.max(0, measureBounds.right - measureBounds.left) + "px";
+      card.style.maxHeight = Math.max(0, measureBounds.bottom - measureBounds.top) + "px";
       // WHY：先应用尺寸约束再测量实际卡片，不能用估算高度定位长定义或句读历史。
       const size = card.getBoundingClientRect();
-      const shell = anchor.closest(".app-shell");
       card.dataset.theme = shell?.classList.contains("theme-dark") ? "dark" : shell?.classList.contains("theme-paper") ? "paper" : "light";
-      const avoid = avoidRects?.();
       if (avoid?.length) {
-        const position = placeOutsideSentence({ bounds, viewport, anchor: triggerRect, avoid, width: size.width, height: size.height });
+        const position = placeOutsideSentence({ bounds, viewport, anchor: triggerRect, avoid, width: size.width, height: size.height, preferredBounds: rail?.getBoundingClientRect() });
         if (!position) {
           const message = '当前句子占满可用窗口，请调整字号或窗口大小后再查看概念。';
           console.warn(message); onPlacementUnavailable?.(message); onCloseRef.current(false); return;
@@ -142,7 +145,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     };
     update();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
-    for (const node of [anchor, paragraph, reader, content, card]) if (node) observer?.observe(node);
+    for (const node of [anchor, paragraph, reader, content, card, rail]) if (node) observer?.observe(node);
     win.addEventListener("resize", schedule);
     win.addEventListener("scroll", schedule, true);
     win.visualViewport?.addEventListener("resize", schedule);

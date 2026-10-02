@@ -147,3 +147,31 @@ it('真实卡片多行句子避让，内容过长时缩短滚动高度而不压�
   expect(resized.height).toBeLessThan(2000);
   expect(avoid.some(line=>resized.left<line.right&&line.left<resized.right&&resized.top<line.bottom&&line.top<resized.bottom)).toBe(false);
 });
+
+function addChatRail(bounds: () => ReturnType<typeof rect>) {
+  host.classList.add('app-shell');
+  const panel=document.createElement('aside'); panel.className='analysis-panel';
+  const rail=document.createElement('div'); rail.className='chat-messages'; panel.append(rail); host.append(panel);
+  vi.spyOn(rail,'getBoundingClientRect').mockImplementation(bounds);
+}
+it('概念优先停靠右侧聊天区，右栏拉宽与长内容重排后仍不盖正文', async () => {
+  let railLeft=1000; addChatRail(()=>rect(railLeft,96,1500-railLeft,500));
+  act(()=>root.render(<AnnotationPopover id="rail" title="概念" anchor={anchor} pinned avoidRects={()=>[rect(250,180,500,60)]} onClose={close}><p>解释</p></AnnotationPopover>));
+  expect(card().dataset.placement).toBe('chat-rail'); expect(card().getBoundingClientRect().left).toBeGreaterThanOrEqual(1000);
+  expect(card().getBoundingClientRect().top).toBe(anchorTop);
+  railLeft=1200; readerWidth=1000; popupHeight=2000;
+  act(()=>observerCallback?.([],{} as ResizeObserver)); await flush();
+  const result=card().getBoundingClientRect();
+  expect(card().dataset.placement).toBe('chat-rail'); expect(result.left).toBeGreaterThanOrEqual(1200);
+  expect(result.width).toBeLessThanOrEqual(276); expect(result.bottom).toBeLessThanOrEqual(584);
+});
+it('隐藏聊天栏时仍避开当前句子', () => {
+  addChatRail(()=>rect(0,0,0,0)); const avoid=[rect(240,180,520,92)];
+  act(()=>root.render(<AnnotationPopover id="rail" title="概念" anchor={anchor} pinned avoidRects={()=>avoid} onClose={close}><p>解释</p></AnnotationPopover>));
+  expect(card().dataset.placement).not.toBe('chat-rail');
+  const result=card().getBoundingClientRect();expect(result.left<avoid[0].right&&result.right>avoid[0].left&&result.top<avoid[0].bottom&&result.bottom>avoid[0].top).toBe(false);
+});
+it('句读历史未请求句子避让时不被概念停靠策略改变', () => {
+  addChatRail(()=>rect(1000,96,500,500)); show();
+  expect(card().dataset.placement).not.toBe('chat-rail'); expect(card().style.left).toBe('612px');
+});
