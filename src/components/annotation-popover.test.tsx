@@ -136,42 +136,35 @@ describe("AnnotationPopover DOM 交互与重定位", () => {
   });
 });
 
-it('真实卡片多行句子避让，内容过长时缩短滚动高度而不压回句子', async () => {
-  const avoid=[rect(240,180,520,28),rect(240,212,520,28),rect(240,244,300,28)];
-  act(()=>root.render(<AnnotationPopover id="protected" title="概念" anchor={anchor} pinned avoidRects={()=>avoid} onClose={close}><p>定义内容</p></AnnotationPopover>));
-  const first=card().getBoundingClientRect();
-  expect(avoid.some(line=>first.left<line.right&&line.left<first.right&&first.top<line.bottom&&line.top<first.bottom)).toBe(false);
-  popupHeight=2000;
-  act(()=>observerCallback?.([],{} as ResizeObserver)); await flush();
-  const resized=card().getBoundingClientRect();
-  expect(resized.height).toBeLessThan(2000);
-  expect(avoid.some(line=>resized.left<line.right&&line.left<resized.right&&resized.top<line.bottom&&line.top<resized.bottom)).toBe(false);
+
+function showConcept() {
+  act(()=>root.render(<AnnotationPopover id="word" title="概念" anchor={anchor} pinned placement="word" onClose={close}><p>词义解释</p></AnnotationPopover>));
+}
+it('概念卡默认紧贴词下方，不因聊天栏存在而侧向停靠', () => {
+  host.classList.add('app-shell');
+  const panel=document.createElement('aside');panel.className='analysis-panel';panel.innerHTML='<div class="chat-messages"></div>';host.append(panel);
+  vi.spyOn(panel.firstElementChild!,'getBoundingClientRect').mockReturnValue(rect(1000,60,500,650));
+  showConcept(); const result=card().getBoundingClientRect();
+  expect(card().dataset.placement).toBe('word-below'); expect(result.left).toBe(450); expect(result.top).toBe(anchorTop+18+12);
+});
+it('滚动后词移到底部时卡片翻到词上方，保持12px间隔', async () => {
+  showConcept(); anchorTop=690; act(()=>window.dispatchEvent(new Event('scroll'))); await flush();
+  const result=card().getBoundingClientRect();
+  expect(card().dataset.placement).toBe('word-above');expect(result.bottom).toBe(anchorTop-12);
+});
+it('超长概念卡缩短高度并滚动，仍只在词上方或下方', async () => {
+  showConcept(); popupHeight=2000; act(()=>observerCallback?.([],{} as ResizeObserver)); await flush();
+  const result=card().getBoundingClientRect();
+  expect(card().dataset.placement).toBe('word-below'); expect(result.top).toBe(anchorTop+18+12); expect(result.bottom).toBeLessThanOrEqual(748);
+});
+it('历史浮窗仍保留原有留白定位，不被概念上下定位改变', () => {
+  show(); expect(card().dataset.placement).not.toBe('word-below');expect(card().style.left).toBe('612px');
 });
 
-function addChatRail(bounds: () => ReturnType<typeof rect>) {
-  host.classList.add('app-shell');
-  const panel=document.createElement('aside'); panel.className='analysis-panel';
-  const rail=document.createElement('div'); rail.className='chat-messages'; panel.append(rail); host.append(panel);
-  vi.spyOn(rail,'getBoundingClientRect').mockImplementation(bounds);
-}
-it('概念优先停靠右侧聊天区，右栏拉宽与长内容重排后仍不盖正文', async () => {
-  let railLeft=1000; addChatRail(()=>rect(railLeft,96,1500-railLeft,500));
-  act(()=>root.render(<AnnotationPopover id="rail" title="概念" anchor={anchor} pinned avoidRects={()=>[rect(250,180,500,60)]} onClose={close}><p>解释</p></AnnotationPopover>));
-  expect(card().dataset.placement).toBe('chat-rail'); expect(card().getBoundingClientRect().left).toBeGreaterThanOrEqual(1000);
-  expect(card().getBoundingClientRect().top).toBe(anchorTop);
-  railLeft=1200; readerWidth=1000; popupHeight=2000;
-  act(()=>observerCallback?.([],{} as ResizeObserver)); await flush();
-  const result=card().getBoundingClientRect();
-  expect(card().dataset.placement).toBe('chat-rail'); expect(result.left).toBeGreaterThanOrEqual(1200);
-  expect(result.width).toBeLessThanOrEqual(276); expect(result.bottom).toBeLessThanOrEqual(584);
-});
-it('隐藏聊天栏时仍避开当前句子', () => {
-  addChatRail(()=>rect(0,0,0,0)); const avoid=[rect(240,180,520,92)];
-  act(()=>root.render(<AnnotationPopover id="rail" title="概念" anchor={anchor} pinned avoidRects={()=>avoid} onClose={close}><p>解释</p></AnnotationPopover>));
-  expect(card().dataset.placement).not.toBe('chat-rail');
-  const result=card().getBoundingClientRect();expect(result.left<avoid[0].right&&result.right>avoid[0].left&&result.top<avoid[0].bottom&&result.bottom>avoid[0].top).toBe(false);
-});
-it('句读历史未请求句子避让时不被概念停靠策略改变', () => {
-  addChatRail(()=>rect(1000,96,500,500)); show();
-  expect(card().dataset.placement).not.toBe('chat-rail'); expect(card().style.left).toBe('612px');
+it('??????????????????????', () => {
+  const article=host.querySelector('article')!,viewport=document.createElement('div');viewport.className='reading-content';
+  const paragraph=host.querySelector('p')!;article.append(viewport);viewport.append(paragraph);
+  vi.spyOn(viewport,'getBoundingClientRect').mockReturnValue(rect(200,100,800,450));
+  anchorTop=400;showConcept();
+  expect(card().dataset.placement).toBe('word-above');expect(card().getBoundingClientRect().bottom).toBe(anchorTop-12);
 });

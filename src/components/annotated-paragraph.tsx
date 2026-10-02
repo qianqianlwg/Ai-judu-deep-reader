@@ -6,7 +6,6 @@ import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type 
 import { AnnotationPopover } from "./annotation-popover";
 import { ConceptPopoverContent, HistoryPopoverContent } from "./reading-popover-content";
 import "./annotation-popover.css";
-import { sentenceRectsForElement } from "@/lib/reader-sentence-geometry";
 
 type Props = {
   paragraphId: string;
@@ -96,7 +95,7 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
       </Fragment>;
     })}
     {placementNotice&&<span data-reader-decoration="" role="status">{placementNotice}</span>}
-    {visible && <AnnotationPopover key={visible.key} id={id} anchor={visible.anchor} avoidRects={visible.kind==='concept'?()=>sentenceRectsForElement(visible.anchor):undefined} onPlacementUnavailable={setPlacementNotice} title={visible.kind === "concept" ? visible.concept.name : "句读历史"} pinned={visible.pinned} onClose={close}>
+    {visible && <AnnotationPopover key={visible.key} id={id} anchor={visible.anchor} placement={visible.kind==='concept'?'word':undefined} onPlacementUnavailable={setPlacementNotice} title={visible.kind === "concept" ? visible.concept.name : "句读历史"} pinned={visible.pinned} onClose={close}>
       {visible.kind === "concept" ? <ConceptPopoverContent concept={visible.concept}/> : <HistoryPopoverContent annotations={visible.annotations} onOpen={annotation=>{onOpenAnnotation(annotation);close(false);}}/>}
     </AnnotationPopover>}
   </p>;

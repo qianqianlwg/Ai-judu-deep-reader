@@ -3,7 +3,7 @@
 import React, { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import "./annotation-popover.css";
-import { placeOutsideSentence } from "./reader-popover-placement";
+import { placeBelowWord } from "./reader-popover-placement";
 
 type Bounds = { left: number; right: number; top: number; bottom: number };
 type Size = { width: number; height: number };
@@ -61,7 +61,7 @@ export function isInPopoverBridge(point: { x: number; y: number }, anchor: Bound
 export type PopoverSource = { document:Document; toHostPoint(x:number,y:number):{x:number;y:number}; containsPoint(x:number,y:number):boolean };
 type Props = {
   source?:PopoverSource;
-  avoidRects?:()=>readonly Bounds[];
+  placement?:"word";
   onPlacementUnavailable?:(message:string)=>void;
   returnFocus?:()=>void;
   id: string;
@@ -73,7 +73,7 @@ type Props = {
 };
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 
-export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, children, source, returnFocus, avoidRects, onPlacementUnavailable }: Props) {
+export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, children, source, returnFocus, placement, onPlacementUnavailable }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -104,7 +104,6 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     const reader = anchor.closest<HTMLElement>("[data-reading-pane], .reading-pane");
     const content = anchor.closest<HTMLElement>("[data-reading-viewport], .reading-content");
     const shell = anchor.closest(".app-shell");
-    const rail = shell?.querySelector<HTMLElement>(".analysis-panel .chat-messages");
     const update = () => {
       const visual = win.visualViewport;
       const viewport = { left: visual?.offsetLeft ?? 0, top: visual?.offsetTop ?? 0, right: (visual?.offsetLeft ?? 0) + (visual?.width ?? win.innerWidth), bottom: (visual?.offsetTop ?? 0) + (visual?.height ?? win.innerHeight) };
@@ -114,19 +113,17 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
       if (!anchor.isConnected || triggerRect.bottom < Math.max(viewport.top, visible.top) || triggerRect.top > Math.min(viewport.bottom, visible.bottom) || triggerRect.right < viewport.left || triggerRect.left > viewport.right) {
         onCloseRef.current(false); return;
       }
-      const bounds = getPopoverBounds(viewport, readerRect);
-      const avoid = avoidRects?.();
-      // WHY：概念卡优先使用右栏，不能先被正文窄栏压小；最终尺寸由真实停靠区约束。
-      const measureBounds = avoid?.length ? getPopoverBounds(viewport, viewport) : bounds;
-      card.style.maxWidth = Math.max(0, measureBounds.right - measureBounds.left) + "px";
-      card.style.maxHeight = Math.max(0, measureBounds.bottom - measureBounds.top) + "px";
+      // WHY?????????????????????????????????????
+      const bounds = getPopoverBounds(viewport, placement === "word" ? visible : readerRect);
+      card.style.maxWidth = Math.max(0, bounds.right - bounds.left) + "px";
+      card.style.maxHeight = Math.max(0, bounds.bottom - bounds.top) + "px";
       // WHY：先应用尺寸约束再测量实际卡片，不能用估算高度定位长定义或句读历史。
       const size = card.getBoundingClientRect();
       card.dataset.theme = shell?.classList.contains("theme-dark") ? "dark" : shell?.classList.contains("theme-paper") ? "paper" : "light";
-      if (avoid?.length) {
-        const position = placeOutsideSentence({ bounds, viewport, anchor: triggerRect, avoid, width: size.width, height: size.height, preferredBounds: rail?.getBoundingClientRect() });
+      if (placement === "word") {
+        const position = placeBelowWord({ bounds, anchor: triggerRect, width: size.width, height: size.height });
         if (!position) {
-          const message = '当前句子占满可用窗口，请调整字号或窗口大小后再查看概念。';
+          const message = '当前词位附近没有可用空间，请滚动页面或调整窗口大小后再查看概念。';
           console.warn(message); onPlacementUnavailable?.(message); onCloseRef.current(false); return;
         }
         card.style.maxWidth = position.maxWidth + 'px'; card.style.maxHeight = position.maxHeight + 'px';
@@ -145,7 +142,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
     };
     update();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
-    for (const node of [anchor, paragraph, reader, content, card, rail]) if (node) observer?.observe(node);
+    for (const node of [anchor, paragraph, reader, content, card]) if (node) observer?.observe(node);
     win.addEventListener("resize", schedule);
     win.addEventListener("scroll", schedule, true);
     win.visualViewport?.addEventListener("resize", schedule);
@@ -158,7 +155,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
       win.visualViewport?.removeEventListener("resize", schedule); win.visualViewport?.removeEventListener("scroll", schedule);
       doc.fonts?.removeEventListener("loadingdone", schedule);
     };
-  }, [anchor, children, avoidRects, onPlacementUnavailable]);
+  }, [anchor, children, placement, onPlacementUnavailable]);
 
   useEffect(() => {
     const doc = anchor.ownerDocument;
