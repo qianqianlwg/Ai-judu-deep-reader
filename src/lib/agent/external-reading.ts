@@ -3,11 +3,12 @@ import { XMLParser } from "fast-xml-parser";
 import { isRecord } from "../chat-stream";
 import type { ExternalResult, ExternalResponse } from "./external-search";
 
-export type RegisteredExternalSource = { source: "openalex" | "web"; query: string; result: ExternalResult; readUrl?: string; xmlId?: string };
+export type RegisteredExternalSource = { source: "openalex" | "web"; query: string; result: ExternalResult; readUrl?: string; readUrls?: string[]; xmlId?: string };
 export type CrossrefCheck = { status: "verified" | "not_found" | "unavailable" | "not_authorized"; doi?: string; title?: string; venue?: string; recordType?: string };
+export type ReadingAttempt = { url: string; code: string; message: string };
 export type ExternalReading =
-  | { ok: true; sourceId: string; source: "openalex" | "web"; title: string; url: string; text: string; evidence: "extracted"; coverage: "relevant_chunks" | "selected_passages"; provider: "tavily" | "openalex_xml"; crossref?: CrossrefCheck; durationMs: number }
-  | { ok: false; sourceId: string; code: string; message: string; durationMs?: number; crossref?: CrossrefCheck };
+  | { ok: true; sourceId: string; source: "openalex" | "web"; title: string; url: string; text: string; evidence: "extracted"; coverage: "relevant_chunks" | "selected_passages"; provider: "tavily" | "openalex_xml"; crossref?: CrossrefCheck; durationMs: number; attempts?: ReadingAttempt[] }
+  | { ok: false; sourceId: string; code: string; message: string; durationMs?: number; crossref?: CrossrefCheck; attempts?: ReadingAttempt[] };
 
 // WHY：Tavily 将代用户抓取已检索的公开网页，拒绝内网、非 HTTPS、IP 和带端口 URL，不能让模型提供任意抓取目标。
 export function publicReadingUrl(value: unknown): string | undefined {
@@ -37,16 +38,25 @@ export function openAlexXmlId(work: Record<string, unknown>): string | undefined
   const url = publicReadingUrl(work.content_urls.grobid_xml);
   return url === "https://content.openalex.org/works/" + id + ".grobid-xml" ? id : undefined;
 }
-export function openAlexReadingUrl(work: Record<string, unknown>): string | undefined {
-  const location = isRecord(work.best_oa_location) ? work.best_oa_location : undefined;
-  if (!location || location.is_oa !== true) return;
-  // WHY：优先 HTML 落地页；通用网页提取器处理 PDF 的成功率和内容覆盖不稳定。
-  return publicReadingUrl(location.landing_page_url) ?? publicReadingUrl(location.pdf_url);
+export function openAlexReadingUrls(work: Record<string, unknown>): string[] {
+  // WHY：仅使用来源明确标记 OA 的已发现位置，保留落地页、PDF 和仓储版本供回退，不绕过访问权限。
+  const locations = [work.best_oa_location, ...(Array.isArray(work.locations) ? work.locations : [])];
+  const urls = new Set<string>();
+  for (const location of locations) {
+    if (!isRecord(location) || location.is_oa !== true) continue;
+    for (const value of [location.landing_page_url, location.pdf_url]) {
+      const url = publicReadingUrl(value); if (url) urls.add(url);
+    }
+  }
+  return [...urls].slice(0, 3);
 }
-function extractedParagraphs(xml: string, query: string): string {
+export function openAlexReadingUrl(work: Record<string, unknown>): string | undefined { return openAlexReadingUrls(work)[0]; }
+function extractedParagraphs(xml: string): string {
   const parser = new XMLParser({ ignoreAttributes: true, processEntities: false, parseTagValue: false });
   const document: unknown = parser.parse(xml);
-  const body = isRecord(document) && isRecord(document.TEI) && isRecord(document.TEI.text) ? document.TEI.text.body : undefined;
+  const root = isRecord(document) ? document.TEI ?? document.tei : undefined;
+  const text = isRecord(root) && isRecord(root.text) ? root.text : undefined;
+  const body = text?.body ?? text?.div;
   if (!body) return "";
   const plain = (node: unknown): string => {
     if (typeof node === "string") return node;
@@ -67,59 +77,72 @@ function extractedParagraphs(xml: string, query: string): string {
     }
   };
   visit(body);
-  const terms = [...new Set((query.toLowerCase().match(/[\p{L}]{4,}/gu) ?? []).slice(0, 8))];
-  const ranked = paragraphs.map((text, index) => ({ index, text, score: terms.reduce((sum, term) => sum + (text.toLowerCase().includes(term) ? 1 : 0), 0) }));
-  const selected = ranked.sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 8).sort((a, b) => a.index - b.index);
-  return selected.map(item => item.text).join("\n\n").slice(0, 6500);
+  // WHY：仅按原文顺序返回有界片段，相关性判断由 Agent 完成，不使用本地关键词打分。
+  return paragraphs.join("\n\n").slice(0, 6500);
 }
 
 export function createExternalReader(env: Record<string, string | undefined> = process.env, fetcher: typeof fetch = fetch) {
   return async (sourceId: string, entry: RegisteredExternalSource, signal: AbortSignal, checkCrossref?: () => Promise<CrossrefCheck>, allowWeb = true): Promise<ExternalReading> => {
     const started = Date.now();
-    const publicUrl = publicReadingUrl(entry.readUrl);
-    if (!publicUrl && !entry.xmlId) return { ok: false, sourceId, code: "no_open_content", message: "此条目未发现可安全读取的公开正文地址；仅能核对书目" };
-    // WHY：仅凭 OpenAlex 的可验证作品 ID 在固定域名取已标记 OA 的机器解析正文，不访问模型提供的 URL。
-    if (entry.source === "openalex" && entry.xmlId && env.OPENALEX_API_KEY?.trim()) {
-      try {
-        const url = new URL("https://content.openalex.org/works/" + entry.xmlId + ".grobid-xml");
-        url.searchParams.set("api_key", env.OPENALEX_API_KEY.trim());
-        const xml = await fetcher(url, { headers: { Accept: "application/xml" }, signal: AbortSignal.any([signal, AbortSignal.timeout(9000)]), redirect: "error", cache: "no-store" });
-        if (xml.ok) {
-          const text = extractedParagraphs(await limitedBody(xml), entry.query);
-          if (text) {
-            // WHY：DOI 核验是附加元数据，不能因其故障丢弃已成功取得的正文。
-            const crossref = await safeCrossref(checkCrossref);
-            return { ok: true, sourceId, source: entry.source, title: entry.result.title, url: "https://openalex.org/" + entry.xmlId, text, evidence: "extracted", coverage: "selected_passages", provider: "openalex_xml", ...(crossref ? { crossref } : {}), durationMs: Date.now() - started };
-          }
+    const urls = [...new Set([entry.readUrl, ...(entry.readUrls ?? [])].map(publicReadingUrl).filter((url): url is string => Boolean(url)))].slice(0, 3);
+    const attempts: ReadingAttempt[] = [];
+    const failure = (code: string, message: string, crossref?: CrossrefCheck): ExternalReading => ({ ok: false, sourceId, code, message, attempts, durationMs: Date.now() - started, ...(crossref ? { crossref } : {}) });
+    signal.throwIfAborted();
+    if (!urls.length && !entry.xmlId) return failure("no_open_content", "未识别公开正文入口；不代表没有公开版本");
+    // WHY：只在固定内容域名读取经 OA 校验的作品，不使用模型自行提供的正文地址。
+    if (entry.source === "openalex" && entry.xmlId) {
+      const address = "https://content.openalex.org/works/" + entry.xmlId + ".grobid-xml";
+      if (!env.OPENALEX_API_KEY?.trim()) attempts.push({ url: address, code: "not_configured", message: "OpenAlex 解析正文需要配置 API Key" });
+      else try {
+        const url = new URL(address); url.searchParams.set("api_key", env.OPENALEX_API_KEY.trim());
+        const response = await fetcher(url, { headers: { Accept: "application/xml" }, signal: AbortSignal.any([signal, AbortSignal.timeout(9000)]), redirect: "error", cache: "no-store" });
+        const text = response.ok ? extractedParagraphs(await limitedBody(response)) : "";
+        if (text) {
+          const crossref = await safeCrossref(checkCrossref);
+          return { ok: true, sourceId, source: entry.source, title: entry.result.title, url: "https://openalex.org/" + entry.xmlId, text, evidence: "extracted", coverage: "selected_passages", provider: "openalex_xml", attempts, ...(crossref ? { crossref } : {}), durationMs: Date.now() - started };
         }
+        attempts.push({ url: address, code: response.ok ? "xml_empty" : "xml_http", message: response.ok ? "XML 未识别到正文段落" : "OpenAlex 正文响应 HTTP " + response.status });
       } catch (error: unknown) {
         if (signal.aborted) throw error;
         console.warn("OpenAlex 解析正文读取失败", { reason: error instanceof Error ? error.name : "unknown" });
+        attempts.push({ url: address, code: "xml_failed", message: error instanceof Error && error.message === "response_too_large" ? "XML 响应超过大小上限" : "XML 读取超时或解析异常" });
       }
     }
-    if (!allowWeb) return { ok: false, sourceId, code: "no_open_content", message: "未取得 OpenAlex 解析正文；网页提取未授权，不能读取其它来源", durationMs: Date.now() - started };
-    if (!env.TAVILY_API_KEY?.trim()) return { ok: false, sourceId, code: "not_configured", message: "网页提取未配置", durationMs: Date.now() - started };
-    if (!publicUrl) return { ok: false, sourceId, code: "no_open_content", message: "没有可安全读取的公开链接", durationMs: Date.now() - started };
-    try {
-      signal.throwIfAborted();
-      // WHY：仅发送已登记的公开 URL 与简短检索词，禁用自动回答和图片，相关片段并非整篇文章。
-      const responsePromise = fetcher("https://api.tavily.com/extract", { method: "POST", headers: { Authorization: "Bearer " + env.TAVILY_API_KEY.trim(), "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ urls: [publicUrl], query: entry.query, extract_depth: "basic", chunks_per_source: 5, include_images: false }),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(9000)]), redirect: "error", cache: "no-store" });
-      // WHY：Crossref 仅在获授权且读取有 DOI 的 OpenAlex 候选时并行核对，失败不把提取成功伪装为正文失败。
-      const [response, crossref] = await Promise.all([responsePromise, safeCrossref(checkCrossref)]);
-      if (!response.ok) return { ok: false, sourceId, code: response.status === 429 ? "rate_limited" : "extract_failed", message: "网页提取未取得可用内容", durationMs: Date.now() - started, ...(crossref ? { crossref } : {}) };
-      const payload = await limitedJson(response);
-      if (!isRecord(payload) || !Array.isArray(payload.results)) throw new Error("invalid_extract_response");
-      const match = payload.results.find(item => isRecord(item) && publicReadingUrl(item.url) === publicUrl);
-      const text = isRecord(match) && typeof match.raw_content === "string" ? match.raw_content.replace(/<[^>]*>/gu, " ").replace(/\s+/gu, " ").trim().slice(0, 6500) : "";
-      if (!text) return { ok: false, sourceId, code: "extract_empty", message: "页面没有返回可核读文字；不能推断文献不存在或不可访问", durationMs: Date.now() - started, ...(crossref ? { crossref } : {}) };
-      return { ok: true, sourceId, source: entry.source, title: entry.result.title, url: publicUrl, text, evidence: "extracted", coverage: "relevant_chunks", provider: "tavily", ...(crossref ? { crossref } : {}), durationMs: Date.now() - started };
-    } catch (error: unknown) {
-      if (signal.aborted) throw error;
-      console.warn("外部页面提取失败", { source: entry.source, reason: error instanceof Error ? error.name : "unknown" });
-      return { ok: false, sourceId, code: "extract_failed", message: "页面提取超时或响应异常，未获得可核读文字", durationMs: Date.now() - started };
+    if (!allowWeb) return failure("no_open_content", "未取得 OpenAlex 解析正文；网页提取未授权，不能读取其他来源");
+    if (!urls.length) return failure("no_open_content", "未取得解析正文，也未识别其他安全公开入口");
+    if (!env.TAVILY_API_KEY?.trim()) return failure("not_configured", "网页提取未配置");
+    // WHY：DOI 核验只执行一次，失败不能使正文失效；每条来源最多回退三个已登记公开入口。
+    const crossrefPromise = safeCrossref(checkCrossref);
+    for (const publicUrl of urls) {
+      try {
+        signal.throwIfAborted();
+        const response = await fetcher("https://api.tavily.com/extract", { method: "POST", headers: { Authorization: "Bearer " + env.TAVILY_API_KEY.trim(), "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ urls: [publicUrl], query: entry.query, extract_depth: "basic", chunks_per_source: 5, include_images: false }),
+          signal: AbortSignal.any([signal, AbortSignal.timeout(9000)]), redirect: "error", cache: "no-store" });
+        if (!response.ok) {
+          attempts.push({ url: publicUrl, code: response.status === 429 ? "rate_limited" : "extract_failed", message: "网页提取服务响应 HTTP " + response.status });
+          if ([401, 403, 429].includes(response.status)) break;
+          continue;
+        }
+        const payload = await limitedJson(response);
+        if (!isRecord(payload) || !Array.isArray(payload.results)) throw new Error("invalid_extract_response");
+        const match = payload.results.find(item => isRecord(item) && publicReadingUrl(item.url) === publicUrl);
+        const text = isRecord(match) && typeof match.raw_content === "string" ? match.raw_content.replace(/<[^>]*>/gu, " ").replace(/\s+/gu, " ").trim().slice(0, 6500) : "";
+        if (!text) {
+          const failed = Array.isArray(payload.failed_results) ? payload.failed_results.find(item => isRecord(item) && publicReadingUrl(item.url) === publicUrl) : undefined;
+          // WHY：只反馈已登记 URL 的有界错误信息，不把外部错误作为正文或指令。
+          attempts.push({ url: publicUrl, code: "extract_empty", message: isRecord(failed) && typeof failed.error === "string" ? failed.error.replace(/<[^>]*>/gu, " ").slice(0, 240) : "页面没有返回可核读文字" });
+          continue;
+        }
+        const crossref = await crossrefPromise;
+        return { ok: true, sourceId, source: entry.source, title: entry.result.title, url: publicUrl, text, evidence: "extracted", coverage: "relevant_chunks", provider: "tavily", attempts, ...(crossref ? { crossref } : {}), durationMs: Date.now() - started };
+      } catch (error: unknown) {
+        if (signal.aborted) throw error;
+        console.warn("外部页面提取失败", { source: entry.source, reason: error instanceof Error ? error.name : "unknown" });
+        attempts.push({ url: publicUrl, code: "extract_failed", message: error instanceof Error && error.message === "response_too_large" ? "提取响应超过大小上限" : "页面提取超时或响应异常" });
+      }
     }
+    return failure(attempts.at(-1)?.code ?? "extract_failed", "已尝试公开入口，未取得可核读文字；不代表文献不存在或没有公开版本", await crossrefPromise);
   };
 }
 async function safeCrossref(check?: () => Promise<CrossrefCheck>): Promise<CrossrefCheck | undefined> {

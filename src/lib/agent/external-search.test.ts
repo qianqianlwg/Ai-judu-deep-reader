@@ -77,3 +77,25 @@ describe("外部资料只读连接器", () => {
     expect(await search("web", "topic", new AbortController().signal)).toMatchObject({ ok: false, code: "rate_limited" });
   });
 });
+
+it("无入口检查不占读取名额，其他已登记可读候选仍有两次读取机会", async () => {
+  const search = vi.fn(async () => ({ ok: true as const, source: "openalex" as const, query: "Kant", results: [
+    { title: "Metadata", url: "https://openalex.org/W1", evidence: "metadata" as const },
+    { title: "Readable", url: "https://openalex.org/W2", readUrl: "https://example.org/read", evidence: "metadata" as const },
+  ], evidence: "metadata" as const, durationMs: 1 }));
+  const read = vi.fn(async () => ({ ok: false as const, sourceId: "id", code: "extract_empty", message: "empty" }));
+  const tools = createExternalTools({ permissions: { openalex: true, web: true, crossref: false }, selectedText: "", signal: new AbortController().signal, search, read });
+  const found = JSON.parse(JSON.stringify(await tools[0].invoke({ query: "Kant" }))) as { results: { sourceId: string }[] };
+  const reading = tools.find(tool => tool.name === "read_external_source")!;
+  expect(JSON.stringify(await reading.invoke({ sourceId: found.results[0].sourceId }))).toContain("no_open_content");
+  expect(read).not.toHaveBeenCalled();
+  await reading.invoke({ sourceId: found.results[1].sourceId }); await reading.invoke({ sourceId: found.results[1].sourceId });
+  expect(read).toHaveBeenCalledTimes(2);
+  expect(JSON.stringify(await reading.invoke({ sourceId: found.results[1].sourceId }))).toContain("read_limit");
+});
+
+it("OpenAlex 检索保留多个安全 OA 入口供正文工具回退", async () => {
+  const fetcher = vi.fn(async () => response({ results: [{ display_name: "Kant", id: "https://openalex.org/W123", best_oa_location: { is_oa: true, landing_page_url: "https://example.org/p", pdf_url: "https://example.org/p.pdf" }, locations: [{ is_oa: true, landing_page_url: "https://repo.example/p" }] }] }));
+  const result = await createExternalSearch({}, fetcher as typeof fetch)("openalex", "Kant", new AbortController().signal);
+  expect(result).toMatchObject({ ok: true, results: [{ readUrl: "https://example.org/p", readUrls: ["https://example.org/p", "https://example.org/p.pdf", "https://repo.example/p"] }] });
+});

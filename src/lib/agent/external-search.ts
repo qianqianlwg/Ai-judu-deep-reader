@@ -5,13 +5,13 @@ import { isRecord } from "../chat-stream";
 
 import { externalSources, type ExternalSource, type ExternalPermissions } from "./external-permissions";
 import { externalAvailability } from "./external-availability";
-import { crossrefCheck, openAlexReadingUrl, openAlexXmlId, publicReadingUrl, type RegisteredExternalSource, type createExternalReader } from "./external-reading";
+import { crossrefCheck, openAlexReadingUrl, openAlexReadingUrls, openAlexXmlId, publicReadingUrl, type RegisteredExternalSource, type createExternalReader } from "./external-reading";
 export { externalAvailability } from "./external-availability";
 export { externalSources, emptyExternalPermissions, readExternalPermissions } from "./external-permissions";
 export type { ExternalSource, ExternalPermissions } from "./external-permissions";
 export { externalSearchSchema } from "./external-tool-schemas";
 import { externalSearchSchema, readExternalSchema } from "./external-tool-schemas";
-export type ExternalResult = { title: string; url: string; year?: number; doi?: string; snippet?: string; evidence: "metadata" | "snippet"; sourceId?: string; readUrl?: string; xmlId?: string; venue?: string; recordType?: string };
+export type ExternalResult = { title: string; url: string; year?: number; doi?: string; snippet?: string; evidence: "metadata" | "snippet"; sourceId?: string; readUrl?: string; readUrls?: string[]; xmlId?: string; venue?: string; recordType?: string };
 export type ExternalResponse = { ok: true; source: ExternalSource; query: string; results: ExternalResult[]; durationMs: number; evidence: "metadata" | "snippet"; matchType?: "exact_doi" | "candidates" } | { ok: false; source: ExternalSource; query: string; code: string; message: string; durationMs: number };
 type Fetch = typeof fetch;
 function safeUrl(value: unknown): string | undefined {
@@ -37,7 +37,7 @@ function parseResults(source: ExternalSource, payload: unknown): ExternalResult[
     const published = isRecord(item.published) ? item.published : undefined;
     const dateParts = published?.["date-parts"];
     const crossrefYear = Array.isArray(dateParts) && Array.isArray(dateParts[0]) ? year(dateParts[0][0]) : undefined;
-    results.push({ title, url, ...(year(item.publication_year) ?? crossrefYear ? { year: year(item.publication_year) ?? crossrefYear } : {}), ...(source !== "web" && doiValue(item.doi ?? item.DOI) ? { doi: doiValue(item.doi ?? item.DOI) } : {}), ...(source === "openalex" && openAlexReadingUrl(item) ? { readUrl: openAlexReadingUrl(item) } : {}), ...(source === "openalex" && openAlexXmlId(item) ? { xmlId: openAlexXmlId(item) } : {}), ...(source === "crossref" && typeof item.type === "string" ? { recordType: clean(item.type, 80) } : {}), ...(source === "crossref" && firstText(item["container-title"]) ? { venue: firstText(item["container-title"]) } : {}), ...(source === "web" && clean(item.content ?? item.description) ? { snippet: clean(item.content ?? item.description, 300) } : {}), evidence: source === "web" ? "snippet" : "metadata" });
+    results.push({ title, url, ...(year(item.publication_year) ?? crossrefYear ? { year: year(item.publication_year) ?? crossrefYear } : {}), ...(source !== "web" && doiValue(item.doi ?? item.DOI) ? { doi: doiValue(item.doi ?? item.DOI) } : {}), ...(source === "openalex" && openAlexReadingUrl(item) ? { readUrl: openAlexReadingUrl(item), readUrls: openAlexReadingUrls(item) } : {}), ...(source === "openalex" && openAlexXmlId(item) ? { xmlId: openAlexXmlId(item) } : {}), ...(source === "crossref" && typeof item.type === "string" ? { recordType: clean(item.type, 80) } : {}), ...(source === "crossref" && firstText(item["container-title"]) ? { venue: firstText(item["container-title"]) } : {}), ...(source === "web" && clean(item.content ?? item.description) ? { snippet: clean(item.content ?? item.description, 300) } : {}), evidence: source === "web" ? "snippet" : "metadata" });
   }
   return results;
 }
@@ -103,7 +103,7 @@ export function createExternalTools(options: { permissions: ExternalPermissions;
     const results = result.results.map(item => {
       const readUrl = source === "web" ? publicReadingUrl(item.url) : publicReadingUrl(item.readUrl);
       const sourceId = "external:" + source + ":" + createHash("sha256").update(source + ":" + item.url).digest("hex").slice(0, 24);
-      registered.set(sourceId, { source, query: normalized, result: item, readUrl, ...(source === "openalex" && item.xmlId ? { xmlId: item.xmlId } : {}) });
+      registered.set(sourceId, { source, query: normalized, result: item, readUrl, readUrls: item.readUrls, ...(source === "openalex" && item.xmlId ? { xmlId: item.xmlId } : {}) });
       return { ...item, sourceId, ...(readUrl ? { readUrl } : {}) };
     });
     return { ...result, results };
@@ -113,6 +113,8 @@ export function createExternalTools(options: { permissions: ExternalPermissions;
   const readingTool: StructuredToolInterface = tool(async ({ sourceId }) => {
     const entry = registered.get(sourceId);
     if (!entry) return { ok: false, sourceId, code: "unknown_source", message: "来源尚未在本轮检索中出现，不能读取任意链接" };
+    // WHY：无入口只是候选检查，不消耗有限的正文读取名额。
+    if (!entry.readUrl && !entry.readUrls?.length && !entry.xmlId) return { ok: false, sourceId, attempted: false, code: "no_open_content", message: "未识别公开正文入口（未发起抓取，不占读取名额）；可继续检索其他公开版本" };
     if (++reads > 2) return { ok: false, sourceId, code: "read_limit", message: "本轮最多读取两条外部来源" };
     const verify = entry.source === "openalex" && entry.result.doi && options.permissions.crossref ? async () => {
       if (++calls.crossref > 2) return { status: "unavailable" as const, doi: entry.result.doi };

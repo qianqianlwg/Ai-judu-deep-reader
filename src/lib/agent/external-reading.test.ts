@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createExternalReader, crossrefCheck, openAlexReadingUrl, openAlexXmlId, publicReadingUrl, type RegisteredExternalSource } from "./external-reading";
+import { createExternalReader, crossrefCheck, openAlexReadingUrl, openAlexReadingUrls, openAlexXmlId, publicReadingUrl, type RegisteredExternalSource } from "./external-reading";
 
 const entry: RegisteredExternalSource = { source: "openalex", query: "Kant antinomy", readUrl: "https://example.org/paper", result: { title: "A paper", url: "https://openalex.org/W123", doi: "10.1000/abc", evidence: "metadata" } };
 const reply = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 });
@@ -63,5 +63,48 @@ describe("已发现外部来源的受控阅读", () => {
     expect(result).toMatchObject({ ok: true, provider: "openalex_xml", crossref: { status: "unavailable" } });
     expect(await reader("source", entry, new AbortController().signal, undefined, false)).toMatchObject({ ok: false, code: "no_open_content" });
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+});
+
+describe("公开正文多入口回退与诊断", () => {
+  it("遍历 OA 位置、去重、拒绝不安全及非 OA 地址并限制候选数", () => {
+    expect(openAlexReadingUrls({ best_oa_location: { is_oa: true, landing_page_url: "https://example.org/paper", pdf_url: "https://example.org/paper.pdf" }, locations: [
+      { is_oa: true, landing_page_url: "https://example.org/paper", pdf_url: "https://repo.example/paper.pdf" },
+      { is_oa: false, pdf_url: "https://private.example/paper.pdf" }, { is_oa: true, pdf_url: "https://localhost/a" },
+      { is_oa: true, pdf_url: "https://fourth.example/paper.pdf" },
+    ] })).toEqual(["https://example.org/paper", "https://example.org/paper.pdf", "https://repo.example/paper.pdf"]);
+  });
+  it("落地页失败后读取已登记 PDF，并保留服务的单地址失败原因", async () => {
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const url = JSON.parse(String(init?.body)).urls[0];
+      return url.endsWith(".pdf") ? reply({ results: [{ url, raw_content: "Actual paper text" }] }) : reply({ results: [], failed_results: [{ url, error: "Access denied" }, { url: "https://evil.example/a", error: "unrelated" }] });
+    });
+    const check = vi.fn(async () => ({ status: "verified" as const }));
+    const result = await createExternalReader({ TAVILY_API_KEY: "key" }, fetcher as typeof fetch)("id", { ...entry, readUrls: [entry.readUrl!, "https://example.org/paper.pdf", "https://localhost/a"] }, new AbortController().signal, check);
+    expect(result).toMatchObject({ ok: true, url: "https://example.org/paper.pdf", text: "Actual paper text", attempts: [{ url: entry.readUrl, code: "extract_empty", message: "Access denied" }] });
+    expect(fetcher).toHaveBeenCalledTimes(2); expect(check).toHaveBeenCalledOnce();
+  });
+  it("三个公开入口全部失败时返回各入口原因，服务限流不继续消耗请求", async () => {
+    const fetcher = vi.fn(async () => new Response("fail", { status: 500 }));
+    const source = { ...entry, readUrls: ["https://a.example/p", "https://b.example/p", "https://c.example/p"] };
+    const reader = createExternalReader({ TAVILY_API_KEY: "key" }, fetcher as typeof fetch);
+    const result = await reader("id", source, new AbortController().signal);
+    expect(result).toMatchObject({ ok: false, code: "extract_failed", attempts: expect.arrayContaining([{ url: entry.readUrl, code: "extract_failed", message: "网页提取服务响应 HTTP 500" }]) });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    fetcher.mockClear(); fetcher.mockImplementation(async () => new Response("rate", { status: 429 }));
+    expect(await reader("id", source, new AbortController().signal)).toMatchObject({ ok: false, code: "rate_limited" });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it.each(["<tei><text><body>", "<TEI><text><div>"])("兼容 XML 结构 %s 且不以本地关键词替 Agent 筛选原文", async opening => {
+    const ending = opening.includes("body") ? "</body></text></tei>" : "</div></text></TEI>";
+    const fetcher = vi.fn(async () => new Response(opening + "<p>First original paragraph about experience is retained regardless of query keyword matching.</p><p>Second original paragraph mentions Kant and keeps the original document order intact.</p>" + ending));
+    const result = await createExternalReader({ OPENALEX_API_KEY: "key" }, fetcher as typeof fetch)("id", { ...entry, xmlId: "W123" }, new AbortController().signal, undefined, false);
+    expect(result.ok && result.text).toMatch(/^First original paragraph/);
+  });
+  it("缺少 XML 密钥、未授权网页与已中止请求均不发起抓取", async () => {
+    const fetcher = vi.fn(); const reader = createExternalReader({}, fetcher as typeof fetch);
+    expect(await reader("id", { ...entry, xmlId: "W123" }, new AbortController().signal, undefined, false)).toMatchObject({ ok: false, attempts: [{ code: "not_configured" }] });
+    await expect(reader("id", entry, AbortSignal.abort())).rejects.toBeDefined();
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

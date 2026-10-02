@@ -32,3 +32,23 @@ describe("外部检索透明界面", () => {
     await act(async () => root.unmount());
   });
 });
+
+it("区分未识别入口和候选未验证，并展示回退入口失败原因", async () => {
+  const host = document.createElement("div"), root = createRoot(host);
+  await act(async () => root.render(<ExternalResearchActivity message={{ id: "a", role: "assistant", status: "completed", content: "", tools: [
+    { id: "s", name: "search_openalex", status: "completed", result: { results: [{ title: "书目", url: "https://openalex.org/W1", evidence: "metadata" }, { title: "候选", url: "https://openalex.org/W2", readUrl: "https://example.org/p", evidence: "metadata" }] } },
+    { id: "r", name: "read_external_source", status: "completed", result: { ok: false, message: "未取得正文", attempts: [{ url: "https://example.org/p", code: "extract_empty", message: "Access denied" }, { url: "javascript:alert(1)", message: "读取失败" }] } },
+  ] }} />));
+  expect(host.textContent).toContain("不代表没有公开版本"); expect(host.textContent).toContain("尚未验证可读");
+  expect(host.textContent).toContain("公开入口读取记录 · 2 次"); expect(host.textContent).toContain("Access denied");
+  expect(host.querySelector('[data-source="read_external_source"]')?.getAttribute("data-evidence")).toBe("none");
+  expect(host.querySelector('a[href^="javascript:"]')).toBeNull();
+  await act(async () => root.unmount());
+});
+
+it("无入口检查不冒充实际正文抓取次数", async () => {
+  const host = document.createElement("div"), root = createRoot(host);
+  await act(async () => root.render(<ExternalResearchActivity message={{ id: "a", role: "assistant", status: "completed", content: "", tools: [{ id: "r", name: "read_external_source", status: "completed", result: { ok: false, attempted: false, code: "no_open_content", message: "未识别公开正文入口" } }] }} />));
+  expect(host.textContent).toContain("1 次入口检查"); expect(host.textContent).toContain("未发起抓取"); expect(host.textContent).not.toContain("1 次正文读取");
+  await act(async () => root.unmount());
+});
