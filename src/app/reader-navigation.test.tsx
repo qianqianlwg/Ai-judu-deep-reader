@@ -160,3 +160,12 @@ describe("多段选文真实页面装配",()=>{
   await selectBetween('b',12,'b',24,true);expect(element('.selection-preview blockquote').textContent).toBe(sourceB.slice(12,24));
  });
 });
+
+
+it("取消本节句读入口后，工具栏和章首只保留选文句读", async () => {
+  await mount();
+  expect([...host.querySelectorAll("button")].filter(item => /本节句读|句读本节/u.test(item.textContent ?? ""))).toHaveLength(0);
+  expect(element(".page-heading h1").textContent).toBe("甲章");
+  await selectA();
+  expect(button("句读一下")).toBeDefined();
+});
