@@ -21,6 +21,7 @@ async function installStyles(): Promise<void> {
     // WHY：模拟聊天全局样式后再加载生产模块规则，验证不是仅靠删除 Agent 原文换行来收紧段距。
     style.textContent = '.message-content { white-space: pre-wrap; }\n' + css
       .replaceAll('.body', '.' + styles.body)
+      .replaceAll('.source', '.' + styles.source)
       .replace(/:global\(([^)]+)\)/gu, '$1');
     document.head.append(style);
 }
@@ -52,5 +53,22 @@ describe('句读 Markdown 段距', () => {
     await installStyles();
     expect(getComputedStyle(body!.querySelector('p:last-child')!).marginBottom).toBe('0px');
     expect(getComputedStyle(body!).whiteSpace).toBe('normal');
+  });
+});
+
+describe('展开原文的字号', () => {
+  it('原文正文接入独立样式，保留折叠标题、标注及定位操作', async () => {
+    document.body.innerHTML = renderToStaticMarkup(<SemanticReadingResult state={{ version: 1, phase: 'completed', units: [{ ...unit, sourceEmphasis: [{ paragraphId: 'p', startOffset: 0, endOffset: 2, quote: '原文', kind: 'term' }] }] }} onOpenSource={() => undefined}/>);
+    const details = document.querySelector('details.semantic-source');
+    expect(details?.classList.contains(styles.source)).toBe(true);
+    expect(details?.hasAttribute('open')).toBe(false);
+    expect(details?.querySelector('summary')?.textContent).toContain('原文');
+    expect(details?.querySelector('blockquote [data-source-emphasis="term"]')?.textContent).toBe('原文');
+    expect(details?.querySelector('button')?.textContent).toContain('定位原文');
+    await installStyles();
+    expect(getComputedStyle(details!.querySelector('blockquote')!).lineHeight).toBe('1.85');
+    const css = await readFile(path.resolve('src/components/semantic-reading-answer.module.css'), 'utf8');
+    expect(css).toContain('font-size: max(13px, calc(var(--chat-response-font-size, max(15px, calc(var(--ui-text-size, 13px) + 2px))) - 2px))');
+    expect(css).not.toMatch(/\.source[^{}]*>\s*summary\s*\{/u);
   });
 });

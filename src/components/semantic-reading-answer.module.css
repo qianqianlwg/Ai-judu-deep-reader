@@ -4,3 +4,10 @@
 .body :global(p:last-child) { margin-bottom: 0; }
 /* WHY：正文收紧不改写 Agent 内容；代码块仍需保留缩进和逐行换行。 */
 .body :global(pre) { white-space: pre-wrap; }
+
+/* WHY：展开原文比句读正文小 2px，最低 13px；随界面字号联动，标题和操作继续使用辅助字号。 */
+:global(.semantic-reading) .source:global(.semantic-source) > blockquote {
+  font-size: max(13px, calc(var(--chat-response-font-size, max(15px, calc(var(--ui-text-size, 13px) + 2px))) - 2px));
+  line-height: 1.85;
+  color: var(--reading-text);
+}
