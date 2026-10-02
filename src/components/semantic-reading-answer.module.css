@@ -1,0 +1,6 @@
+/* WHY：Markdown 自身已生成段落；折叠节点间换行，避免聊天正文的 pre-wrap 额外撑出空行。 */
+.body:global(.semantic-answer) { white-space: normal; }
+.body :global(p) { margin: 0 0 10px; white-space: normal; }
+.body :global(p:last-child) { margin-bottom: 0; }
+/* WHY：正文收紧不改写 Agent 内容；代码块仍需保留缩进和逐行换行。 */
+.body :global(pre) { white-space: pre-wrap; }

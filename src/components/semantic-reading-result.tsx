@@ -9,6 +9,7 @@ import type { SemanticReading, SemanticUnit } from '@/lib/semantic-reading';
 import type { ReadingAnchor } from '@/lib/reading-anchors';
 import { anchorParts } from '@/lib/reading-anchors';
 import './semantic-reading.css';
+import answerStyles from './semantic-reading-answer.module.css';
 import { SemanticReadingConclusion } from './semantic-reading-conclusion';
 type Props={state:SemanticReading;disabled?:boolean;onOpenSource?:(a:ReadingAnchor)=>void;onReadUnit?:(unit:SemanticUnit)=>void;onRetry?:()=>void;onDiscussUnit?:(unit:SemanticUnit)=>void;onOpenCitation?:(paragraphId:string,quote:string,messageId?:string)=>void};
 export function SemanticReadingResult({state,disabled,onOpenSource,onReadUnit,onRetry,onDiscussUnit,onOpenCitation}:Props){
@@ -32,7 +33,7 @@ export function SemanticReadingResult({state,disabled,onOpenSource,onReadUnit,on
    <summary className='semantic-list-heading'><span className='semantic-list-icon' aria-hidden='true'>⌄</span><span>句读内容</span><small>{progress.completed} {state.readingStyle==='whole'?'块':'句'}</small></summary>
   <div className='semantic-units'>{read.map((unit,index)=><article key={unit.id} className='semantic-unit' data-message-id={unit.id} data-unit-status={unit.status}>
    <div className='semantic-unit-heading'><span className='semantic-unit-number'>{String(index+1).padStart(2,'0')}</span><h4>{unit.label}</h4><span>{unit.status==='completed'?'':unit.status==='streaming'?'生成中':unit.status==='error'?'待继续':'等待'}</span></div>
-   {unit.content?<div className='semantic-answer message-content'><Markdown remarkPlugins={[remarkGfm,...(emphasis(unit)?[[remarkAnswerEmphasis,emphasis(unit)!] as [typeof remarkAnswerEmphasis,AnswerEmphasis]]:[])]} skipHtml components={{img:({alt})=><span>[图片未自动加载{alt?'：'+alt:''}]</span>,a:({children,...props})=><a {...props} target='_blank' rel='noopener noreferrer'>{children}</a>}}>{unit.content}</Markdown></div>:unit.status==='streaming'?<p className='semantic-note'>正在释读这段意思…</p>:null}
+   {unit.content?<div className={'semantic-answer message-content '+answerStyles.body}><Markdown remarkPlugins={[remarkGfm,...(emphasis(unit)?[[remarkAnswerEmphasis,emphasis(unit)!] as [typeof remarkAnswerEmphasis,AnswerEmphasis]]:[])]} skipHtml components={{img:({alt})=><span>[图片未自动加载{alt?'：'+alt:''}]</span>,a:({children,...props})=><a {...props} target='_blank' rel='noopener noreferrer'>{children}</a>}}>{unit.content}</Markdown></div>:unit.status==='streaming'?<p className='semantic-note'>正在释读这段意思…</p>:null}
    {source(unit)}
    {!!unit.analysis?.citations?.length&&<details className='semantic-source'><summary>引用依据 · {unit.analysis.citations.length} 处</summary>{unit.analysis.citations.map((citation,i)=><button type='button' className='semantic-citation' key={i} disabled={!onOpenCitation} onClick={()=>onOpenCitation?.(citation.paragraphId,citation.quote,unit.id)}>“{citation.quote}”</button>)}</details>}
    {unit.error&&<p className='semantic-unit-error' role='status'>{unit.error}</p>}
