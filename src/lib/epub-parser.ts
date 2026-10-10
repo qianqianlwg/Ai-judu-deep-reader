@@ -1,4 +1,4 @@
-import { EPub } from "epub";
+import { UriAwareEpub } from "./epub-chapter-uri";
 
 export type ParsedChapter = { title: string; paragraphs: string[]; sourceHref: string };
 export type ParsedEpub = { title: string; author: string; chapters: ParsedChapter[] };
@@ -53,7 +53,7 @@ export function shouldSkipEpubSection(item: FlowItem, headings: string[], paragr
     || (paragraphs.length === 0 && headings.length === 0);
 }
 export async function parseEpubFile(filePath: string): Promise<ParsedEpub> {
-  const book = new EPub(filePath) as unknown as EpubBook;
+  const book = new UriAwareEpub(filePath) as unknown as EpubBook;
   await book.parse();
   const chapters: ParsedChapter[] = [];
   for (const item of book.flow) {
