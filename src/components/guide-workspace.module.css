@@ -145,3 +145,23 @@
 .emptyHint { top:110px; }
 @media(max-width:1100px) { .toolbar { gap:6px;flex-wrap:wrap; }.tools { justify-content:flex-end; }.search { max-width:none; }.inspector { top:128px; } }
 @media(max-width:700px) { .toolbar { left:10px;right:10px;top:10px;padding:6px 8px;gap:5px; }.tools { width:100%;overflow:auto;justify-content:space-between; }.tools > button { min-width:36px;padding-inline:4px;font-size:10px!important; }.search { flex-basis:40%; }.outline { padding-top:130px; }.body[data-detail-open="true"]>.inspector { top:0;bottom:0;left:0;right:0;width:100%;max-width:none;z-index:8;border-radius:0; }.emptyHint { top:136px; }.footer>span:last-child { display:none; } }
+
+/* WHY：颜色对照是工具栏中段，不另浮在画布；宽屏自动扩展，窄屏独占一行避免挤压操作按钮。 */
+.toolbar .search { flex:0 1 130px;min-width:90px; }
+@media(max-width:1100px) { .toolbar>section { order:3;flex-basis:100%;border-left:0;padding:3px 0 0; }.toolbar .tools { order:2; }.inspector { top:164px; }.outline { padding-top:170px; } }
+@media(max-width:700px) { .toolbar>section { order:3; }.toolbar .search { flex:1; }.body[data-detail-open="true"]>.inspector { top:0; }.outline { padding-top:215px; } }
+
+/* WHY：目录可拖宽后，导读可用宽度不再等于窗口宽度；按容器换行，不能把右侧工具裁掉。 */
+.workspace{container-type:inline-size;container-name:guide-workspace;}
+@container guide-workspace (max-width:1000px){
+ .toolbar{gap:6px;flex-wrap:wrap;}
+ .toolbar>section{order:3;flex-basis:100%;min-width:0;border-left:0;padding:3px 0 0;}
+ .toolbar .tools{order:2;flex-wrap:wrap;max-width:100%;margin-left:auto;}
+ .inspector{top:164px;}.outline{padding-top:170px;}
+}
+@container guide-workspace (max-width:700px){
+ .toolbar{left:10px;right:10px;top:10px;padding:6px 8px;gap:5px;}
+ .toolbar .tools{width:100%;justify-content:flex-start;overflow:visible;}
+ .toolbar .search{flex:1;}.toolbar .tools>button{min-width:36px;padding-inline:4px;font-size:10px!important;}
+ .outline{padding-top:215px;}.body[data-detail-open="true"]>.inspector{top:0;bottom:0;left:0;right:0;width:100%;max-width:none;z-index:8;border-radius:0;}
+}

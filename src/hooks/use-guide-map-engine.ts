@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fromMindTree,
   mindCanvasSignature,
@@ -9,8 +9,12 @@ import {
 } from "@/lib/guide-map-adapter";
 import { isMindNode, type MindMapEngine } from "@/lib/guide-map-engine";
 import { loadGuideEngine } from "@/lib/guide-map-loader";
+import { applyGuideLocationLines } from "@/lib/guide-location-lines";
+import type { GuideLocations, GuideColorScale } from "@/lib/guide-locations";
 import type { GuideCommand, GuideNode } from "@/lib/guide";
 export type GuideEngineProps = {
+  locations?: GuideLocations | null;
+  colorScale?: GuideColorScale;
   bookId: string;
   title: string;
   nodes: GuideNode[];
@@ -330,9 +334,20 @@ export function useGuideMapEngine(props: GuideEngineProps) {
     ready,
     revision,
   ]);
-  function action(fn: (map: MindMapEngine) => void) {
+  useEffect(() => {
+    const map = engine.current;
+    if (!ready || !map || props.locations === undefined) return;
+    try { applyGuideLocationLines(map, props.nodes, props.locations, props.colorScale); }
+    catch (cause: unknown) {
+      console.error("更新导图位置颜色失败", cause);
+      // WHY：外部 SVG 内核失败必须提供可恢复反馈；正常绘制路径不更新 React 状态。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError("连线位置颜色暂时无法更新，请重新加载画板；导读内容已保留。");
+    }
+  }, [props.locations, props.colorScale, props.nodes, ready, revision]);
+  const action = useCallback((fn: (map: MindMapEngine) => void) => {
     if (engine.current) fn(engine.current);
-  }
+  }, []);
   return {
     element,
     ready,

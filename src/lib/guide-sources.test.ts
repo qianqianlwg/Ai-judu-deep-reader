@@ -10,3 +10,5 @@ describe("仅已完成句读选文进入导读", () => {
   it("锚点不能越过书籍版本或改写原文", () => { f.message("wrong", {}, "completed", "t2"); expect(enqueueGuideSource(f.db, "wrong")).toBe(false); f.message("fake", { anchor: { ...f.anchor, selectedText: "这是伪造文字" } }); expect(enqueueGuideSource(f.db, "fake")).toBe(false); });
   it("历史迁移只查本书未纳入的已完成句读", () => { f.message(); f.message("unread", {}, "error"); expect(historicalGuideIds(f.db, "b")).toEqual(["m"]); enqueueGuideSource(f.db, "m"); expect(historicalGuideIds(f.db, "b")).toEqual([]); });
 });
+
+it('来源保留独立句读UUID，同时携带主Agent完成的分析正文',()=>{f.message('unit',{_request:undefined,_semanticParent:'parent'});enqueueGuideSource(f.db,'unit');const source=readGuideSources(f.db,'b',['unit'])[0];expect(source.id).toBe('unit');expect(source.anchor.paragraphId).toBe('p');expect(source.analysisText).toBe('已完成句读');});

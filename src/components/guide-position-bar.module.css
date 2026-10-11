@@ -1,0 +1,22 @@
+.legend { width:600px;max-width:100%;padding:12px 16px;background:var(--reading-paper,#fff);border-radius:6px;box-shadow:0 2px 14px #00000009;color:var(--reading-text,#454545);font-size:12px; }
+.heading { display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap; }
+.heading strong { font-size:13px;font-weight:500; }.heading>span,.axis,.note { color:var(--reading-muted,#66766d); }
+.modes { display:flex;gap:3px; }.legend .modes button { min-height:27px;padding:3px 8px;border:0;font-size:11px; }
+.legend .modes button[aria-pressed="true"] { background:var(--reading-selected,#e5eeea); }
+.legend .trackButton { display:block;position:relative;width:100%;min-height:38px;height:38px;border:0;padding:0;margin:4px 0;background:transparent; }
+.legend .trackButton:disabled { opacity:1; }.legend .trackButton:hover { background:transparent; }
+.track { position:absolute;left:0;right:0;top:10px;height:18px;border-radius:4px; }
+.point { position:absolute;top:16px;width:3px;height:6px;background:var(--reading-text,#454545);opacity:.5;transform:translateX(-50%); }
+.selected { position:absolute;top:7px;height:24px;min-width:2px;border:1px solid var(--reading-text,#454545);background:transparent;border-radius:2px; }
+.axis { display:flex;justify-content:space-between;gap:8px;font-size:11px;font-variant-numeric:tabular-nums; }
+.note { margin-top:7px;min-height:16px;line-height:1.5;overflow-wrap:anywhere;font-size:11px; }
+.legend .note button { min-height:22px;padding:0 5px;font-size:11px;border:0; }
+@media(pointer:coarse) { .legend .trackButton { min-height:44px;height:44px; }.track { top:13px; }.point { top:19px; }.selected { top:10px; }.legend .modes button { min-height:36px; } }
+
+.compact { display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:22px 24px 14px;gap:0 10px;width:auto;min-width:260px;flex:1;padding:0 12px;background:transparent;box-shadow:none;border-left:1px solid var(--guide-line,#e1e5e3); }
+.compact .heading { display:contents; }.compact .heading strong { grid-column:1;grid-row:1;font-size:11px;align-self:center; }
+.compact .modes,.compact .heading>span { grid-column:2;grid-row:1;align-self:center; }.compact .modes button { min-height:22px;padding:2px 5px;font-size:10px; }
+.compact .trackButton { grid-column:1 / -1;grid-row:2;height:24px;min-height:24px;margin:0; }.compact .track { top:4px;height:16px; }.compact .point { top:9px; }.compact .selected { top:1px;height:22px; }
+.compact .axis { grid-column:1 / -1;grid-row:3;font-size:10px; }.compact .note { grid-column:1 / -1;margin-top:4px; }.compact .note:empty { display:none; }
+@media(max-width:700px) { .compact { min-width:0;width:100%;padding:4px 0 0;border-left:0;gap:0 8px; } }
+@media(pointer:coarse) { .compact { grid-template-rows:36px 44px 14px; }.compact .modes button { min-height:36px; }.compact .trackButton { height:44px;min-height:44px; }.compact .track { top:14px; }.compact .point { top:19px; }.compact .selected { top:11px; } }

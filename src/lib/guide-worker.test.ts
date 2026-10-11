@@ -36,3 +36,38 @@ it("并发重试基于用户新版继续整理，AI仍可修改手动节点且�
   guideTransaction(f.db, () => navigateGuideHistory(f.db, "b", 2, "undo"));
   expect(readGuideState(f.db, "b").nodes[0].title).toBe("手动归纳");
 });
+
+it('等主Agent结束后一次领取本次全部句读，分析正文批量注入且一次提交完成',async()=>{f.db.exec('DELETE FROM guide_sources');f.message('parent',{semantic:{version:1}},'streaming');for(const id of ['u1','u2']){f.message(id,{_semanticParent:'parent',_request:undefined});enqueueGuideSource(f.db,id);}expect(claimGuideJob(f.db)).toBeNull();f.db.prepare("UPDATE chat_messages SET status='completed' WHERE id='parent'").run();const job=claimGuideJob(f.db)!;expect(job.sourceIds).toEqual(['u1','u2']);const planner=vi.fn(async(input:Parameters<Parameters<typeof runGuideJob>[2]>[0])=>{expect(input.sources?.map(s=>s.analysisText)).toEqual(['已完成句读','已完成句读']);return {patch:{...patch,upserts:[{...patch.upserts[0],sourceIds:['u1','u2']}]}};});await runGuideJob(f.db,job,planner);expect(planner).toHaveBeenCalledOnce();expect(readGuideState(f.db,'b')).toMatchObject({processed:2,pending:0});});
+
+it('崩溃留下的父消息租约过期后，已完成分析仍能整理，不永久卡在等待',()=>{f.db.exec('DELETE FROM guide_sources');f.message('parent',{semantic:{version:1},_request:{leaseUntil:Date.now()-1}},'streaming');f.message('u',{_semanticParent:'parent',_request:undefined});enqueueGuideSource(f.db,'u');expect(claimGuideJob(f.db)?.sourceIds).toEqual(['u']);});
+
+it('同书不同历史父消息一起合批，容量不足的后续来源保持pending且不截断',async()=>{
+ f.message('legacy-two');enqueueGuideSource(f.db,'legacy-two');
+ const first=claimGuideJob(f.db,Date.now(),{maxInputTokens:4096,fixedPrompt:'真实提示',toolSchema:'真实Schema',maxSources:1})!;
+ expect(first.sourceIds).toHaveLength(1);await runGuideJob(f.db,first,async()=>({patch:{...patch,upserts:[{...patch.upserts[0],sourceIds:first.sourceIds!}]}}));
+ const next=claimGuideJob(f.db,Date.now(),{maxInputTokens:4096,fixedPrompt:'真实提示',toolSchema:'真实Schema'})!;
+ expect(next.sourceIds).toHaveLength(1);expect(next.sourceIds).not.toEqual(first.sourceIds);
+});
+it('独立旧句读一次规划消费，保留来源锚点且每则来源有自己的失败次数',async()=>{
+ vi.spyOn(console,'error').mockImplementation(()=>{});f.message('legacy-two');enqueueGuideSource(f.db,'legacy-two');
+ f.db.prepare("UPDATE guide_sources SET attempts=2 WHERE message_id='m'").run();
+ const job=claimGuideJob(f.db)!;expect(job.sourceIds).toEqual(expect.arrayContaining(['m','legacy-two']));
+ const planner=vi.fn(async()=>{throw new Error('受控模型失败');});await runGuideJob(f.db,job,planner);expect(planner).toHaveBeenCalledOnce();
+ expect(f.db.prepare('SELECT status,attempts FROM guide_sources WHERE message_id=?').get('m')).toEqual({status:'failed',attempts:3});
+ expect(f.db.prepare('SELECT status,attempts FROM guide_sources WHERE message_id=?').get('legacy-two')).toEqual({status:'pending',attempts:1});
+});
+it('完整框架加一则已超容量时明确失败，不能静默缩短分析或卡在排队',()=>{
+ expect(claimGuideJob(f.db,Date.now(),{maxInputTokens:1,fixedPrompt:'完整提示',toolSchema:'工具'}) ).toBeNull();
+ expect(readGuideState(f.db,'b')).toMatchObject({failed:1,pending:0});
+});
+
+it('注入选择使用真实版本时间线，并将本轮输入预算传给Agent',async()=>{
+ guideTransaction(f.db,()=>saveGuideRevision(f.db,'b',0,patch.upserts,'user','添加'));
+ const capacity={maxInputTokens:16000,fixedPrompt:'提示',toolSchema:'工具'};
+ const job=claimGuideJob(f.db,Date.now(),capacity)!;
+ await runGuideJob(f.db,job,async input=>{
+  expect(input.capacity).toEqual(capacity);expect(input.nodes[0].timeline?.updated).toBeGreaterThan(0);
+  return {patch:{reason:'无须修改',upserts:[],removeIds:[]}};
+ });
+ expect(readGuideState(f.db,'b').processed).toBe(1);
+});

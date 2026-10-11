@@ -6,8 +6,11 @@ import {
 } from "@/hooks/use-guide-map-engine";
 import { guideMapMatches } from "@/lib/guide-map-adapter";
 import { newestGuideNode } from "@/lib/guide-timeline";
+import type { GuideLocationView } from "./guide-position-bar";
 import styles from "./guide-mind-map.module.css";
 export type GuideMindMapProps = GuideEngineProps & {
+  locationState?: GuideLocationView;
+  focusRequest?: { id: string } | null;
   selected: string | null;
   query: string;
   onInspect: () => void;
@@ -16,7 +19,7 @@ export type GuideMindMapProps = GuideEngineProps & {
 };
 export function GuideMindMap(props: GuideMindMapProps) {
   const { element, ready, error, zoom, revision, action, engine, retry } =
-    useGuideMapEngine(props);
+    useGuideMapEngine({ ...props, locations: props.locationState?.locations, colorScale: props.locationState?.colorScale });
   const [showMiniMap, setShowMiniMap] = useState(false),
     [mini, setMini] = useState<{ image: string; frame: CSSProperties } | null>(
       null,
@@ -46,6 +49,10 @@ export function GuideMindMap(props: GuideMindMapProps) {
       console.warn("小地图未更新", cause);
     }
   }, [showMiniMap, ready, revision, engine]);
+  useEffect(() => {
+    const target = props.focusRequest?.id;
+    if (ready && target) action(map => map.execCommand("GO_TARGET_NODE", target));
+  }, [ready, props.focusRequest, action]);
   function focusMatch(index: number) {
     if (!matches.length) return;
     const next = ((index % matches.length) + matches.length) % matches.length;
@@ -213,9 +220,6 @@ export function GuideMindMap(props: GuideMindMapProps) {
           ＋ 添加第一个主题
         </button>
       )}
-      <span className={styles.credit} title="基于 SimpleMindMap（MIT）开发">
-        SimpleMindMap
-      </span>
     </div>
   );
 }

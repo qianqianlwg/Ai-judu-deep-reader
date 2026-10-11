@@ -110,3 +110,11 @@ it("有未保存编辑时提示不要直接关闭页面，保存后解除", asyn
   await act(async () => { map.emit("hide_text_edit"); await vi.advanceTimersByTimeAsync(150); });
   const clean = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(clean); expect(clean.defaultPrevented).toBe(false);
 });
+
+it("位置元数据变化只重绘现有连线，不制造导图内容版本", async () => {
+  props = { ...props, locations: { bookId: "b", version: 1, sources: [], issues: [] } };
+  await render(); const map = FakeEngine.current;
+  props = { ...props, locations: { bookId: "b", version: 1, sources: [{ sourceId: "s", editionId: "e", editionLabel: "书", spans: [{ paragraphId: "p", chapterId: "c", chapterTitle: "章", start: .1, end: .2 }] }], issues: [] } };
+  await render();
+  expect(map.updateData).not.toHaveBeenCalled(); expect(props.onCommand).not.toHaveBeenCalled();
+});

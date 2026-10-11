@@ -1,0 +1,11 @@
+import { beforeEach,afterEach,it,expect } from 'vitest';
+import { guideFixture } from './guide-test-support';
+import { enqueueGuideSource } from './guide-sources';
+import { claimGuideJob,runGuideJob } from './guide-worker';
+import { readGuidePreparation,retryGuidePreparation } from './guide-preparation';
+let f:ReturnType<typeof guideFixture>;
+const scope={threadId:'t',editionId:'e',messageId:'parent'};
+beforeEach(()=>{f=guideFixture();f.message('parent',{semantic:{version:1}},'streaming');for(const id of ['u1','u2']){f.message(id,{_semanticParent:'parent',_request:undefined});enqueueGuideSource(f.db,id);}});afterEach(()=>f.db.close());
+it('只读取本次真实队列，主Agent运行时waiting，整理批次完成才completed',async()=>{expect(readGuidePreparation(f.db,scope)).toMatchObject({status:'waiting',total:2,completed:0});f.db.prepare("UPDATE chat_messages SET status='completed' WHERE id='parent'").run();expect(readGuidePreparation(f.db,scope).status).toBe('pending');const job=claimGuideJob(f.db)!;expect(readGuidePreparation(f.db,scope).status).toBe('processing');await runGuideJob(f.db,job,async()=>({patch:{reason:'合并本次句读',upserts:[{id:'prepared',parentId:null,title:'认识与实践',summary:'来自主Agent的句读认识',sourceIds:['u1','u2']}],removeIds:[]}}));expect(readGuidePreparation(f.db,scope)).toMatchObject({status:'completed',total:2,completed:2});});
+it('拒绝跨会话或版本状态查询，失败重试只修改本次任务',()=>{expect(()=>readGuidePreparation(f.db,{...scope,editionId:'e2'})).toThrow('不属于');expect(()=>readGuidePreparation(f.db,{...scope,threadId:'t2'})).toThrow('不属于');f.db.prepare("UPDATE chat_messages SET status='completed' WHERE id='parent'").run();f.db.prepare("UPDATE guide_sources SET status='failed',error='模型暂不可用'").run();expect(readGuidePreparation(f.db,scope)).toMatchObject({status:'failed',failed:2,error:'模型暂不可用'});expect(retryGuidePreparation(f.db,scope)).toMatchObject({status:'pending',failed:0,error:null});});
+it('没有可用句读来源不伪装成已完成',()=>{f.message('empty');expect(readGuidePreparation(f.db,{...scope,messageId:'empty'})).toMatchObject({status:'none',total:0});});

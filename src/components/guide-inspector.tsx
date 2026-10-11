@@ -10,9 +10,12 @@ import { isRecord } from "@/lib/chat-stream";
 import type { GuideSource } from "@/lib/guide-sources";
 import { guidePath } from "@/lib/guide-view";
 import { GuideNodeEditor, GuideStructureEditor } from "./guide-node-editor";
+import { GuideNodePosition } from "./guide-node-position";
+import type { GuideLocationView } from "./guide-position-bar";
 import styles from "./guide-workspace.module.css";
 export type GuideInspectorProps = {
   initialMode?: "read" | "edit";
+  locationState?: GuideLocationView;
   bookId: string;
   node: GuideNode;
   nodes: GuideNode[];
@@ -25,6 +28,7 @@ export type GuideInspectorProps = {
 };
 export function GuideInspector({
   initialMode = "read",
+  locationState,
   bookId,
   node,
   nodes,
@@ -147,6 +151,7 @@ export function GuideInspector({
               这个主题还没有归纳，可以编辑内容，或继续句读让它生长。
             </p>
           )}
+          <GuideNodePosition key={node.id} node={node} nodes={nodes} state={locationState} />
           <div className={styles.evidenceHeading}>
             <h3>原文依据</h3>
             <span>
@@ -177,7 +182,7 @@ export function GuideInspector({
               <details
                 key={source.id}
                 className={styles.evidence}
-                open={index === 0}
+                // WHY：原文依据默认全部收起，由读者主动展开，不让第一条长选文挤占主题详情。
               >
                 <summary>
                   <span>{String(index + 1).padStart(2, "0")}</span>{" "}

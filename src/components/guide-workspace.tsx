@@ -1,10 +1,13 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBookGuide } from "@/hooks/use-book-guide";
+import { useGuideLocations } from "@/hooks/use-guide-locations";
+import { guideColorScale, type GuideColorMode } from "@/lib/guide-locations";
 import { guideMarkdown } from "@/lib/guide-view";
 import type { GuideNode } from "@/lib/guide";
 import type { GuideSource } from "@/lib/guide-sources";
 import { GuideMindMap } from "./guide-mind-map";
+import { GuidePositionBar } from "./guide-position-bar";
 import { GuideTree } from "./guide-tree";
 import { GuideHistory } from "./guide-history";
 import { GuideInspector } from "./guide-inspector";
@@ -23,6 +26,11 @@ export function GuideWorkspace({
   onOpenSource,
 }: Props) {
   const { state, busy, error, refresh, command } = useBookGuide(bookId);
+  const locationData = useGuideLocations(bookId, state?.bookId === bookId ? state.version : null);
+  const [colorMode, setColorMode] = useState<GuideColorMode>("mapped");
+  const colorScale = useMemo(() => guideColorScale(locationData.locations, colorMode), [locationData.locations, colorMode]);
+  const locationState = { ...locationData, colorScale, onColorMode: setColorMode };
+  const [mapFocus, setMapFocus] = useState<{ bookId: string; id: string } | null>(null);
   const [selected, setSelected] = useState<string | null>(null),
     [collapsed, setCollapsed] = useState<Set<string>>(new Set()),
     [query, setQuery] = useState("");
@@ -56,7 +64,8 @@ export function GuideWorkspace({
   const select = useCallback((id: string | null) => {
     setSelected(id);
     setInspectorMode("read");
-    setInspectorOpen(false);
+    // WHY：单击主题默认展示右侧详情，取消选中时收起；双击仍由 edit 切换到编辑。
+    setInspectorOpen(id !== null);
     setHistory(false);
     setCreating(null);
   }, []);
@@ -247,6 +256,7 @@ export function GuideWorkspace({
                   </button>
                 )}
               </label>
+              {view === "map" && <GuidePositionBar compact nodes={state.nodes} selected={selected} state={locationState} onSelect={(id) => { select(id); if (bookId) setMapFocus({ bookId, id }); }} />}
               <div className={styles.tools}>
                 <button
                   disabled={!state.nodes.length}
@@ -315,6 +325,8 @@ export function GuideWorkspace({
             </div>
             {view === "map" ? (
               <GuideMindMap
+                focusRequest={mapFocus?.bookId === bookId ? mapFocus : null}
+                locationState={locationState}
                 bookId={state.bookId}
                 title={bookTitle}
                 nodes={state.nodes}
@@ -391,6 +403,7 @@ export function GuideWorkspace({
               </aside>
             ) : node && inspectorOpen ? (
               <GuideInspector
+                locationState={locationState}
                 key={node.id + ":" + inspectorMode}
                 initialMode={inspectorMode}
                 bookId={state.bookId}

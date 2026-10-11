@@ -1,0 +1,10 @@
+import { afterEach,beforeEach,it,expect,vi } from 'vitest';
+import { guideFixture } from '@/lib/guide-test-support';
+import { enqueueGuideSource } from '@/lib/guide-sources';
+const fixture=vi.hoisted(()=>({db:undefined as ReturnType<typeof guideFixture>['db']|undefined}));
+vi.mock('@/lib/db',()=>({getDb:()=>fixture.db}));
+import { GET,POST } from './route';
+beforeEach(()=>{const f=guideFixture();fixture.db=f.db;f.message('m');enqueueGuideSource(f.db,'m');});afterEach(()=>fixture.db?.close());
+const context={params:Promise.resolve({threadId:'t'})};
+it('状态接口返回本次实际队列，限制会话和版本且禁止缓存',async()=>{const r=await GET(new Request('http://localhost/api/threads/t/guide-status?editionId=e&messageId=m'),context);expect(r.status).toBe(200);expect(r.headers.get('Cache-Control')).toBe('no-store');expect(await r.json()).toMatchObject({messageId:'m',status:'pending',total:1});expect((await GET(new Request('http://localhost/?editionId=e2&messageId=m'),context)).status).toBe(404);expect((await GET(new Request('http://localhost/?editionId=e&messageId=m&messageId=other'),context)).status).toBe(400);});
+it('重试只重排失败状态，不直接调用模型或修改导图',async()=>{fixture.db!.prepare("UPDATE guide_sources SET status='failed',error='暂不可用'").run();const r=await POST(new Request('http://localhost/?editionId=e&messageId=m',{method:'POST'}),context);expect(await r.json()).toMatchObject({status:'pending',failed:0});expect(fixture.db!.prepare('SELECT count(*) AS n FROM guide_revisions').get()).toEqual({n:0});});

@@ -11,6 +11,7 @@ it("默认呈现真实画板与视角工具，节点详情不抢双击编辑", a
   expect(host.querySelector('[aria-label="思维导图交互画板"]')).not.toBeNull();
   const canvas = host.querySelector<HTMLElement>('[aria-label="主题节点画板，双击节点编辑，拖动调整结构"]')!; expect(canvas.tabIndex).toBe(0); act(() => canvas.focus()); expect(document.activeElement).toBe(canvas);
   expect(host.textContent).toContain("1 / 1 个匹配");
+  expect(host.textContent).not.toContain("SimpleMindMap");
   act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "节点详情")!.click()); expect(inspect).toHaveBeenCalledTimes(1);
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="放大画板"]')!.click()); expect(mocks.action).toHaveBeenCalled();
   act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "导航图")!.click()); await vi.waitFor(() => expect(host.querySelector('[aria-label="思维导图导航缩略图"] img')?.getAttribute("width")).toBe("200")); expect(host.querySelector('[aria-label="思维导图导航缩略图"] img')?.getAttribute("height")).toBe("130");
