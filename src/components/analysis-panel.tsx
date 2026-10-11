@@ -1,8 +1,9 @@
 "use client";
 
 import type { SemanticUnit } from '@/lib/semantic-reading';
+import { GuidePreparationStatus } from './guide-preparation-status';
 import {SemanticReadingResult} from './semantic-reading-result';
-import { useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { readAnswerEmphasis, remarkAnswerEmphasis, sliceAnswerEmphasis, type AnswerEmphasis } from "@/lib/answer-emphasis";
@@ -11,7 +12,10 @@ import type { ConversationSummary } from "@/lib/conversations";
 import { ConversationControls, type ConversationControlsProps } from "./conversation-controls";
 import { isAnalysis, isRecord, streamingPreview, type Analysis, type ChatMessage, type Citation, type MessageAnchor, type ToolActivity } from "@/lib/chat-stream";
 import { useChatFollow } from "./use-chat-follow";
+import { useChatHistoryWindow } from "./use-chat-history-window";
+import { revealHistoryTarget } from "./reader-history-navigation";
 import styles from "./analysis-panel.module.css";
+import { AnalysisOnlySourceCard } from "./analysis-only-source-card";
 import { MessageSourceCard as SourceCard } from "./message-source-card";
 import { isBookRetrievalTool, RetrievalActivity } from "./retrieval-activity";
 import { MessageActions } from "./message-actions";
@@ -25,11 +29,13 @@ export type { Analysis, ChatMessage } from "@/lib/chat-stream";
 export type PanelMessage = ChatMessage;
 type Props = {
   onReadUnit?: (anchor:MessageAnchor)=>void;
+  onOpenGuide?: ()=>void;
   onPrepareSource?: (anchor:MessageAnchor)=>boolean;
   readingPreferences?: ReadingPreferences; onReadingPreferencesChange?: (value: ReadingPreferences) => void;
   id?: string;
   className?: string; selected: string; analysis: Analysis | null; loading: boolean; error?: string;
   messages?: PanelMessage[];
+  historyTargetMessageId?: string | null; onHistoryTargetHandled?: (found: boolean) => void;
   onClose: () => void; onBack: () => void; onSend?: (question: string) => void; onRetry?: () => void; onStop?: () => void;
   onEditMessage?: (userMessageId: string, newPrompt: string) => void;
   modelOptions?: readonly string[]; selectedModel?: string; reasoningEffort?: ReasoningEffort;
@@ -103,9 +109,12 @@ function toolResultText(result: unknown): string {
 function ToolActivityResult({ tool, messageId, onOpenCitation, historical = false }: { tool: ToolActivity; messageId?: string; onOpenCitation?: Props["onOpenCitation"]; historical?: boolean }) {
   const result = isRecord(tool.result) ? tool.result : undefined;
   const errorText = result && (typeof result.detail === "string" ? (typeof result.error === "string" ? result.error + "：" + result.detail : result.detail) : typeof result.message === "string" ? result.message : typeof result.error === "string" ? result.error : undefined);
-  if (tool.name === "compress_reading_context") return <p role="status" data-context-progress="true" className={tool.status === "error" ? styles.failedMessage : undefined}>
+  if (tool.name === "compress_reading_context" || tool.name === "compact_reading_memory") return <p role="status" data-context-progress="true" className={tool.status === "error" ? styles.failedMessage : undefined}>
     {/* WHY：上下文整理是内部进度，不把记忆快照或工具参数作为聊天正文、JSON 卡片公开。 */}
     {typeof tool.result === "string" ? tool.result : tool.status === "running" ? "正在整理阅读记忆…" : tool.status === "error" ? "阅读记忆整理未完成，可以重试。" : "阅读记忆整理完成。"}
+  </p>;
+  if (tool.name === "submit_reading_sentence") return <p role='status' className={tool.status === 'error' || result?.ok === false ? styles.failedMessage : undefined}>
+    {tool.status === 'error' || result?.ok === false ? errorText ?? '本句未通过核验，已完成句读保留。' : tool.status === 'running' ? '正在整理本句释读与标注…' : result?.ok === true ? result.allCovered === true ? '全部原文句读已提交。' : '本句已提交并同步至原文。' : '本句结果尚待核验。'}
   </p>;
   if (tool.name === "search_book" || tool.name === "read_source" || tool.name === "prefetch_book_context") {
     const sources = Array.isArray(result?.sources) ? result.sources.filter((source): source is { sourceId: string; paragraphId: string; chapterTitle?: string; text: string } => isRecord(source) && typeof source.sourceId === "string" && typeof source.paragraphId === "string" && typeof source.text === "string" && source.text.length > 0) : [];
@@ -125,7 +134,7 @@ function ToolActivityResult({ tool, messageId, onOpenCitation, historical = fals
   </p>;
   return tool.result === undefined ? <p>{tool.status === "running" ? "等待工具返回结果…" : "工具没有返回展示结果。"}</p> : <pre className={styles.toolOutput}>{toolResultText(tool.result)}</pre>;
 }
-const TOOL_LABELS: Record<string, string> = { mark_answer_emphasis: "重点标注", search_book: "本书检索", prefetch_book_context: "本书关联检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
+const TOOL_LABELS: Record<string, string> = { submit_reading_sentence: "提交本句释读", compact_reading_memory: "整理阅读记忆", mark_answer_emphasis: "重点标注", search_book: "本书检索", prefetch_book_context: "本书关联检索", read_source: "读取原文", save_reading_analysis: "保存句读", compress_reading_context: "整理阅读记忆" };
 function ToolRecords({ message, onOpenCitation, includeAnalysis = true, toolIds, includeExtras = true }: { message: PanelMessage; onOpenCitation?: Props["onOpenCitation"]; includeAnalysis?: boolean; toolIds?: readonly string[]; includeExtras?: boolean }) {
   const analysis = includeAnalysis && isAnalysis(message.analysis) ? message.analysis : undefined;
   const searched = message.tools?.some(tool => tool.name === "search_book" || tool.name === "prefetch_book_context") ?? false;
@@ -214,12 +223,27 @@ function UsageFooter({ modelName, usage }: { modelName?: string; usage?: TokenUs
   </div>;
 }
 
-export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch, onBookContextPrefetchChange, onPrepareSource }: Props) {
+export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, id, className = "analysis-panel", selected, analysis, loading, error, messages = EMPTY_MESSAGES, onClose, onBack, onSend, onRetry, onStop, onOpenSource, onOpenCitation, conversations = [], activeThreadId, editionId, conversationsLoading = false, conversationError, onNewConversation, onSelectConversation, onRenameConversation, modelName, usage, onEditMessage, modelOptions, selectedModel, reasoningEffort, onModelChange, onReasoningChange, onPluginSelect, onCitationSelect, externalPermissions, onExternalPermissionsChange, bookContextPrefetch, onBookContextPrefetchChange, onPrepareSource, onOpenGuide, historyTargetMessageId, onHistoryTargetHandled }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const generating = loading || messages.some((message) => message.status === "streaming");
   const interactionLocked = generating || conversationsLoading;
+  const lastReading=[...messages].reverse().find(message=>message.role==='assistant'&&(message.semantic||message.kind==='analysis'));
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-  const { viewportRef, contentRef, showLatest, jumpToLatest, pauseFollowing } = useChatFollow(generating, messages, activeThreadId ?? editionId, conversationsLoading);
+  const historyWindow = useChatHistoryWindow(messages, activeThreadId ?? editionId, conversationsLoading, historyTargetMessageId);
+  const { viewportRef, contentRef, showLatest, jumpToLatest, pauseFollowing } = useChatFollow(generating, historyWindow.visibleMessages, activeThreadId ?? editionId, conversationsLoading, { viewportRef: historyWindow.viewportRef, contentRef: historyWindow.contentRef });
+  const handledHistoryTarget = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!historyTargetMessageId) { handledHistoryTarget.current = null; return; }
+    if (conversationsLoading || handledHistoryTarget.current === historyTargetMessageId) return;
+    if (!historyWindow.targetFound) { handledHistoryTarget.current = historyTargetMessageId; onHistoryTargetHandled?.(false); return; }
+    if (!historyWindow.targetVisible) return;
+    const target = [...(historyWindow.contentRef.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])].find(node => node.dataset.messageId === historyTargetMessageId);
+    const viewport = historyWindow.viewportRef.current;
+    if (!target || !viewport) return;
+    revealHistoryTarget(target, viewport);
+    handledHistoryTarget.current = historyTargetMessageId;
+    onHistoryTargetHandled?.(true);
+  }, [conversationsLoading, historyTargetMessageId, historyWindow.contentRef, historyWindow.targetFound, historyWindow.targetVisible, historyWindow.viewportRef, historyWindow.visibleMessages, onHistoryTargetHandled]);
   const prepareUnitDraft = (unit:SemanticUnit, reread:boolean) => {
     if(interactionLocked || onPrepareSource?.(unit.anchor)===false) return;
     const textarea=textareaRef.current;
@@ -231,25 +255,29 @@ export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, 
   const submit = () => {
     const textarea = textareaRef.current;
     const value = textarea?.value.trim();
-    if (!interactionLocked && value && onSend) { onSend(value); if (textarea) textarea.value = ""; }
+    if (!interactionLocked && value && onSend) { historyWindow.showLatestMessages(); jumpToLatest(); onSend(value); if (textarea) textarea.value = ""; }
   };
   return <aside id={id} className={className + " " + styles.panel} aria-label="句读聊天区" data-testid="analysis-panel" data-has-analysis={isAnalysis(analysis) ? "true" : "false"}>
     <div className={"analysis-header " + styles.header}><h2 className={styles.srOnly}>句读</h2><ConversationControls key={activeThreadId ?? editionId ?? "unbound"} conversations={conversations} activeThreadId={activeThreadId} editionId={editionId} busy={conversationsLoading} switchingDisabled={generating} error={conversationError} onNewConversation={onNewConversation} onSelectConversation={onSelectConversation} onRenameConversation={onRenameConversation} /><button type="button" className="close-button" disabled={interactionLocked} onClick={() => { if (!interactionLocked) onClose(); }} aria-label="关闭句读面板">×</button></div>
     <div className={styles.scrollRegion}>
-      <div className={"chat-messages " + styles.messages} ref={viewportRef} data-testid="chat-messages" data-message-count={messages.length}
+      <div className={"chat-messages " + styles.messages} ref={viewportRef} data-testid="chat-messages" data-message-count={messages.length} data-rendered-message-count={historyWindow.visibleMessages.length}
         data-raw-output-policy="collapsible" role="log" aria-label="阅读对话" aria-live={loading ? "polite" : "off"} aria-busy={loading} tabIndex={0}
         onClickCapture={(event) => { if (event.target instanceof Element && event.target.closest("summary,button")) pauseFollowing(); }}>
         <div ref={contentRef}>
           {conversationsLoading && <p role="status">正在读取会话…</p>}
+          {historyWindow.hasOlder && <div className={styles.historyControl}><button type="button" data-testid="load-older-messages" onClick={() => { pauseFollowing(); historyWindow.loadEarlier(); }}>加载更早消息 · 还有 {historyWindow.startIndex} 条</button></div>}
           {messages.length === 0 && !conversationsLoading && selected && <div className="book-context"><span>待句读的选文</span><p>“{selected}”</p></div>}
-          {messages.map((message, index) => {
+          {historyWindow.visibleMessages.map(({ message, index }) => {
             const anchor = messageAnchor(message);
-            return <article data-message-id={message.id} className={"chat-message " + message.role + " " + styles.messageGroup} key={message.id ?? message.role + "-" + index}>
+            return <article data-message-id={message.id} data-message-index={index} className={"chat-message " + message.role + " " + styles.messageGroup} key={message.id ?? message.role + "-" + index}>
               <div className={message.role === "user" ? styles.srOnly : "message-role"}>{message.role === "user" ? "你" : "句读"}</div>
               {message.role === "user" ? <MessageActions message={message} editingDisabled={interactionLocked} onEditMessage={onEditMessage}><ReadableText content={message.content}/></MessageActions> : <><RetrievalActivity message={message} onOpenCitation={onOpenCitation} /><ExternalResearchActivity message={message} />{message.semantic?<SemanticReadingResult state={message.semantic} disabled={interactionLocked} onOpenCitation={onOpenCitation} onDiscussUnit={unit=>prepareUnitDraft(unit,false)} onOpenSource={onOpenSource} onReadUnit={unit=>prepareUnitDraft(unit,true)} onRetry={message.id===lastAssistant?.id?onRetry:undefined}/>:<AssistantMessage message={message} onOpenCitation={onOpenCitation} />}</>}
-              {anchor && !message.semantic && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
+              {message===lastReading&&message.id&&activeThreadId&&editionId&&message.status!=='streaming'&&(message.semantic?.units.some(u=>u.status==='completed')||message.analysis)&&<GuidePreparationStatus scope={{threadId:activeThreadId,editionId,messageId:message.id}} onOpenGuide={onOpenGuide} disabled={interactionLocked}/> }
+              {message.analysisOnlySource && <AnalysisOnlySourceCard source={message.analysisOnlySource}/> }
+              {anchor && !message.analysisOnlySource && !message.semantic && <SourceCard anchor={anchor} messageId={message.id} role={message.role} onOpenSource={onOpenSource} onOpenCitation={onOpenCitation} />}
             </article>;
           })}
+          {historyWindow.hasNewer && <div className={styles.historyControl}><button type="button" data-testid="load-newer-messages" onClick={() => { pauseFollowing(); historyWindow.loadNewer(); }}>加载更新消息 · 还有 {messages.length - historyWindow.endIndex} 条</button></div>}
           {/* WHY：失败属于对话状态，跟随消息滚动，不能挤占输入区或让长错误撑破短视口。 */}
           {error && <section className={styles.errorCard} role="alert" aria-label="生成状态">
             <div className={styles.errorHeading}><span aria-hidden="true">!</span><h3>{error.startsWith("已停止") ? "已停止生成" : "生成暂时失败"}</h3></div>
@@ -258,7 +286,7 @@ export function AnalysisPanel({ readingPreferences, onReadingPreferencesChange, 
           {messages.length === 0 && !loading && !conversationsLoading && !error && !selected && <div className="analysis-empty"><h3>选择原文开始句读</h3><p>选中正文中的一句或一段，右侧会显示回答，并可以继续追问。</p></div>}
         </div>
       </div>
-      <button type="button" className={styles.latestButton} data-testid="latest-message-button" hidden={!showLatest} onClick={jumpToLatest}>回到最新消息 <span aria-hidden="true">↓</span></button>
+      <button type="button" className={styles.latestButton} data-testid="latest-message-button" hidden={!showLatest} onClick={() => { historyWindow.showLatestMessages(); jumpToLatest(); }}>回到最新消息 <span aria-hidden="true">↓</span></button>
     </div>
     {loading && <span className={styles.srOnly} role="status">正在生成回答</span>}
 

@@ -270,3 +270,12 @@ it('恢复中断请求时小结不保持生成中，内容与错误保留用于�
  const restored=restoreReadingRequest(initial.payload.threadId,{id:initial.payload.clientAssistantMessageId,role:'assistant',content:'部分总述',status:'error',structuredOutput:JSON.stringify({_request:{version:1,clientUserMessageId:initial.payload.clientUserMessageId,clientAssistantMessageId:initial.payload.clientAssistantMessageId,input:initial.payload,failure:{message:'用户停止'}},semantic})});
  expect(restored?.semantic?.conclusion).toEqual({status:'error',content:'部分总述',error:'用户停止'});expect(restored?.semantic?.phase).toBe('interrupted');
 });
+
+it("无应用级输出上限可在上下文快照与重试预算中往返", () => {
+  const snapshot = captureReadingContext({ contextSettings: { maxInputTokens: 200000, maxOutputTokens: null, compressionStrategy: "balanced" } });
+  expect(snapshot.contextSettings.maxOutputTokens).toBeNull();
+  expect(readReadingContextSnapshot(snapshot)?.contextSettings.maxOutputTokens).toBeNull();
+  const failed = { ...request(), status: "error" as const };
+  expect(withRetryContextSettings(failed, { maxInputTokens: 400000, maxOutputTokens: null }).payload.retryContextSettings).toEqual({ maxInputTokens: 400000, maxOutputTokens: null });
+  expect(() => withRetryContextSettings(failed, { maxInputTokens: 400000, maxOutputTokens: Number.NaN })).toThrow("预算");
+});

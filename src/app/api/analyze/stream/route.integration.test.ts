@@ -1,3 +1,4 @@
+import { SOURCE_EMPHASIS_SCHEMA } from "@/lib/source-enhancement-store";
 import { GUIDE_SCHEMA } from "@/lib/guide-schema";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,12 +16,13 @@ const runtime = (process as unknown as { getBuiltinModule(name: string): { Datab
 const encoder = new TextEncoder();
 const fetcher = vi.fn<typeof fetch>();
 const payload = { threadId: "thread-1", clientUserMessageId: "user-1", clientAssistantMessageId: "assistant-1", editionId: "edition-1", chapterId: "chapter-1", paragraphId: "p1", mode: "chat", question: "测试", selectedText: "这是十字原文用来句读", selectionStart: 2, selectionEnd: 12 };
-const analysis = { emphasis: "无", readingText: "原文啊", summary: "解释", breakdown: [], concepts: "\u65e0", context: "上下文", uncertainty: "", citations: [] };
+const analysis = { answerEmphasis: { keywords:"none", keySentences:"none" }, readingText: "原文啊", summary: "解释", breakdown: [], concepts: "\u65e0", context: "上下文", uncertainty: "", citations: [] };
 const block = (data: unknown, event?: string) => (event ? "event: " + event + "\n" : "") + "data: " + (typeof data === "string" ? data : JSON.stringify(data)) + "\n\n";
 const delta = (content: string) => block({ id: "text-step", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
 // WHY：成功模拟必须由模拟模型明确提交“无”；另保留只结束不提交的失败样本。
-const done = (submit=true, name="mark_answer_emphasis") => block({ id: "text-step", choices: [{ index: 0, delta: submit ? {tool_calls:[{index:0,id:"call-none",type:"function",function:{name,arguments:JSON.stringify(name==="save_reading_analysis"?analysis:{emphasis:"无"})}}]} : {}, finish_reason: submit ? "tool_calls" : "stop" }] }) + block("[DONE]");
-const toolResponse = (args: unknown = analysis, name = "save_reading_analysis") => upstream(block({ id: "tool-step", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call-save", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
+const done = (submit=true, name="mark_answer_emphasis") => block({ id: "text-step", choices: [{ index: 0, delta: submit ? {tool_calls:[{index:0,id:"call-none",type:"function",function:{name,arguments:JSON.stringify(name==="save_reading_analysis"?analysis:{answerEmphasis:{keywords:"none",keySentences:"none"}})}}]} : {}, finish_reason: submit ? "tool_calls" : "stop" }] }) + block("[DONE]");
+const toolResponse = (args: unknown = analysis, name = "submit_reading_sentence") => upstream(block({ id: "tool-step", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call-save", type: "function", function: { name, arguments: JSON.stringify(name === "submit_reading_sentence" ? sentenceArgs(args as typeof analysis) : args) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
+function sentenceArgs(args: typeof analysis = analysis) { return {sourceStart: payload.selectedText.slice(0,8),sourceEnd: payload.selectedText.slice(-8),title:'本段释读',content:args.readingText,sourceAnnotations:{keywords:'none',keySentences:'none',concepts:'none'},answerEmphasis:args.answerEmphasis}; }
 function upstream(...chunks: string[]) { return new Response(new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(encoder.encode(chunk)); controller.close(); } }), { headers: { "Content-Type": "text/event-stream" } }); }
 function request(overrides: Record<string, unknown> = {}, signal?: AbortSignal) { return new NextRequest("http://localhost/api/analyze/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, ...overrides }), signal }); }
 async function call(overrides: Record<string, unknown> = {}) { const response = await POST(request(overrides)); return { status: response.status, text: await response.text() }; }
@@ -32,13 +34,14 @@ function setProvider(provider = "openai", key = "test-key") { fixture.db!.prepar
 beforeEach(() => {
   // WHY：使用真实内存 SQLite 执行事务和幂等 SQL；只替换上游传输，不访问外网、不启停服务。
   fixture.db = new runtime.DatabaseSync(":memory:");
-  fixture.db.exec(GUIDE_SCHEMA);
+  fixture.db.exec(GUIDE_SCHEMA); fixture.db.exec(SOURCE_EMPHASIS_SCHEMA);
   fixture.db.exec(String.raw`
     CREATE TABLE ai_provider_configs (id TEXT PRIMARY KEY, provider TEXT, base_url TEXT, api_key TEXT, model TEXT);
     INSERT INTO ai_provider_configs VALUES ('default', 'openai', 'https://provider.test', 'test-key', 'test-model');
     CREATE TABLE reading_threads (id TEXT PRIMARY KEY, book_id TEXT, edition_id TEXT NOT NULL, chapter_id TEXT, paragraph_id TEXT, selected_text TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE chat_messages (id TEXT PRIMARY KEY, thread_id TEXT, role TEXT, content TEXT NOT NULL, raw_content TEXT, structured_output TEXT, status TEXT, model_name TEXT, prompt_version TEXT, created_at TEXT, usage_json TEXT);
     CREATE TABLE agent_tool_runs (id TEXT PRIMARY KEY, message_id TEXT, thread_id TEXT, attempt_id TEXT, tool_name TEXT, input_json TEXT, output_json TEXT, status TEXT, created_at TEXT);
+    CREATE TABLE annotations(id TEXT PRIMARY KEY,paragraph_id TEXT,start_offset INTEGER,end_offset INTEGER,text_hash TEXT,thread_id TEXT,summary TEXT,concepts TEXT,created_at TEXT,concept_details TEXT,message_id TEXT);
     CREATE TABLE context_snapshots (id TEXT PRIMARY KEY, thread_id TEXT, book_id TEXT, edition_id TEXT, summary TEXT, recent_messages TEXT, token_count INTEGER, version INTEGER, created_at TEXT, checkpoint_json TEXT);
     CREATE TABLE editions(id TEXT PRIMARY KEY,book_id TEXT);
     INSERT INTO editions VALUES ('edition-1','book-1'),('edition-2','book-2');
@@ -47,7 +50,7 @@ beforeEach(() => {
     INSERT INTO chapters VALUES ('chapter-1', 'edition-1', '导论', 0), ('chapter-2', 'edition-2', '另一版', 0);
     INSERT INTO paragraphs VALUES ('p1', 'chapter-1', '前言这是十字原文用来句读后文', 0), ('p2', 'chapter-2', '前言这是十字原文用来句读后文', 0);
   `);
-  fetcher.mockReset().mockImplementation(async (_url,init) => { const body=JSON.parse(String(init?.body)); const save=JSON.stringify(body.tools).includes("save_reading_analysis"); return upstream(delta("你好"),delta("，世界"),done(true,save?"save_reading_analysis":"mark_answer_emphasis")); });
+  fetcher.mockReset().mockImplementation(async (_url,init) => { const body=JSON.parse(String(init?.body)); const reading=JSON.stringify(body.tools??[]).includes("submit_reading_sentence"); if(reading)return toolResponse(); return upstream(delta("你好"),delta("，世界"),done(Boolean(body.tools?.length),"mark_answer_emphasis")); });
   vi.stubGlobal("fetch", fetcher);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
@@ -91,7 +94,7 @@ describe("流式 Provider 路由集成", () => {
   });
   it("Claude system、鉴权、CRLF 分片与 message_stop", async () => {
     setProvider("claude");
-    const wire = block({ type: "message_start", message: { id: "claude-test", role: "assistant", type: "message", model: "test-model", content: [], usage: { input_tokens: 10, output_tokens: 0 } } }, "message_start") + block({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }, "content_block_start") + block({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "你好" } }, "content_block_delta") + block({ type: "content_block_stop", index: 0 }, "content_block_stop") + block({type:"content_block_start",index:1,content_block:{type:"tool_use",id:"claude-none",name:"mark_answer_emphasis",input:{}}},"content_block_start") + block({type:"content_block_delta",index:1,delta:{type:"input_json_delta",partial_json:JSON.stringify({emphasis:"无"})}},"content_block_delta") + block({type:"content_block_stop",index:1},"content_block_stop") + block({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } }, "message_delta") + block({ type: "message_stop" }, "message_stop");
+    const wire = block({ type: "message_start", message: { id: "claude-test", role: "assistant", type: "message", model: "test-model", content: [], usage: { input_tokens: 10, output_tokens: 0 } } }, "message_start") + block({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }, "content_block_start") + block({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "你好" } }, "content_block_delta") + block({ type: "content_block_stop", index: 0 }, "content_block_stop") + block({type:"content_block_start",index:1,content_block:{type:"tool_use",id:"claude-none",name:"mark_answer_emphasis",input:{}}},"content_block_start") + block({type:"content_block_delta",index:1,delta:{type:"input_json_delta",partial_json:JSON.stringify({answerEmphasis:{keywords:"none",keySentences:"none"}})}},"content_block_delta") + block({type:"content_block_stop",index:1},"content_block_stop") + block({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } }, "message_delta") + block({ type: "message_stop" }, "message_stop");
     const crlf = wire.replace(/\n/g, "\r\n");
     fetcher.mockResolvedValueOnce(upstream(...Array.from(crlf)));
     const result = await call();
@@ -99,7 +102,7 @@ describe("流式 Provider 路由集成", () => {
     expect(fetcher.mock.calls[0][0]).toBe("https://provider.test/v1/messages");
     expect(new Headers(init?.headers).get("x-api-key")).toBe("test-key");
     expect(new Headers(init?.headers).get("anthropic-version")).toBe("2023-06-01");
-    expect(JSON.parse(String(init?.body))).toMatchObject({ stream: true, system: [expect.objectContaining({ type: "text", text: expect.any(String) })], messages: [{ role: "user", content: expect.stringContaining("测试") }] });
+    expect(JSON.parse(String(init?.body))).toMatchObject({ stream: true, system: expect.any(String), messages: [{ role: "user", content: expect.stringContaining("测试") }] });
     expect(result.text).toContain('event: raw_delta\ndata: {"text":"你好"}');
     expect(row()).toMatchObject({ content: "你好", status: "completed" });
   });
@@ -157,7 +160,7 @@ describe("服务端失败重试的原消息幂等闭环", () => {
     expect(count()).toBe(2);
   });
   it.each([
-    ["空输出", [done(false)], "empty_output", ""],
+    ["空输出", [delta(""),done(false)], "empty_output", ""],
     ["中途 EOF", [delta("半截")], "interrupted", "半截"],
     ["上游错误事件", [delta("半截"), block({ error: { message: "失败" } }, "error")], "upstream_failed", "半截"],
     ["OpenAI 内嵌错误", [delta("半截"), block({ error: { message: "失败" } })], "upstream_failed", "半截"],
@@ -244,11 +247,11 @@ describe("服务端失败重试的原消息幂等闭环", () => {
     const completed = await executeReadingRequest(retried.state, { fetcher: transport });
     const finalMessages = applyReadingRequest(retried.messages, completed);
     expect(completed.status).toBe("completed");
-    expect(completed.analysis?.anchor).toMatchObject({ paragraphId: "p1", startOffset: 2, endOffset: 12 });
+    expect(completed.semantic?.units[0].anchor).toMatchObject({ paragraphId: "p1", startOffset: 2, endOffset: 12 });
     expect(finalMessages).toHaveLength(2);
     expect(finalMessages[0]).toBe(started.messages[0]);
     expect(finalMessages.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
-    expect(count()).toBe(2);
+    expect(count()).toBe(3);
     expect(row().content).toBe(finalMessages[1].content);
   });
   it("底层连接中途报错也保存 partial 并允许原 ID 重试", async () => {
@@ -299,7 +302,7 @@ describe("成功 Analysis 的服务端合法锚点", () => {
     fetcher.mockResolvedValueOnce(toolResponse());
     const result = await call({ mode: "analyze" });
     expect(result.text).toContain('"messageId":"assistant-1"');
-    expect(stored()).toMatchObject({ ...analysis, readingText:"你好，世界", emphasis: { version: 1, marks: [] }, concepts: [], anchor: { paragraphId: "p1", startOffset: 2, endOffset: 12, selectedText: "这是十字原文用来句读" } });
+    expect(stored()).toMatchObject({ semantic: {readingStyle:'whole',phase:'completed',units:[{content:analysis.readingText,anchor:{paragraphId:'p1',startOffset:2,endOffset:12,selectedText:payload.selectedText}}]} });
     const replay = await call({ mode: "analyze" });
     expect(replay.text).toContain('"anchor":{"paragraphId":"p1"');
     expect(replay.text).not.toContain("_request");
@@ -310,7 +313,7 @@ describe("成功 Analysis 的服务端合法锚点", () => {
     { selectionEnd: 100 }, { selectionEnd: 3 }, { paragraphId: "p2" }, { chapterId: "chapter-2" },
     { selectedText: "这里十个字找不到位置" }, { selectedText: " 这是十字原文用来句读 " },
   ])("缺失或非法选区不猜锚点，工具只提交分析字段 %j", async (overrides) => {
-    fetcher.mockResolvedValueOnce(toolResponse());
+    fetcher.mockResolvedValueOnce(upstream(delta("普通释读"),done()));
     await call({ mode: "analyze", ...overrides });
     expect(row().status).toBe("completed");
     expect(stored().anchor).toBeUndefined();
@@ -442,7 +445,7 @@ describe("完整SDK的旧工具迟到与新attempt交错",()=>{
     expect(row()).toMatchObject({status:"completed",content:"你好，世界"});expect(count()).toBe(2);
     expect(fixture.db!.prepare("SELECT COUNT(*) AS count FROM agent_tool_runs WHERE attempt_id=?").get(oldAttempt)).toEqual({count:0});expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"save_reading_analysis"');expect(replay.text).toContain('"contentOffset":0');const timeline=JSON.parse(row().structured_output) as {_request:{timeline:{tools:Record<string,number>;analysis:number}}};expect(timeline._request.timeline.tools["call-save"]).toBe(0);expect(timeline._request.timeline.analysis).toBe("你好，世界".length);expect(fetcher).toHaveBeenCalledTimes(number);expect(count()).toBe(2);});
+  it("成功幂等回放恢复当前attempt工具卡且不重新调用模型",async()=>{fetcher.mockResolvedValueOnce(toolResponse());await call({mode:"analyze"});const number=fetcher.mock.calls.length;const replay=await call({mode:"analyze"});expect(replay.text).toContain('event: tool');expect(replay.text).toContain('"name":"submit_reading_sentence"');expect(replay.text).toContain('"contentOffset":0');expect(fetcher).toHaveBeenCalledTimes(number);expect(stored()).toMatchObject({semantic:{units:[{status:'completed'}]}});expect(count()).toBe(3);});
 });
 
 it.each([{threadId:"thread-1\n"},{clientAssistantMessageId:"assistant-1\n"},{editionId:"edition-1\n"}])("流式入口也拒绝尾换行ID，不再制造不可打开的新会话 %j",async input=>{expect((await call(input)).status).toBe(400);expect(count()).toBe(0);expect(fetcher).not.toHaveBeenCalled();});
@@ -466,19 +469,9 @@ it("本轮解读方式和长度传入模型并保存；下轮替换不改已有�
   expect(row().structured_output).toBe(original);
 });
 
-it("超出长度目标后仍完整保存，句读记录与已流式输出的正文一致且不追加寒暄", async () => {
-  const visible = "解释".repeat(250);
-  const tool = { ...analysis, readingText: "另一份较短的释读", citations: [] };
-  fetcher.mockResolvedValueOnce(upstream(
-    delta(visible),
-    block({ id: "combined", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-save", type: "function", function: { name: "save_reading_analysis", arguments: JSON.stringify(tool) } }] }, finish_reason: null }] }),
-    block({ id: "combined", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }),
-    block("[DONE]"),
-  ));
-  const result = await call({ mode: "analyze", selectedText: "这是十字原文用来句读", detail: "gist" });
-  expect(result.text).toContain("event: done");
-  expect(result.text).not.toContain("answer_length_limit");
-  expect(row()).toMatchObject({ content: visible, status: "completed" });
-  expect(JSON.parse(row().structured_output).readingText).toBe(visible);
-  expect(fetcher).toHaveBeenCalledTimes(1);
+it("超出长度目标后仍完整保存工具正文，最终小结不另起Agent", async () => {
+  const visible="解释".repeat(250);
+  fetcher.mockResolvedValueOnce(toolResponse({...analysis,readingText:visible}));
+  const result=await call({mode:'analyze',detail:'gist'});expect(result.text).toContain('event: done');expect(result.text).not.toContain('answer_length_limit');
+  expect(stored()).toMatchObject({semantic:{units:[{content:visible}],conclusion:{status:'completed'}}});expect(fetcher).toHaveBeenCalledTimes(2);
 });

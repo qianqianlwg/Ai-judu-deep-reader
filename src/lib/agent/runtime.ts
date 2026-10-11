@@ -1,5 +1,5 @@
 import { createAgent, createMiddleware } from "langchain";
-import { ToolMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import type { ProviderConfig, ProviderMessage } from "../ai-provider";
 import { isRecord, type ChatEvent, type ToolActivity } from "../chat-stream";
 import { accumulateUsage, estimatedUsage, estimateTextTokens, type TokenUsage } from "../token-usage";
@@ -13,6 +13,8 @@ import { createExternalTools, type ExternalPermissions, type createExternalSearc
 import { logAgentEvent } from "./logger";
 import { readProviderFailure, type ProviderFailure } from "./provider-failure";
 import { diagnoseToolException } from "./diagnostics";
+import { semanticSubmissionSchema } from "../semantic-submission";
+import { SENTENCE_TOOL, type SemanticSession } from "./semantic-session";
 
 export class ReadingAgentError extends Error { constructor(readonly code: string, message: string) { super(message); this.name = "ReadingAgentError"; } }
 export function readingAgentFailure(error: unknown): ProviderFailure | undefined {
@@ -29,8 +31,9 @@ export function readingAgentFailure(error: unknown): ProviderFailure | undefined
 export type ToolRun = { startedAt?: string; id: string; name: string; input: unknown; output: unknown; status: "completed" | "error" };
 export type ReadingAgentOptions = {
   config: ProviderConfig; systemPrompt: string; messages: ProviderMessage[];
-  maxOutputTokens: number; contextWindow: number; signal: AbortSignal;
+  maxOutputTokens: number | null; contextWindow: number; signal: AbortSignal;
   initialUsage?: TokenUsage;
+  semantic?: SemanticSession;
   tools: ReadingToolDependencies;
   external?: { permissions: ExternalPermissions; selectedText: string; search: ReturnType<typeof createExternalSearch>; read?: ReturnType<typeof createExternalReader> };
   emit: (event: ChatEvent) => void;
@@ -64,17 +67,19 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
   let stepOutput = "";
   let stepHasText = false;
   let finishedModel = false;
+  let lastProviderFinish: unknown;
   let savedAfterVisibleText = false;
   let emphasisSubmitted = false;
-  let toolCount = 0, lastToolStarted = 0;
+  let emphasisRepair = false, emphasisRepairRounds = 0;
+  let auxiliaryCount = 0, lastToolStarted = 0;
   let lastPreview = 0;
   const announcedTools = new Set<string>();
   const publishEstimate = () => {
     const estimate = estimatedUsage(stepInput, stepOutput, options.contextWindow);
     emit({ type: "usage", usage: { ...estimate, inputTokens: (usage?.inputTokens ?? 0) + estimate.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + estimate.outputTokens, totalTokens: (usage?.totalTokens ?? 0) + estimate.totalTokens } });
   };
-  const tools = [...createReadingTools({ ...options.tools, getVisibleAnswer: () => text }), ...(options.external ? createExternalTools({ ...options.external, signal }) : [])].filter(tool => options.tools.selectedText.trim() ? tool.name !== "mark_answer_emphasis" : tool.name !== "save_reading_analysis");
-  const schemaText = readingToolSchemaText(Boolean(options.tools.selectedText.trim()), options.external?.permissions);
+  const tools = [...createReadingTools({ ...options.tools, getVisibleAnswer: () => text }).filter(tool => tool.name !== "save_reading_analysis" && (!options.semantic || tool.name !== "mark_answer_emphasis")), ...(options.semantic ? [options.semantic.tool] : []), ...(options.external ? createExternalTools({ ...options.external, signal }) : [])];
+  const schemaText = readingToolSchemaText(Boolean(options.semantic), options.external?.permissions);
   const middleware = createMiddleware({
     name: "ReadingToolAudit",
     beforeModel: { canJumpTo: ["end"], hook(state) {
@@ -82,11 +87,34 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       if (savedAfterVisibleText) return { jumpTo: "end" };
       // WHY：工具返回也占窗口；每个模型步骤都检查预算，不等上游超限后才报错。
       const estimatedInput = estimateTextTokens(options.systemPrompt + JSON.stringify(state.messages) + schemaText);
-      if (estimatedInput > options.contextWindow - options.maxOutputTokens) throw new ReadingAgentError("context_limit", "本轮选文、历史和工具资料超过上下文预算，请提高输入 Token 上限或新建会话");
+      const outputReserve = options.maxOutputTokens ?? 0;
+      if (estimatedInput > options.contextWindow - outputReserve) throw new ReadingAgentError("context_limit", "本轮选文、历史和工具资料超过上下文预算，请提高输入 Token 上限或新建会话");
     } },
+    afterModel: { canJumpTo: ['model'], hook(state) {
+      if(options.semantic || emphasisSubmitted || !text.trim())return;
+      const last=state.messages.at(-1);
+      const metadata=isRecord(last)&&isRecord(last.response_metadata)?last.response_metadata:{};
+      const additional=isRecord(last)&&isRecord(last.additional_kwargs)?last.additional_kwargs:{};
+      const finish=lastProviderFinish??metadata.finish_reason??metadata.stop_reason??additional.stop_reason;
+      // WHY：EOF、截断或拒绝不是“完整正文漏标注”，不能补交工具后把中断误判为成功。
+      if(finish!=='stop'&&finish!=='end_turn')return;
+      if(last && 'tool_calls' in last && Array.isArray(last.tool_calls) && last.tool_calls.length)return;
+      if(++emphasisRepairRounds>2)throw new ReadingAgentError('emphasis_missing','Agent 三次仍未提交必填正文重点，正文已保留；无重点也必须由Agent明确提交none。');
+      emphasisRepair=true;
+      // WHY：正文已经生成但模型漏交必填工具时，要求同一Agent补交，不本地补标、不重复正文，也不另起Agent。
+      return {messages:[new HumanMessage('本轮正文已经完整输出。你尚未提交必填正文重点，请仅调用mark_answer_emphasis，不再输出任何普通文字；keywords/keySentences分别提交正文逐字引文或none。无重点示例：{"answerEmphasis":{"keywords":"none","keySentences":"none"}}。禁止改写已经输出的正文。')],jumpTo:'model'};
+    } },
+    wrapModelCall: async (request, handler) => {
+      lastProviderFinish=undefined;
+      if (!options.semantic) return emphasisRepair ? handler({...request,tools:request.tools.filter(tool => 'name' in tool && tool.name==='mark_answer_emphasis'),toolChoice:'required'}) : handler(request);
+      const complete = options.semantic.complete;
+      if (complete) options.semantic.startConclusion();
+      // WHY：完成回执后同一Agent直接续写小结，保留全部工具消息，不重新注入整份选文或另造摘要模型。
+      return handler({ ...request, tools: complete ? [] : request.tools, toolChoice: complete ? 'none' : 'required' });
+    },
     wrapToolCall: async (request, handler) => {
       signal.throwIfAborted();
-      if (++toolCount > 20) throw new ReadingAgentError("tool_limit", "本轮工具调用过多，请缩小问题范围后重试");
+      if (request.toolCall.name !== SENTENCE_TOOL && ++auxiliaryCount > 20) throw new ReadingAgentError("tool_limit", "本轮工具调用过多，请缩小问题范围后重试");
       const id = request.toolCall.id ?? crypto.randomUUID();
       const name = request.toolCall.name;
       // WHY：同毫秒并行调用分配单调开始时间，历史按开始顺序回放，不按完成速度跳序。
@@ -97,9 +125,13 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       emit({ type: "tool", tool: { id, name, status: "running", ...(searchInput?.success ? { result: { queries: [searchInput.data.query, ...searchInput.data.additionalQueries ?? []] } } : externalInput?.success ? { result: { query: externalInput.data.query } } : {}) } });
       logAgentEvent("info", "tool_started", { id, name, inputKeys: isRecord(request.toolCall.args) ? Object.keys(request.toolCall.args) : [] });
       let result;
-      try { result = await handler(request); }
+      const submission = name === SENTENCE_TOOL ? semanticSubmissionSchema.safeParse(request.toolCall.args) : undefined;
+      // WHY：字段校验错误明确回交Agent，不能由框架一般异常掩盖真实路径；持久化/审计错误直接上抛。
+      if (submission && !submission.success && options.semantic) result = new ToolMessage({ tool_call_id: id, status: 'error', content: JSON.stringify(options.semantic.invalidArguments(submission.error)) });
+      else try { result = await handler(request); }
       catch (error: unknown) {
         signal.throwIfAborted();
+        if (name === SENTENCE_TOOL) throw error;
         const diagnostic = diagnoseToolException(name, request.toolCall.args);
         logAgentEvent("error", "tool_exception", { messageId: options.tools.messageId, id, name, ...diagnostic, errorName: error instanceof Error ? error.name : "UnknownError" });
         result = new ToolMessage({ tool_call_id: id, status: "error", content: JSON.stringify(diagnostic) });
@@ -119,13 +151,18 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       return result;
     },
   });
-  const agent = createAgent({ model: createReadingModel(options.config), tools, systemPrompt: options.systemPrompt, middleware: [middleware, createToolChoiceMiddleware({ signal, onFallback: () => logAgentEvent("warn", "tool_choice_fallback", { messageId: options.tools.messageId, from: "required", to: "auto" }) })] });
+  const agent = createAgent({ model: createReadingModel(options.config), tools, systemPrompt: new SystemMessage(options.systemPrompt), middleware: [middleware, createToolChoiceMiddleware({ signal, onFallback: () => logAgentEvent("warn", "tool_choice_fallback", { messageId: options.tools.messageId, from: "required", to: "auto" }) })] });
   const finishes = new Map<string, string>();
-  const stream = agent.streamEvents({ messages: options.messages }, { version: "v2", signal, recursionLimit: 24,
+  const stream = agent.streamEvents({ messages: options.messages }, { version: "v2", signal, recursionLimit: options.semantic?.recursionLimit ?? 100,
     callbacks: [{ handleLLMEnd(result, runId) {
       // WHY：LangChain 的 token 事件不包含 OpenAI generationInfo，完成原因必须从 SDK 回调读取。
-      const finish: unknown = result.generations[0]?.[0]?.generationInfo?.finish_reason;
-      if (typeof finish === "string") finishes.set(runId, finish);
+      const generation:unknown=result.generations[0]?.[0];
+      const info=isRecord(generation)&&isRecord(generation.generationInfo)?generation.generationInfo:{};
+      const message=isRecord(generation)&&isRecord(generation.message)?generation.message:{};
+      const additional=isRecord(message.additional_kwargs)?message.additional_kwargs:{};
+      const metadata=isRecord(message.response_metadata)?message.response_metadata:{};
+      const finish:unknown=info.finish_reason??info.stop_reason??metadata.finish_reason??metadata.stop_reason??additional.stop_reason;
+      if (typeof finish === "string") { finishes.set(runId, finish); lastProviderFinish=finish; }
     } }],
   });
   for await (const event of stream) {
@@ -143,21 +180,22 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
         for (const call of chunk.tool_call_chunks) {
           if (isRecord(call) && typeof call.id === "string" && typeof call.name === "string" && call.name && !announcedTools.has(call.id)) {
             announcedTools.add(call.id);
+            if (call.name === SENTENCE_TOOL) options.semantic?.startSentence();
             emit({ type: "tool", tool: { id: call.id, name: call.name, status: "running", result: "正在准备工具参数…" } });
           }
         }
       }
       const delta = visibleText(chunk);
-      if (delta) {
+      if (delta && !emphasisRepair && (!options.semantic || options.semantic.complete)) {
         // WHY：Agent 多步说明不能把后一步 Markdown 标题粘到前一步句末，原始文字不做去重或改写。
-        if (!stepHasText && text && !text.endsWith("\n\n")) { text += "\n\n"; emit({ type: "raw_delta", text: "\n\n" }); }
-        stepHasText = true; text += delta; stepOutput += delta; emit({ type: "raw_delta", text: delta }); if (Date.now() - lastPreview > 250) { publishEstimate(); lastPreview = Date.now(); } }
+        if (!stepHasText && text && !text.endsWith("\n\n")) { text += "\n\n"; if (!options.semantic) emit({ type: "raw_delta", text: "\n\n" }); }
+        stepHasText = true; text += delta; stepOutput += delta; if (options.semantic) options.semantic.conclusion(text); else emit({ type: "raw_delta", text: delta }); if (Date.now() - lastPreview > 250) { publishEstimate(); lastPreview = Date.now(); } }
     } else if (event.event === "on_chat_model_end") {
       const output: unknown = event.data.output;
       const metadata = isRecord(output) && isRecord(output.response_metadata) ? output.response_metadata : {};
       const additional = isRecord(output) && isRecord(output.additional_kwargs) ? output.additional_kwargs : {};
       const finish = finishes.get(event.run_id) ?? metadata.finish_reason ?? metadata.stop_reason ?? additional.stop_reason;
-      if (finish === "length" || finish === "max_tokens") throw new ReadingAgentError("output_limit", "模型服务的输出上限截断了回答，请重试或换用支持更长输出的模型");
+      if (finish === "length" || finish === "max_tokens") throw new ReadingAgentError("output_limit", options.semantic?.complete ? "模型服务的输出上限截断了本次细读小结；已完成句读保留，可重试。" : "模型服务的输出上限截断了回答，请重试或换用支持更长输出的模型");
       if (finish === "content_filter" || finish === "refusal") throw new Error("模型未能完成本轮回答");
       finishedModel = typeof finish === "string" && finish.length > 0;
       const measured = providerUsage(output);
@@ -170,8 +208,12 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
     }
   }
   if (!finishedModel) throw new ReadingAgentError("interrupted", "模型流中断，未收到完成确认，请重试");
+  if (options.semantic && !options.semantic.complete) throw new ReadingAgentError("sentence_incomplete", "模型未覆盖全部原文，已完成句读保留，可继续。");
   if (!text.trim()) throw new ReadingAgentError("empty_output", "模型未返回正常聊天文本，请重试");
   // WHY：缺标注必须由 Agent 重试补交，不把规则生成的重点伪装成完成结果。
-  if (!emphasisSubmitted) throw new ReadingAgentError("emphasis_missing", "Agent 未提交必填标注字段 emphasis（无重点也须填写‘无’）。正文已保留，请重试；程序不会自动补标注。");
+  if (options.semantic) {
+    options.semantic.finish();
+  }
+  if (!options.semantic && !emphasisSubmitted) throw new ReadingAgentError("emphasis_missing", "Agent 未提交必填标注字段 answerEmphasis（无重点也须分别填写none）。正文已保留，请重试；程序不会自动补标注。");
   return { text, usage: usage ?? estimatedUsage(stepInput, text, options.contextWindow) };
 }

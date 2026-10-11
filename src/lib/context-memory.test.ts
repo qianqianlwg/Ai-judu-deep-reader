@@ -15,8 +15,16 @@ it("8192降至4096时先缩小带转义字符的旧摘要，再处理新增历�
  const original:ContextMessage[]=[{id:"old",role:"user",content:"旧阅读历史".repeat(1800)}];
  const quoted={...emptyMemory(),task:"必须保留中文阅读约定",constraints:Array.from({length:8},()=>('保留\"术语\"与\\引用 ').repeat(28))};
  const first=await compactMemory(original,{...settings,maxInputTokens:8192,maxOutputTokens:4096},"",undefined,{summarize:async()=>quoted,measureInput:summaryInputTokens});
- expect(summaryInputTokens({previous:quoted,messages:[{id:"new",role:"user",content:"新增历史".repeat(375)}],targetTokens:512,inputBudgetTokens:4096,outputBudgetTokens:1024})).toBeGreaterThan(4096);
+ expect(summaryInputTokens({previous:quoted,messages:[{id:"new",role:"user",content:"新增历史".repeat(550)}],targetTokens:512,inputBudgetTokens:4096,outputBudgetTokens:1024})).toBeGreaterThan(4096);
  const seen:SummaryInput[]=[];
  const next=await compactMemory([...original,{id:"new",role:"user",content:"新增历史".repeat(375)}],settings,"",first.snapshot,{measureInput:summaryInputTokens,summarize:async value=>{expect(summaryInputTokens(value)).toBeLessThanOrEqual(4096);seen.push(value);return {...emptyMemory(),task:"继续阅读",constraints:["必须保留中文阅读约定"]};}});
  expect(seen.length).toBeGreaterThan(0);expect(next.estimatedTokens).toBeLessThanOrEqual(4096);expect(next.sourceMessageIds).toEqual(["old","new"]);expect(next.state.constraints).toContain("必须保留中文阅读约定");
+});
+
+it("主回答不设输出上限时，阅读记忆整理仍使用独立内部预算", async () => {
+ const settings = { maxInputTokens: 4096, maxOutputTokens: null, compressionStrategy: "balanced" as const };
+ let outputBudget: number | undefined;
+ const messages: ContextMessage[] = [{ id: "m", role: "user", content: "阅读历史".repeat(3000) }];
+ await compactMemory(messages, settings, "", undefined, { summarize: async input => { outputBudget = input.outputBudgetTokens; return brief(); } });
+ expect(outputBudget).toBe(4096);
 });

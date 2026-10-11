@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { answerEmphasisInputSchema } from "../answer-emphasis";
+import { semanticSubmissionSchema } from "../semantic-submission";
+import { answerEmphasisProtocolSchema } from "../answer-emphasis-protocol";
 import { externalSources, type ExternalPermissions } from "./external-permissions";
 import { externalSearchSchema, readExternalSchema } from "./external-tool-schemas";
 
@@ -25,11 +26,11 @@ export const saveAnalysisSchema = z.object({
   context: z.string().max(6000).default(""),
   uncertainty: z.string().max(2000).default(""),
   citations: z.array(z.object({ sourceId: z.string().min(1).max(240), quote: z.string().trim().min(1).max(4000) }).strict()).max(16).default([]),
-  emphasis: answerEmphasisInputSchema,
+  answerEmphasis: answerEmphasisProtocolSchema,
 }).strict();
-export const markAnswerEmphasisSchema = z.object({ emphasis: answerEmphasisInputSchema }).strict();
+export const markAnswerEmphasisSchema = z.object({ answerEmphasis: answerEmphasisProtocolSchema }).strict();
 export type AnalysisInput = z.infer<typeof saveAnalysisSchema>;
 export type SearchBookInput = z.infer<typeof searchBookSchema>;
 export type ReadSourceInput = z.infer<typeof readSourceSchema>;
 
-export function readingToolSchemaText(save: boolean, external?: ExternalPermissions): string { return JSON.stringify([searchBookSchema, readSourceSchema, ...(!save ? [markAnswerEmphasisSchema] : []), ...(save ? [saveAnalysisSchema] : []), ...externalSources.filter(source => external?.[source]).map(() => externalSearchSchema), ...(external?.web || external?.openalex ? [readExternalSchema] : [])].map(schema=>z.toJSONSchema(schema))); }
+export function readingToolSchemaText(save: boolean, external?: ExternalPermissions): string { return JSON.stringify([searchBookSchema, readSourceSchema, ...(!save ? [markAnswerEmphasisSchema] : []), ...(save ? [semanticSubmissionSchema] : []), ...externalSources.filter(source => external?.[source]).map(() => externalSearchSchema), ...(external?.web || external?.openalex ? [readExternalSchema] : [])].map(schema=>z.toJSONSchema(schema))); }

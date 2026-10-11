@@ -20,3 +20,8 @@
 
 /* WHY：生成中用户跟随到列表底部时仍看得到真实进度，已完成历史不占据粘性位置。 */
 .semantic-progress-card.is-active{position:sticky;top:0;z-index:2}
+
+/* WHY：沿用现有10%+90%进度计算；亮带仅提供处理中反馈，不伪造额外进度。 */
+.semantic-progress-card.is-active{position:sticky;overflow:hidden;isolation:isolate}.semantic-progress-card.is-active::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,transparent 25%,rgba(148,163,184,.1) 42%,rgba(255,255,255,.35) 48%,rgba(148,163,184,.1) 54%,transparent 70%);transform:translateX(-110%);animation:semantic-card-sweep 2.4s ease-in-out infinite}
+@keyframes semantic-card-sweep{to{transform:translateX(110%)}}
+@media(prefers-reduced-motion:reduce){.semantic-progress-card.is-active::after{animation:none;opacity:0}}

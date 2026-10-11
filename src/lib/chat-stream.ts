@@ -10,7 +10,7 @@ export type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 import type { ReadingAnchor as MessageAnchor } from "./reading-anchors";
 export type ToolActivity = { id:string; name:string; status:"running"|"completed"|"error"; result?:unknown; contentOffset?:number };
 export type HistoricalToolActivity = ToolActivity & { attemptId: string | null; auditId: string };
-export type ChatMessage = { semantic?: SemanticReading; emphasis?: AnswerEmphasis; createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
+export type ChatMessage = { analysisOnlySource?: import("./analysis-only-source").AnalysisOnlySource; semantic?: SemanticReading; emphasis?: AnswerEmphasis; createdAt?: string; sourceInvalid?: boolean; historicalTools?: HistoricalToolActivity[]; warnings?: string[]; outputFormat?:"text"|"legacy-json"; usage?:TokenUsage; tools?:ToolActivity[]; anchor?: MessageAnchor; id?: string; role: "user" | "assistant"; kind?: "chat" | "analysis"; content: string; analysis?: Analysis; analysisOffset?:number; status?: "streaming" | "completed" | "error" };
 export type ChatEvent =
   | { type: 'semantic'; result: SemanticReading; content: string }
   | { type: "meta"; threadId: string; messageId?: string; outputFormat?: "text" | "legacy-json" }

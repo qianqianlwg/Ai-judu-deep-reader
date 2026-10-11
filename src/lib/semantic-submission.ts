@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { anchorParts, makeReadingAnchor, readReadingAnchor, splitsReadingCharacter, type ReadingAnchorPart } from './reading-anchors';
-import { EMPTY_ANSWER_EMPHASIS, readAnswerEmphasis, type AnswerEmphasis } from './answer-emphasis';
+import { answerEmphasisProtocolSchema, resolveAnswerEmphasis } from './answer-emphasis-protocol';
 import { resolveSourceEmphasis, type SourceEmphasis } from './source-enhancement';
 import type { SemanticUnit } from './semantic-reading';
 
@@ -9,7 +9,6 @@ const sourceMark = z.object({ paragraphKey, quote: z.string().min(1).max(1000) }
 const sourceConcept = z.object({ paragraphKey, name: z.string().trim().min(1).max(80), text: z.string().trim().min(1).max(2000) }).strict();
 const sourceMarkList = z.union([z.literal('none'), z.array(sourceMark).min(1).max(16)]);
 const conceptList = z.union([z.literal('none'), z.array(sourceConcept).min(1).max(20)]);
-const answerQuotes = z.union([z.literal('none'), z.array(z.string().min(1).max(1000)).min(1).max(16)]);
 export const semanticSubmissionSchema = z.object({
   sourceStart: z.string().min(1).refine(value => Array.from(value).length <= 8, '原文首最多8个字符')
     .describe('当前句原文开头5至8个字符，保留标点和空白；不足5字的短句使用全文'),
@@ -23,10 +22,7 @@ export const semanticSubmissionSchema = z.object({
     keySentences: sourceMarkList.describe('必填：原文关键句，每项paragraphKey和逐字quote；没有填字符串none，不能省略或空数组'),
     concepts: conceptList.describe('必填：原文概念，每项paragraphKey、逐字name及解释text；没有填字符串none，不能省略或空数组'),
   }).strict().describe('每项只属于当前句实际覆盖的原文段落。短标识来自target，重复引文只标注本句在该段的第一次匹配'),
-  answerEmphasis: z.object({
-    keywords: answerQuotes.describe('必填：解释正文中的逐字关键词字符串列表；没有填none'),
-    keySentences: answerQuotes.describe('必填：解释正文中的逐字关键句字符串列表；没有填none'),
-  }).strict().describe('必填两个字段；不要提交marks、kind、version或occurrence。只标普通段落，不标Markdown加粗、标题、链接、代码；没有分别填none'),
+  answerEmphasis: answerEmphasisProtocolSchema.describe('必填 keywords 和 keySentences，各最多16项、每项最多1000字符；没有分别填 none。引用解释正文，不提交 marks/kind/version/occurrence。'),
 }).strict();
 export type SemanticSubmission = z.infer<typeof semanticSubmissionSchema>;
 export type SemanticSubmissionSource = ReadingAnchorPart & { paragraphKey: string };
@@ -151,19 +147,6 @@ function sourceMarks(input: SemanticSubmission, sources: readonly SemanticSubmis
   }
   return marks;
 }
-function answerMarks(input: SemanticSubmission): AnswerEmphasis {
-  const result: AnswerEmphasis = { version: 1, marks: [] };
-  for (const field of ['keywords', 'keySentences'] as const) {
-    const quotes = input.answerEmphasis[field]; if (quotes === 'none') continue;
-    for (const [index, quote] of quotes.entries()) {
-      const mark = { kind: field === 'keywords' ? 'term' as const : 'key_sentence' as const, quote, occurrence: 1 };
-      result.marks.push(mark);
-      const verified = readAnswerEmphasis(input.content, result);
-      if (!verified || verified.marks.length !== result.marks.length) throw new Error('answerEmphasis.' + field + '[' + index + ']：未匹配可标注的解释正文、范围重叠或超出标注协议；请修正逐字文本，没有重点填none');
-    }
-  }
-  return result.marks.length ? result : EMPTY_ANSWER_EMPHASIS;
-}
 export function resolveSemanticSubmission(value: unknown, sources: readonly SemanticSubmissionSource[], offset: number, makeId: () => string): { unit: SemanticUnit; end: number } {
   const input = semanticSubmissionSchema.parse(value), original = sources.map(p => p.selectedText).join('');
   const end = locateSentence(input, original, offset), parts = sentenceParts(sources, offset, end);
@@ -176,6 +159,6 @@ export function resolveSemanticSubmission(value: unknown, sources: readonly Sema
   });
   // WHY：摘要直接保存Agent的解释，内部协议转换不生成概念或重点，所有内容都来自必填工具字段。
   const unit: SemanticUnit = { id: makeId(), label: input.title, action: 'read', reason: '', anchor: makeReadingAnchor(parts), status: 'completed', content: input.content, sourceEmphasis,
-    analysis: { summary: input.content, readingText: input.content, provenanceVersion: 1, breakdown: [], concepts: sourceConcepts.map(({ name, text }) => ({ name, text })), context: '', uncertainty: '', emphasisSource: 'agent', emphasis: answerMarks(input) } };
+    analysis: { summary: input.content, readingText: input.content, provenanceVersion: 1, breakdown: [], concepts: sourceConcepts.map(({ name, text }) => ({ name, text })), context: '', uncertainty: '', emphasisSource: 'agent', emphasis: resolveAnswerEmphasis(input.content, input.answerEmphasis) } };
   return { unit, end };
 }

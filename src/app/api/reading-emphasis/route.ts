@@ -1,10 +1,14 @@
 import {NextRequest,NextResponse} from 'next/server';
-import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {getDb} from '@/lib/db';
 import {readSourceEmphasis,saveSourceEmphasis} from '@/lib/source-enhancement-store';
 import {resolveChapterSelection} from '@/lib/semantic-storage';
-import {planSemanticReading} from '@/lib/agent/semantic-planner';
+import {executeSemanticFlow} from '@/lib/agent/semantic-flow';
+import {createBookSources} from '@/lib/agent/book-sources';
+import {createBookRetrieval} from '@/lib/book-retrieval';
+import {readEmbeddingConfig,readAgentRetrievalEnabled} from '@/lib/embedding-store';
+import {createQueryEmbeddingSession} from '@/lib/query-embedding';
+import type {SemanticReading} from '@/lib/semantic-reading';
 import {SemanticPlanError} from '@/lib/semantic-plan-input';
 import {DEFAULT_CONTEXT_SETTINGS} from '@/lib/context-compaction';
 import {readModelChoices,selectRequestModel} from '@/lib/model-choices';
@@ -34,8 +38,14 @@ export async function POST(request:NextRequest){
   let usage:TokenUsage|undefined;
   const signal=AbortSignal.any([request.signal,AbortSignal.timeout(240000)]);
   // WHY：只在明确的生成操作后调用模型；不向正式会话插入伪句读，也不把外观开关当成生成请求。
-  const units=await planSemanticReading({config,sources:selected.selectionAnchors,context:'本次只需规划并标记原文重点，不生成解读。',readingStyle:data.readingStyle,...DEFAULT_CONTEXT_SETTINGS,signal,makeId:randomUUID,onUsage:v=>{usage=v;},audit:async(_args,result,ok)=>{if(!ok)console.warn('重点规划未通过来源核验',result);}});
-  signal.throwIfAborted();const marks=units.flatMap(u=>u.sourceEmphasis??[]);
+  const repository=createBookSources(db,data.editionId),embeddingConfig=readEmbeddingConfig(db);
+  const retrieve=createBookRetrieval({db,editionId:data.editionId,config:embeddingConfig,embeddings:createQueryEmbeddingSession(embeddingConfig),semanticEnabled:readAgentRetrievalEnabled(db)});
+  let state:SemanticReading|undefined;
+  // WHY：原文重点操作也复用同一主Agent协议，不留可启动第三个规划Agent的隐藏入口；结果仅在全程成功后替换标注。
+  const result=await executeSemanticFlow({db,editionId:data.editionId,config,settings:DEFAULT_CONTEXT_SETTINGS,sources:selected.selectionAnchors,readingStyle:data.readingStyle,context:'本次用户只需在原文展示重点；按统一句读协议提交简短释读及重点，不扩展讲解。',messages:[],detail:'gist',difficulty:'normal',forceRead:true,signal,providedSources:repository.initial(selected.selectionAnchors[0]?.paragraphId??null),read:repository.read,
+   search:async input=>{const result=await retrieve({...input,signal});return {sources:result.sources,retrieval:result.retrieval};},
+   publish(next){state=next;},commit(){signal.throwIfAborted();},emit(event){if(event.type==='usage')usage=event.usage;},audit:async run=>{if(run.status==='error')console.warn('重点工具未通过核验',{name:run.name});}});
+  signal.throwIfAborted();const marks=(state??result.state).units.flatMap(unit=>unit.sourceEmphasis??[]);
   db.exec('BEGIN IMMEDIATE');try{saveSourceEmphasis(db,data.editionId,marks);db.exec('COMMIT');}catch(error:unknown){db.exec('ROLLBACK');throw error;}
   return NextResponse.json({marks:readSourceEmphasis(db,data.editionId),generated:marks.length,usage});
  }catch(error:unknown){console.error('生成原文重点失败',error instanceof Error?error.name:'UnknownError');return NextResponse.json({error:error instanceof SemanticPlanError?error.message:'原文重点未生成，请检查模型工具能力后重试；原有标记保留。'},{status:502});}

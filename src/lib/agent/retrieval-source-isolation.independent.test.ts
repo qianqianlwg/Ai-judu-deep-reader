@@ -31,7 +31,7 @@ function fixture() {
   return { repository, dependencies, save, searchSources, search: tools[0], read: tools[1], saveAnalysis: tools[2] };
 }
 function analysis(citations: { sourceId: string; quote: string }[]) {
-  return { emphasis: "无" as const, readingText: "说明检索词的含义。", summary: "", breakdown: [], concepts: "\u65e0" as const, context: "", uncertainty: "", citations };
+  return { answerEmphasis: {keywords:"none" as const,keySentences:"none" as const}, readingText: "说明检索词的含义。", summary: "", breakdown: [], concepts: "\u65e0" as const, context: "", uncertainty: "", citations };
 }
 
 beforeEach(() => {

@@ -9,9 +9,9 @@ export const answerEmphasisSchema = z.object({
   version: z.literal(1),
   marks: z.array(z.object({
     kind: z.enum(["term", "key_sentence"]),
-    quote: z.string().trim().min(2).max(160),
+    quote: z.string().min(1).max(1000),
     occurrence: z.number().int().min(1).max(99),
-  }).strict()).max(4),
+  }).strict()).max(32),
 }).strict();
 // WHY：有无重点由 Agent 明确决定；缺省或空数组不能代替必填的“无”。
 export const answerEmphasisInputSchema = z.union([
@@ -39,7 +39,7 @@ function locate(tree: Root, marks: AnswerEmphasis["marks"]): LocatedMark[] {
         seen += 1;
         if (seen === mark.occurrence) {
           const end = start + mark.quote.length;
-          if (located.some(item => item.node === node && start < item.span.end && end > item.span.start)) break;
+          if (located.some(item => item.node === node && item.mark.kind === mark.kind && start < item.span.end && end > item.span.start)) break;
           located.push({ node, span: { start, end, kind: mark.kind }, mark });
           break;
         }
@@ -51,20 +51,14 @@ function locate(tree: Root, marks: AnswerEmphasis["marks"]): LocatedMark[] {
   return located;
 }
 
-function validLength(mark: AnswerEmphasis["marks"][number]): boolean {
-  const length = Array.from(mark.quote).length;
-  return mark.kind === "term" ? length <= 16 && !/[\r\n]/u.test(mark.quote) : length >= 8 && !/[\r\n]/u.test(mark.quote);
-}
-
 export function validateAnswerEmphasis(markdown: string, proposal: unknown): AnswerEmphasis {
   const parsed = answerEmphasisSchema.safeParse(proposal);
   if (!parsed.success || !markdown.trim()) return EMPTY_ANSWER_EMPHASIS;
   const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown);
   let termCount = 0, sentenceCount = 0;
   const candidates = parsed.data.marks.filter(mark => {
-    if (!validLength(mark)) return false;
-    if (mark.kind === "term") return ++termCount <= 3;
-    return ++sentenceCount <= 1;
+    if (mark.kind === "term") return ++termCount <= 16;
+    return ++sentenceCount <= 16;
   });
   const located = locate(tree, candidates);
   // WHY：标注必须精确命中当前正文；模型提出不存在、重叠或位于代码/链接的内容时直接丢弃，不用模糊匹配猜位置。
@@ -122,13 +116,15 @@ export function remarkAnswerEmphasis(emphasis: AnswerEmphasis) {
       const spans = grouped.get(node)?.sort((a, b) => a.start - b.start);
       if (!spans?.length) return;
       const children: (Text | Strong)[] = [];
-      let at = 0;
-      for (const span of spans) {
-        if (span.start > at) children.push({ type: "text", value: node.value.slice(at, span.start) });
-        children.push({ type: "strong", data: { hName: "span", hProperties: { "data-answer-emphasis": span.kind } }, children: [{ type: "text", value: node.value.slice(span.start, span.end) }] });
-        at = span.end;
+      // WHY：不同类别允许叠加；按已核验范围边界切分展示，绝不复制原文或扩大重点。
+      const boundaries = [...new Set([0, node.value.length, ...spans.flatMap(span => [span.start, span.end])])].sort((left, right) => left - right);
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        const start = boundaries[i], end = boundaries[i + 1];
+        const kinds = [...new Set(spans.filter(span => span.start <= start && span.end >= end).map(span => span.kind))];
+        let child: Text | Strong = { type: 'text', value: node.value.slice(start, end) };
+        for (const kind of kinds) child = { type: 'strong', data: { hName: 'span', hProperties: { 'data-answer-emphasis': kind } }, children: [child] };
+        children.push(child);
       }
-      if (at < node.value.length) children.push({ type: "text", value: node.value.slice(at) });
       parent.children.splice(index, 1, ...children);
       return index + children.length;
     });

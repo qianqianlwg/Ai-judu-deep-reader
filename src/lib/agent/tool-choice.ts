@@ -3,8 +3,6 @@ export const TOOL_NAMES = {
   readSource: "read_source",
   saveReadingAnalysis: "save_reading_analysis",
   markAnswerEmphasis: "mark_answer_emphasis",
-  compressReadingContext: "compress_reading_context",
-  planReadingUnits: "plan_reading_units",
   submitReadingSentence: "submit_reading_sentence",
 } as const;
 

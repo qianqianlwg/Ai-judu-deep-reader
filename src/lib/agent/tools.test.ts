@@ -5,7 +5,7 @@ function fixture() {
   const deps: ReadingToolDependencies = { messageId: "m", selectedText: source.text, detail: "standard", sources: new Map(), search: vi.fn(async () => [source]), read: vi.fn(async () => [source]), save: vi.fn(async () => undefined), anchor: { paragraphId: "p", startOffset: 0, endOffset: source.text.length, selectedText: source.text } };
   return { deps, tools: createReadingTools(deps) };
 }
-const analysis = { emphasis: "无" as const, readingText: "认识使对象改变啊", summary: "解释", breakdown: [], concepts: [{ name: "认识", text: "认识活动" }], context: "", uncertainty: "", citations: [{ sourceId: source.sourceId, quote: "认识" }] };
+const analysis = { answerEmphasis: {keywords:"none" as const,keySentences:"none" as const}, readingText: "认识使对象改变啊", summary: "解释", breakdown: [], concepts: [{ name: "认识", text: "认识活动" }], context: "", uncertainty: "", citations: [{ sourceId: source.sourceId, quote: "认识" }] };
 describe("结构化句读工具", () => {
   it("只登记实际检索结果，然后验证并保存原文锚点", async () => { const { deps, tools } = fixture(); await tools[0].invoke({ query: "认识" }); expect(deps.sources.size).toBe(1); const result = await tools[2].invoke(analysis); expect(result).toMatchObject({ ok: true, analysisId: "m", saved: true }); expect(deps.save).toHaveBeenCalledWith(expect.objectContaining({ anchor: deps.anchor, citations: [expect.objectContaining({ paragraphId: "p", messageId: "m" })] })); });
   it("empty concepts marker persists as an empty list and omission is rejected", async () => { const { deps, tools } = fixture(); expect(await tools[2].invoke({ ...analysis, concepts: "\u65e0", citations: [] })).toMatchObject({ ok: true }); expect(deps.save).toHaveBeenCalledWith(expect.objectContaining({ concepts: [] })); });
@@ -60,20 +60,21 @@ describe("结构化句读工具", () => {
     deps.getVisibleAnswer = () => "先看影响范围，再确定协调责任。";
     deps.saveEmphasis = vi.fn(async () => undefined);
     const proposal = { version: 1 as const, marks: [{ kind: "term" as const, quote: "影响范围", occurrence: 1 }] };
-    expect(await tools[3].invoke({ emphasis: proposal })).toMatchObject({ ok: true, marked: 1 });
+    expect(await tools[3].invoke({ answerEmphasis: { keywords: ["影响范围"], keySentences: "none" } })).toMatchObject({ ok: true, marked: 1 });
     expect(deps.saveEmphasis).toHaveBeenCalledWith(proposal);
-    expect(await tools[3].invoke({ emphasis: { version: 1, marks: [{ kind: "term", quote: "不存在", occurrence: 1 }] } })).toMatchObject({ ok: false });
+    expect(await tools[3].invoke({ answerEmphasis: {keywords:["不存在"],keySentences:"none"} })).toMatchObject({ ok: false });
     expect(deps.saveEmphasis).toHaveBeenCalledOnce();
-    await expect(tools[3].invoke({ emphasis: { version: 1, marks: [{ kind: "term", quote: "影响范围", occurrence: 1, style: "color:red" }] } })).rejects.toThrow();
+    // @ts-expect-error：故意传不符合类型的参数，验证运行时严格拒绝。
+    await expect(tools[3].invoke(JSON.stringify({ answerEmphasis: { keywords: ["影响范围"], keySentences: "none", style: "color:red" } }))).rejects.toThrow();
   });
   it("句读标注失配返回错误，不能丢弃标注并声称保存成功", async () => {
     const { deps, tools } = fixture();
     deps.getVisibleAnswer = () => "认识活动改变对象。";
     await tools[0].invoke({ query: "认识" });
-    await tools[2].invoke({ ...analysis, emphasis: { version: 1, marks: [{ kind: "term", quote: "认识活动", occurrence: 1 }] } });
-    expect(deps.save).toHaveBeenCalledWith(expect.objectContaining({ emphasis: { version: 1, marks: [{ kind: "term", quote: "认识活动", occurrence: 1 }] } }));
+    await tools[2].invoke({ ...analysis, answerEmphasis: {keywords:["认识活动"],keySentences:"none"} });
+    expect(deps.save).toHaveBeenCalledWith(expect.objectContaining({ emphasis: { version: 1, marks: [{kind: "term", quote:"认识活动", occurrence:1}] } }));
     deps.save = vi.fn(async () => undefined);
-    expect(await createReadingTools(deps)[2].invoke({ ...analysis, emphasis: { version: 1, marks: [{ kind: "term", quote: "不存在", occurrence: 1 }] } })).toMatchObject({ ok: false, code: "no_valid_emphasis" });
+    expect(await createReadingTools(deps)[2].invoke({ ...analysis, answerEmphasis: {keywords:["不存在"],keySentences:"none"} })).toMatchObject({ ok: false, code: "no_valid_emphasis" });
     expect(deps.save).not.toHaveBeenCalled();
   });  it("read_source 拒绝未登记 ID", async () => { const { deps, tools } = fixture(); expect(await tools[1].invoke({ sourceId: "other-edition" })).toMatchObject({ ok: false }); expect(deps.read).not.toHaveBeenCalled(); });
   it("同一段多次检索保留已提供的证据，但不跨片段拼接引用", async () => {
@@ -97,11 +98,12 @@ it("显式无也保存 AI 决策，不补出任何标注；省略或空数组被
   const { deps, tools } = fixture();
   deps.getVisibleAnswer = () => "这句话已经很清楚。";
   deps.saveEmphasis = vi.fn(async () => undefined);
-  expect(await tools[3].invoke({ emphasis: "无" })).toMatchObject({ ok: true, marked: 0 });
+  expect(await tools[3].invoke({ answerEmphasis: {keywords:"none" as const,keySentences:"none" as const} })).toMatchObject({ ok: true, marked: 0 });
   expect(deps.saveEmphasis).toHaveBeenLastCalledWith({ version: 1, marks: [] });
   // @ts-expect-error：故意省略必填字段，验证运行时协议拒绝。
   await expect(tools[3].invoke({})).rejects.toThrow();
+  // @ts-expect-error：旧协议不能作为新的工具参数。
   await expect(tools[3].invoke({ emphasis: { version: 1, marks: [] } })).rejects.toThrow();
   // @ts-expect-error：故意省略必填字段，验证运行时协议拒绝。
-  await expect(tools[2].invoke({ ...analysis, emphasis: undefined })).rejects.toThrow();
+  await expect(tools[2].invoke({ ...analysis, answerEmphasis: undefined })).rejects.toThrow();
 });

@@ -126,3 +126,9 @@ describe("本书关联检索历史安全回放", () => {
     expect(visible?.tool.result).toMatchObject({ ok: false, message: "本书索引未完成", retrieval: { effectiveMode: "none" } });
   });
 });
+
+it('逐句提交工具安全回放完成进度，不泄露输入、指令或下一句原文', () => {
+ const result=conversationToolFromRow({id:'sentence',messageId:'m',name:'submit_reading_sentence',status:'completed',outputJson:JSON.stringify({ok:true,unitId:'u',completed:2,remainingCharacters:10,allCovered:false,nextSourceStart:'尚未处理的私有原文',instruction:'内部指令',apiKey:'private-key'})},'e1');
+ expect(result?.tool).toMatchObject({name:'submit_reading_sentence',result:{ok:true,unitId:'u',completed:2,remainingCharacters:10,allCovered:false}});
+ for(const hidden of ['私有原文','内部指令','private-key'])expect(JSON.stringify(result)).not.toContain(hidden);
+});

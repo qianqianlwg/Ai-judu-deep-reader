@@ -1,3 +1,5 @@
+import { SOURCE_EMPHASIS_SCHEMA } from "@/lib/source-enhancement-store";
+import type { SemanticReading } from "@/lib/semantic-reading";
 import { GUIDE_SCHEMA } from "@/lib/guide-schema";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +21,7 @@ const runtime = (process as unknown as {
 const fetcher = vi.fn<typeof fetch>();
 const responses: (() => Response)[] = [];
 const encoder = new TextEncoder();
-const analysis = { emphasis: "无", readingText: "连续选文需要结合上下文理解。", summary: "", breakdown: [], concepts: "\u65e0", context: "", uncertainty: "", citations: [] };
+const analysis = { answerEmphasis: { keywords:"none",keySentences:"none" }, readingText: "连续选文需要结合上下文理解。", summary: "", breakdown: [], concepts: "\u65e0", context: "", uncertainty: "", citations: [] };
 const sourceRows = [
   ["p1", "chapter-1", "第一段正文用于验收多段句读完整来源。", 0],
   ["p2", "chapter-1", "第二段正文应完整包含在这次选择中。", 1],
@@ -31,6 +33,7 @@ const sourceRows = [
 type MessageRow = { id: string; role: string; content: string; status: string; structured_output: string };
 type Saved = {
   anchor?: ReadingAnchor;
+  semantic?: SemanticReading;
   _request: { attemptId: string; fingerprint: string; input: Record<string, unknown>; failure?: { code: string } };
 };
 function db(): Db { if (!fixture.db) throw new Error("缺少验收数据库"); return fixture.db; }
@@ -84,13 +87,17 @@ function textResponse() {
     block({ id: "controlled-text", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }), block("[DONE]"));
 }
 function toolResponse() {
-  return upstream(block({ id: "controlled-tool", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "save-multi", type: "function", function: { name: "save_reading_analysis", arguments: JSON.stringify(analysis) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
+  const parts=fixture.db ? selectionFromRequest() : selection();
+  const original=parts.map(part=>part.selectedText).join('');
+  const submission={sourceStart:Array.from(original).slice(0,8).join(''),sourceEnd:Array.from(original).slice(-8).join(''),title:'连续选文释读',content:analysis.readingText,sourceAnnotations:{keywords:'none',keySentences:'none',concepts:'none'},answerEmphasis:analysis.answerEmphasis};
+  return upstream(block({ id: "controlled-tool", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "save-multi", type: "function", function: { name: "submit_reading_sentence", arguments: JSON.stringify(submission) } }] }, finish_reason: "tool_calls" }] }), block("[DONE]"));
 }
+function selectionFromRequest(): ReadingAnchorPart[] { const request=saved()._request.input; return request.selectionAnchors as ReadingAnchorPart[]; }
 const enqueueSuccess = () => responses.push(toolResponse, textResponse);
 function structuredResults(wire: string): unknown[] {
-  return wire.split("\n\n").filter(value => value.startsWith("event: structured\n")).map(value => {
-    const data = JSON.parse(value.slice(value.indexOf("data: ") + 6)) as { result: unknown };
-    return data.result;
+  return wire.split("\n\n").filter(value => value.startsWith("event: semantic\n")).flatMap(value => {
+    const data = JSON.parse(value.slice(value.indexOf("data: ") + 6)) as { result: SemanticReading };
+    return data.result.units;
   });
 }
 function assertAnchorInWire(wire: string, parts = selection()) {
@@ -112,7 +119,7 @@ async function assertRejected(overrides: Record<string, unknown>, status: number
 beforeEach(() => {
   // WHY：真实 SQLite + 真实 Agent/工具链，只隔离数据库和模型 HTTP 传输；不伪造产品持久化结果。
   fixture.db = new runtime.DatabaseSync(":memory:");
-  fixture.db.exec(GUIDE_SCHEMA);
+  fixture.db.exec(GUIDE_SCHEMA);fixture.db.exec(SOURCE_EMPHASIS_SCHEMA);
   db().exec(`
     CREATE TABLE books (id TEXT PRIMARY KEY);
     CREATE TABLE editions (id TEXT PRIMARY KEY, book_id TEXT NOT NULL);
@@ -127,6 +134,7 @@ beforeEach(() => {
     CREATE TABLE reading_threads (id TEXT PRIMARY KEY, book_id TEXT, edition_id TEXT NOT NULL, chapter_id TEXT, paragraph_id TEXT, selected_text TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE chat_messages (id TEXT PRIMARY KEY, thread_id TEXT, role TEXT, content TEXT NOT NULL, raw_content TEXT, structured_output TEXT, status TEXT, model_name TEXT, prompt_version TEXT, created_at TEXT, usage_json TEXT);
     CREATE TABLE agent_tool_runs (id TEXT PRIMARY KEY, message_id TEXT, thread_id TEXT, attempt_id TEXT, tool_name TEXT, input_json TEXT, output_json TEXT, status TEXT, created_at TEXT);
+    CREATE TABLE annotations(id TEXT PRIMARY KEY,paragraph_id TEXT,start_offset INTEGER,end_offset INTEGER,text_hash TEXT,thread_id TEXT,summary TEXT,concepts TEXT,created_at TEXT,concept_details TEXT,message_id TEXT);
     CREATE TABLE context_snapshots (id TEXT PRIMARY KEY, thread_id TEXT, book_id TEXT, edition_id TEXT, summary TEXT, recent_messages TEXT, token_count INTEGER, version INTEGER, created_at TEXT, checkpoint_json TEXT);
   `);
   for (const source of sourceRows) db().prepare("INSERT INTO paragraphs VALUES (?,?,?,?)").run(...source);
@@ -149,7 +157,7 @@ afterEach(() => {
 
 describe("多段流式句读独立后端验收：字数与来源校验", () => {
   it("全选区 3001 字拒绝且不调用模型、不建会话、不分段执行", async () => {
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(1499));
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(1498)+"。");
     db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("乙".repeat(1500));
     const payload = body([part("p1"), part("p2")]);
     expect(Array.from(String(payload.selectedText)).length).toBe(3001);
@@ -160,20 +168,20 @@ describe("多段流式句读独立后端验收：字数与来源校验", () => {
     await assertRejected({ selectedText: "甲".repeat(3001), selectionAnchors: undefined }, 400, "selection_length");
   });
   it.each([2999, 3000])("允许全选区恰好 %i 字（含分隔符），完整保存不截断", async length => {
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(1499));
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("乙".repeat(length - 1501));
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("甲".repeat(1498)+"。");
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("乙".repeat(length - 1502)+"。");
     const parts = [part("p1"), part("p2")];
     enqueueSuccess();
     const result = await call(body(parts));
     expect(result.status).toBe(200);
     expect(result.text).toContain("event: done");
     expect(row().status).toBe("completed");
-    expect(saved().anchor).toEqual(expectedAnchor(parts));
+    expect(saved().semantic?.units[0].anchor).toEqual(expectedAnchor(parts));
     expect(saved()._request.input.selectedText).toHaveLength(length);
   });
   it.each([3000, 3001])("%i 个 Unicode 字符按字数校验，emoji 位置仍按 UTF-16", async length => {
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("😀".repeat(1499));
-    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("𠮷".repeat(length - 1501));
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p1'").run("😀".repeat(1498)+"。");
+    db().prepare("UPDATE paragraphs SET text=? WHERE id='p2'").run("𠮷".repeat(length - 1502)+"。");
     const parts = [part("p1"), part("p2")], payload = body(parts);
     expect(Array.from(String(payload.selectedText))).toHaveLength(length);
     expect(String(payload.selectedText).length).toBeGreaterThan(3000);
@@ -182,8 +190,8 @@ describe("多段流式句读独立后端验收：字数与来源校验", () => {
       enqueueSuccess();
       const result = await call(payload);
       expect(result.text).toContain("event: done");
-      expect(saved().anchor).toEqual(expectedAnchor(parts));
-      expect(saved().anchor?.fragments?.[0].endOffset).toBe(2998);
+      expect(saved().semantic?.units[0].anchor).toEqual(expectedAnchor(parts));
+      expect(saved().semantic?.units[0].anchor.fragments?.[0].endOffset).toBe(parts[0].endOffset);
     }
   });
   it.each([null, [], [{ paragraphId: "p1" }]])("拒绝非法片段格式 %j", async selectionAnchors => {
@@ -226,15 +234,18 @@ describe("多段流式句读独立后端验收：保存、重放和重试", () =
     expect(row().status).toBe("completed");
     expect(fetcher).toHaveBeenCalledTimes(2);
     assertAnchorInWire(result.text);
-    expect(saved().anchor).toEqual(expectedAnchor());
+    expect(saved().semantic?.units[0].anchor).toEqual(expectedAnchor());
     expect(saved()._request.input).toMatchObject(expectedInput());
     const thread = db().prepare("SELECT * FROM reading_threads WHERE id='multi-thread'").get();
     expect(thread).toMatchObject({ paragraph_id: "p1", selected_text: body().selectedText, chapter_id: "chapter-1" });
-    const audit = db().prepare("SELECT output_json FROM agent_tool_runs WHERE tool_name='save_reading_analysis'").get() as { output_json: string };
-    expect(JSON.parse(audit.output_json)).toMatchObject({ ok: true, result: { anchor: expectedAnchor() } });
+    const audit = db().prepare("SELECT output_json FROM agent_tool_runs WHERE tool_name='submit_reading_sentence'").get() as { output_json: string };
+    expect(JSON.parse(audit.output_json)).toMatchObject({ok:true,allCovered:true});
+    const unitId=JSON.parse(audit.output_json).unitId;
+    const unit=db().prepare('SELECT structured_output FROM chat_messages WHERE id=?').get(unitId) as {structured_output:string};
+    expect(JSON.parse(unit.structured_output)).toMatchObject({anchor:expectedAnchor()});
     const modelBody = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as { messages: { content: string }[] };
-    expect(modelBody.messages.some(message => message.content.includes('"selectedText":' + JSON.stringify(body().selectedText)))).toBe(true);
-    expect(count("chat_messages")).toBe(2);
+    for(const fragment of selection())expect(JSON.stringify(modelBody.messages)).toContain(fragment.selectedText);
+    expect(count("chat_messages")).toBe(3);
   });
   it("成功请求幂等重放不调用模型，结构化事件及刷新恢复仍带全部片段", async () => {
     enqueueSuccess();
@@ -248,8 +259,8 @@ describe("多段流式句读独立后端验收：保存、重放和重试", () =
     expect(row().structured_output).toBe(storedBefore);
     expect(saved()._request.attemptId).toBe(before._request.attemptId);
     expect(restore().payload).toMatchObject(body());
-    expect(restore().analysis?.anchor).toEqual(expectedAnchor());
-    expect(count("chat_messages")).toBe(2);
+    expect(restore().semantic?.units[0].anchor).toEqual(expectedAnchor());
+    expect(count("chat_messages")).toBe(3);
   });
   it("受控模型失败后从落库消息恢复并原位重试，完整来源和身份不丢失", async () => {
     responses.push(() => new Response(JSON.stringify({ error: { message: "受控失败", type: "invalid_request_error" } }), { status: 400, headers: { "Content-Type": "application/json" } }));
@@ -266,12 +277,12 @@ describe("多段流式句读独立后端验收：保存、重放和重试", () =
     expect(row().status).toBe("completed");
     expect(saved()._request.attemptId).not.toBe(firstAttempt);
     expect(saved()._request.fingerprint).toBe(fingerprint);
-    expect(saved().anchor).toEqual(expectedAnchor());
+    expect(saved().semantic?.units[0].anchor).toEqual(expectedAnchor());
     assertAnchorInWire(retried.text);
     expect(fetcher).toHaveBeenCalledTimes(3);
-    expect(count("chat_messages")).toBe(2);
+    expect(count("chat_messages")).toBe(3);
     expect(count("reading_threads")).toBe(1);
-    expect(restore().analysis?.anchor).toEqual(expectedAnchor());
+    expect(restore().semantic?.units[0].anchor).toEqual(expectedAnchor());
   });
   it("重放或重试不得沿用旧 ID 偷换为另一组合法连续片段", async () => {
     enqueueSuccess();
@@ -287,7 +298,7 @@ describe("多段流式句读独立后端验收：保存、重放和重试", () =
   it("网关未调用保存工具时明确失败，保留请求来源但绝不造句读记录", async () => {
     responses.push(textResponse);
     const result = await call();
-    expect(result.text).toContain("emphasis_missing");
+    expect(result.text).toContain("sentence_incomplete");
     expect(row().status).toBe("error");
     expect(saved().anchor).toBeUndefined();
     expect(structuredResults(result.text)).toHaveLength(0);

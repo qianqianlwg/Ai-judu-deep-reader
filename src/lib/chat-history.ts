@@ -1,3 +1,4 @@
+import { analysisOnlySource, type AnalysisOnlySource } from "./analysis-only-source";
 import { interruptSemanticReading, isSemanticReading } from './semantic-reading';
 import { isTokenUsage, type TokenUsage } from "./token-usage";
 import { readAnswerEmphasis } from "./answer-emphasis";
@@ -14,6 +15,7 @@ function readHistoricalTools(value: unknown): HistoricalToolActivity[] {
 }
 export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
  const sourceByUser=new Map<string,MessageAnchor>();
+ const looseByUser=new Map<string,AnalysisOnlySource>();
  const result=saved.map((message):ChatMessage=>{
   let value:unknown;
   if(message.structuredOutput){try{value=JSON.parse(message.structuredOutput);}catch(error:unknown){console.error("恢复消息结构失败",error);}}
@@ -29,11 +31,16 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
   const warnings = Array.isArray(message.warnings) ? message.warnings.filter((item): item is string => typeof item === "string") : [];
   if (!usage && message.usageJson) { try { const parsed: unknown = JSON.parse(message.usageJson); if (isTokenUsage(parsed)) usage = parsed; } catch (error: unknown) { console.error("恢复 Token 统计失败", error); } }
   const outputFormat = isRecord(value) && value.outputFormat === "text" ? "text" : analysis ? "legacy-json" : "text";
+  let looseSource:AnalysisOnlySource|undefined;
   let anchor=isRecord(value)?readAnchor(value.anchor):undefined;
   let sourceInvalid=isRecord(value) && value.anchor!==undefined && !anchor;
   if(isRecord(value)&&isRecord(value._request)){
    const meta=value._request;
-   if(!anchor&&!sourceInvalid&&isRecord(meta.input)) {
+   if(isRecord(meta.input) && meta.input.sourceMode!==undefined) {
+    try {looseSource=analysisOnlySource(meta.input);anchor=undefined;if(typeof meta.clientUserMessageId==="string" && looseSource)looseByUser.set(meta.clientUserMessageId,looseSource);}
+    catch(error:unknown){console.error("恢复仅分析选文失败",error);sourceInvalid=true;anchor=undefined;}
+   }
+   if(!looseSource&&!anchor&&!sourceInvalid&&isRecord(meta.input)) {
     const parts=readAnchorParts(meta.input.selectionAnchors);
     if(meta.input.selectionAnchors!==undefined&&!parts)sourceInvalid=true;
     anchor=parts ? makeReadingAnchor(parts) : meta.input.selectionAnchors===undefined ? readAnchor({paragraphId:meta.input.paragraphId,selectedText:meta.input.selectedText,startOffset:meta.input.selectionStart,endOffset:meta.input.selectionEnd}) : undefined;
@@ -41,11 +48,11 @@ export function hydrateChatHistory(saved:StoredChatMessage[]):ChatMessage[]{
    if(anchor&&typeof meta.clientUserMessageId==="string")sourceByUser.set(meta.clientUserMessageId,anchor);
   }
   // WHY：旧线程的最后选文不等于每一条消息的选文；缺少消息级位置时保持未知，禁止误跳。
-  return {id:message.id,role:message.role,content:message.content,semantic,createdAt:message.createdAt,analysis,analysisOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && Number.isSafeInteger(value._request.timeline.analysis) && (value._request.timeline.analysis as number) >= 0 && (value._request.timeline.analysis as number) <= message.content.length ? value._request.timeline.analysis as number : undefined,emphasis: message.role === "assistant" && message.status !== "streaming" && message.status !== "error" ? (trustedEmphasis && isRecord(value) ? readAnswerEmphasis(message.content, value.emphasis) : undefined) : undefined,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
+  return {id:message.id,role:message.role,content:message.content,semantic,createdAt:message.createdAt,analysis,analysisOffset: isRecord(value) && isRecord(value._request) && isRecord(value._request.timeline) && Number.isSafeInteger(value._request.timeline.analysis) && (value._request.timeline.analysis as number) >= 0 && (value._request.timeline.analysis as number) <= message.content.length ? value._request.timeline.analysis as number : undefined,analysisOnlySource:looseSource,emphasis: message.role === "assistant" && message.status !== "streaming" && message.status !== "error" ? (trustedEmphasis && isRecord(value) ? readAnswerEmphasis(message.content, value.emphasis) : undefined) : undefined,anchor,...(sourceInvalid ? {sourceInvalid:true} : {}),usage,outputFormat,tools,historicalTools,warnings,kind:analysis?"analysis":"chat",status:message.status==="streaming"?"error":message.status};
  });
  // WHY：子消息保留数据库中的独立知识与来源身份，但在会话里归入父任务展示，避免重复回答。
  const childIds=new Set(result.flatMap(message=>message.semantic?.units.map(unit=>unit.id)??[]));
- return result.filter(message=>!childIds.has(message.id??'')).map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??"")}:message);
+ return result.filter(message=>!childIds.has(message.id??'')).map(message=>message.role==="user"?{...message,anchor:sourceByUser.get(message.id??""),analysisOnlySource:looseByUser.get(message.id??"")}:message);
 }
 
 export type HistoricalRequestMetadata = {

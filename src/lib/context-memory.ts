@@ -19,6 +19,8 @@ export async function memoryChecksum(value: unknown): Promise<string> {
   return Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,"0")).join("");
 }
 const tokens = (messages: ContextMessage[]) => estimateTextTokens(JSON.stringify(messages));
+// WHY：主回答可不设应用级输出上限；记忆压缩仍需独立、有限的内部摘要预算。
+const MEMORY_OUTPUT_BUDGET_TOKENS = 4096;
 export async function compactMemory(messages: ContextMessage[], settings: ContextSettings, fixedContext: string, previous: CompactionSnapshot | undefined, deps: MemoryDependencies): Promise<CompactedContext> {
   deps.signal?.throwIfAborted();
   const fixedTokens=estimateTextTokens(fixedContext)+512, room=Math.floor(settings.maxInputTokens-fixedTokens-256);
@@ -29,8 +31,8 @@ export async function compactMemory(messages: ContextMessage[], settings: Contex
   const active=fixedTokens+estimateTextTokens(summary)+tokens(messages.slice(covered));
   const threshold=settings.maxInputTokens*(settings.compressionStrategy==="conservative"?.85:settings.compressionStrategy==="aggressive"?.65:.75);
   if(active<=settings.maxInputTokens-128 && (active<=threshold || tokens(messages.slice(covered))<256))return makeResult("none");
-  const target=Math.max(128,Math.min(2048,Math.floor(room*.4),Math.floor(settings.maxOutputTokens*.5)));
-  const input=(prior:StructuredCompressionState,batch:ContextMessage[],goal=target):SummaryInput=>({previous:prior,messages:batch,targetTokens:goal,inputBudgetTokens:settings.maxInputTokens,outputBudgetTokens:settings.maxOutputTokens,signal:deps.signal});
+  const target=Math.max(128,Math.min(2048,Math.floor(room*.4),Math.floor(MEMORY_OUTPUT_BUDGET_TOKENS*.5)));
+  const input=(prior:StructuredCompressionState,batch:ContextMessage[],goal=target):SummaryInput=>({previous:prior,messages:batch,targetTokens:goal,inputBudgetTokens:settings.maxInputTokens,outputBudgetTokens:MEMORY_OUTPUT_BUDGET_TOKENS,signal:deps.signal});
   const measure=deps.measureInput??((value:SummaryInput)=>estimateTextTokens(JSON.stringify({previous:value.previous,messages:value.messages}))+1024);
   const fits=(prior:StructuredCompressionState,batch:ContextMessage[],goal=target)=>measure(input(prior,batch,goal))<=settings.maxInputTokens;
   type Work={message:ContextMessage;covered:number};

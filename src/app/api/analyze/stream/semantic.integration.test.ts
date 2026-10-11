@@ -61,7 +61,7 @@ describe('逐句增量细读 API 集成',()=>{
   expect(rows).toHaveLength(3);expect(rows[0]).toMatchObject({start_offset:0,end_offset:texts[0].length});
   const history=fixture.db!.prepare('SELECT id,role,content,status,structured_output AS structuredOutput FROM chat_messages ORDER BY created_at').all() as Parameters<typeof hydrateChatHistory>[0];
   expect(hydrateChatHistory(history)).toHaveLength(2);
-  for(const outgoing of fetcher.mock.calls.slice(0,-1)){const request=JSON.parse(String(outgoing[1]?.body));expect(request.tools).toHaveLength(1);expect(request.tools[0].function.name).toBe('submit_reading_sentence');expect(request.max_tokens).toBeUndefined();expect(request.max_completion_tokens).toBeUndefined();}
+  for(const outgoing of fetcher.mock.calls.slice(0,-1)){const request=JSON.parse(String(outgoing[1]?.body));expect(request.tools.map((tool:{function:{name:string}})=>tool.function.name)).toEqual(expect.arrayContaining(['submit_reading_sentence','search_book','read_source']));expect(request.tool_choice).toBe('required');expect(request.max_tokens).toBeUndefined();expect(request.max_completion_tokens).toBeUndefined();}
   expect(JSON.parse(String(fetcher.mock.calls.at(-1)?.[1]?.body)).tools).toBeUndefined();expect(state().conclusion).toMatchObject({status:'completed',content:'AI 小结：整体关系贯穿全部选文。'});expect(parent().content).toContain('本次细读小结');
   const count=fetcher.mock.calls.length;await call();expect(fetcher).toHaveBeenCalledTimes(count);
  });

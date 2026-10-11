@@ -4,7 +4,15 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {SemanticReadingResult} from './semantic-reading-result';
 import type {SemanticUnit} from '@/lib/semantic-reading';
 const unit:SemanticUnit={id:'u',label:'一个意思',action:'read',reason:'',anchor:{paragraphId:'p',startOffset:1,endOffset:3,selectedText:'甲。'},status:'completed',content:'对应释读'};
-describe('语义结果展示',()=>{it('显示独立定位与范围',()=>{const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',units:[unit]}} onOpenSource={()=>{}}/>);expect(html).toContain('对应释读');expect(html).toContain('data-message-id="u"');expect(html).toContain('定位原文');});it('略过明确说明且可以要求句读，不伪装成解释',()=>{const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',units:[{...unit,action:'skip',status:'skipped',content:'',reason:'原文直白'}]}} onReadUnit={()=>{}}/>);expect(html).toContain('仍然句读');expect(html).toContain('原文直白');expect(html).toContain('Agent 建议略过');expect(html).not.toContain('对应释读');});});
+describe('语义结果展示',()=>{it('显示独立定位与范围',()=>{const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',units:[unit]}} onOpenSource={()=>{}}/>);expect(html).toContain('对应释读');expect(html).toContain('data-message-id="u"');expect(html).toContain('定位原文');});it('三个句读操作收在原文折叠区内',()=>{
+ const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',units:[unit]}} onOpenSource={()=>{}} onDiscussUnit={()=>{}} onReadUnit={()=>{}}/>);
+ const host=document.createElement('div');host.innerHTML=html;
+ const source=host.querySelector<HTMLDetailsElement>('.semantic-unit .semantic-source');
+ expect(source).not.toBeNull();expect(source?.open).toBe(false);
+ expect(Array.from(source?.querySelectorAll('button')??[]).map(button=>button.textContent?.trim())).toEqual(['定位原文 ↗','追问此块','重新句读']);
+ expect(host.querySelector('.semantic-unit > .semantic-actions')).toBeNull();
+});
+it('略过明确说明且可以要求句读，不伪装成解释',()=>{const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',units:[{...unit,action:'skip',status:'skipped',content:'',reason:'原文直白'}]}} onReadUnit={()=>{}}/>);expect(html).toContain('仍然句读');expect(html).toContain('原文直白');expect(html).toContain('Agent 建议略过');expect(html).not.toContain('对应释读');});});
 
 it('细读规划失败不把历史句读线误称为本次进度',()=>{const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'interrupted',units:[]}}/>);expect(html).toContain('本次细读尚未生成');expect(html).toContain('已有句读线属于历史记录');expect(html).not.toContain('进度已保留');});
 it('细分释读保留词句增强，来源保持字面且也能增强',()=>{const content='权责关系。地方政府承担公共服务，并在行政层级之间协调资源和职责。';const html=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',units:[{...unit,content,analysis:{emphasisSource:'agent',summary:'',breakdown:[],concepts:[],context:'',uncertainty:'',emphasis:{version:1,marks:[{kind:'term',quote:'权责关系',occurrence:1},{kind:'key_sentence',quote:content.slice(5),occurrence:1}]}},sourceEmphasis:[{paragraphId:'p',startOffset:0,endOffset:4,quote:content.slice(0,4),kind:'term'},{paragraphId:'p',startOffset:5,endOffset:content.length,quote:content.slice(5),kind:'key_sentence'}],anchor:{paragraphId:'p',startOffset:0,endOffset:content.length,selectedText:content}}]}}/>);expect(html).toContain('data-answer-emphasis="term"');expect(html).toContain('data-answer-emphasis="key_sentence"');expect(html).toContain('data-source-emphasis="term"');expect(html).toContain('data-source-emphasis="key_sentence"');});
@@ -14,6 +22,8 @@ it('进度条按10+90字数比例显示，当前句只有占位而没有伪来�
 import {act} from 'react';
 import {createRoot} from 'react-dom/client';
 it('整组列表可折叠，后续句读更新不强制重新展开',async()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const host=document.createElement('div'),root=createRoot(host);document.body.append(host);try{await act(async()=>root.render(<SemanticReadingResult state={{version:1,phase:'reading',title:'商品两重性',units:[unit]}}/>));const list=host.querySelector<HTMLDetailsElement>('.semantic-list')!;await act(async()=>{list.open=false;list.dispatchEvent(new Event('toggle'));});await act(async()=>root.render(<SemanticReadingResult state={{version:1,phase:'completed',title:'商品两重性',units:[unit,{...unit,id:'v'}]}}/>));expect(list.open).toBe(false);}finally{await act(async()=>root.unmount());host.remove();vi.unstubAllGlobals();}});
+
+it('思考和句读中的进度卡添加亮带类，百分比规则不变，完成后停止',()=>{const thinking=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'planning',thinkingCompleted:false,totalCharacters:4,units:[]}}/>);expect(thinking).toContain('semantic-progress-card is-active');expect(thinking).toContain('value="0"');const completed=renderToStaticMarkup(<SemanticReadingResult state={{version:1,phase:'completed',totalCharacters:2,units:[unit]}}/>);expect(completed).not.toContain('is-active');expect(completed).toContain('value="100"');});
 
 it('小结位于句读折叠列表之后，历史无小结时不造占位',()=>{
  const state={version:1 as const,phase:'completed' as const,units:[unit]};const html=renderToStaticMarkup(<SemanticReadingResult state={{...state,conclusion:{status:'completed',content:'整段关系小结'}}}/>);

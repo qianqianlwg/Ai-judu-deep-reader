@@ -6,3 +6,8 @@
 .error { color: var(--red, #b4443c); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
 .retry { margin-top: 8px; padding: 5px 10px; border: 1px solid var(--reading-border); border-radius: 6px; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
 .retry:disabled { opacity: .5; cursor: default; }
+
+/* WHY：小结的 Markdown 使用紧凑段距和普通空白折叠，避免继承聊天正文的 pre-wrap 放大段间空行。 */
+.body { color: inherit; font-size: var(--ui-text-size, 13px); line-height: 1.85; white-space: normal; overflow-wrap: anywhere; }
+.body :global(p) { margin: 0 0 10px; white-space: normal; }
+.body :global(p:last-child) { margin-bottom: 0; }

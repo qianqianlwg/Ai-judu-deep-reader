@@ -11,3 +11,17 @@
   line-height: 1.85;
   color: var(--reading-text);
 }
+
+/* WHY：朗读入口与块标题同排靠右，窄屏标题可换行，按钮保持可点击宽度。 */
+.unitHeading > button {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--reading-border);
+  border-radius: 6px;
+  background: var(--reading-surface);
+  color: var(--reading-accent);
+  font: 12px/1.5 system-ui;
+  cursor: pointer;
+}
+.unitHeading > button:hover:not(:disabled) { background: var(--reading-selected); }
+.unitHeading > button:disabled { opacity: .5; cursor: not-allowed; }
