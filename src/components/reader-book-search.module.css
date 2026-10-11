@@ -1,0 +1,14 @@
+.search { flex-shrink:0; }
+.search > button { white-space:nowrap; border:1px solid var(--reading-border); border-radius:6px; padding:6px 9px; color:var(--reading-text); background:var(--reading-paper); cursor:pointer; font:12px system-ui; }
+.panel { position:absolute; z-index:30; top:calc(100% + 4px); right:8px; width:min(420px, calc(100% - 16px)); max-height:min(65vh, 580px); overflow:auto; padding:16px; background:var(--reading-paper); color:var(--reading-text); border:1px solid var(--reading-border); border-radius:10px; box-shadow:0 12px 32px #0002; font:13px/1.6 system-ui; }
+.panel header, .panel form { display:flex; align-items:center; gap:8px; }
+.panel header { justify-content:space-between; margin-bottom:12px; }
+.panel input { min-width:0; flex:1; padding:7px; border:1px solid var(--reading-border); border-radius:6px; color:inherit; background:var(--reading-surface); }
+.panel button { border:1px solid var(--reading-border); border-radius:6px; background:var(--reading-paper); color:inherit; padding:6px 10px; cursor:pointer; }
+.panel button:disabled { opacity:.5; cursor:default; }
+.panel p { margin:10px 0; }
+.results { display:grid; gap:8px; }
+.results button { text-align:left; display:grid; gap:4px; width:100%; }
+.results button:hover { background:var(--reading-surface); }
+.results strong, .results small { opacity:.75; }
+.results mark { background:#f2c94c66; color:inherit; }

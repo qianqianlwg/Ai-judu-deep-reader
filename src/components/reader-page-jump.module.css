@@ -1,0 +1,19 @@
+.jump { display:flex; align-items:center; justify-content:center; font:12px system-ui; color:var(--reading-text); }
+.jump .trigger { display:flex; align-items:center; gap:3px; padding:5px 8px; border:0; border-radius:6px; background:transparent; color:var(--reading-muted, #807a72); font:12px system-ui; font-variant-numeric:tabular-nums; cursor:pointer; }
+.jump .trigger:hover:not(:disabled) { background:color-mix(in srgb,var(--reading-text) 5%,transparent); }
+.trigger .scope { margin-right:4px; font-size:11px; opacity:.6; }
+.trigger .current { color:var(--reading-text); font-weight:500; }
+.trigger .total { opacity:.7; }
+.trigger svg { margin-left:5px; opacity:.5; }
+.jump .trigger:disabled { cursor:default; opacity:.45; }
+.panel { position:fixed; z-index:1000; width:240px; box-sizing:border-box; padding:16px; border:1px solid var(--reading-border, #e7e2da); border-radius:12px; box-shadow:0 8px 32px #00000014,0 2px 6px #00000008; background:var(--reading-paper, #fffdf9); color:var(--reading-text, #332f29); font:12px/1.5 system-ui; }
+.panel header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.panel header strong { font-size:13px; font-weight:500; }
+.panel header button { border:0; background:transparent; color:var(--reading-muted, #807a72); font-size:18px; cursor:pointer; padding:0 3px; }
+.fields { display:flex; align-items:center; gap:8px; }
+.fields input { width:64px; min-width:0; padding:7px 8px; border:1px solid var(--reading-border, #e7e2da); border-radius:6px; background:var(--reading-surface, #faf8f4); color:inherit; text-align:center; font:13px system-ui; outline:none; }
+.fields input:focus { border-color:var(--reading-accent, #75674b); }
+.fields span { color:var(--reading-muted, #807a72); flex:1; }
+.fields button { padding:7px 12px; border:1px solid var(--reading-border, #e7e2da); border-radius:6px; background:var(--reading-surface, #faf8f4); color:inherit; cursor:pointer; font:12px system-ui; }
+.panel p { margin:10px 0 0; font-size:11px; color:var(--reading-muted, #807a72); }
+.panel .error { color:var(--reading-text, #332f29); }
