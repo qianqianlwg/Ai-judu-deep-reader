@@ -393,3 +393,6 @@ body { background: var(--ui-bg); color: var(--ui-text); }
 
 /* WHY：减少动态反馈时保留静态加载/输出标记，停止装饰性脉冲与光标闪烁。 */
 @media (prefers-reduced-motion: reduce) { .loading-orbit, .streaming-cursor::after { animation: none; } }
+
+.skip-link { position: fixed; inset-block-start: 8px; inset-inline-start: 8px; z-index: 10000; transform: translateY(calc(-100% - 16px)); border: 1px solid var(--reading-border, #d9dce0); border-radius: 6px; padding: 9px 14px; background: var(--reading-surface, #fff); color: var(--reading-text, #263238); font: 600 14px/1.4 system-ui, sans-serif; }
+.skip-link:focus-visible { transform: translateY(0); outline: 3px solid var(--reading-accent, #495666); outline-offset: 2px; }

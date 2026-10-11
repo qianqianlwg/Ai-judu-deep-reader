@@ -11,6 +11,16 @@ describe("工作台布局契约", () => {
     expect(page).toContain('inert={workspaceView !== "reader"}');
     expect(page).not.toContain("knowledgeOpen ?"); expect(page).not.toContain("top-actions");
   });
+  it("全站 skip link 指向各路由可聚焦的主要内容区", async () => {
+    const home = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    const settings = await readFile(new URL("./settings/page.tsx", import.meta.url), "utf8");
+    const library = await readFile(new URL("./library/page.tsx", import.meta.url), "utf8");
+    const global = await readFile(new URL("./globals.css", import.meta.url), "utf8");
+    const rootLayout = await readFile(new URL("./layout.tsx", import.meta.url), "utf8");
+    for (const page of [home, settings, library]) expect(page).toContain('id="main-content" tabIndex={-1}');
+    expect(global).toContain(".skip-link:focus-visible");
+    expect(rootLayout).toContain('href="#main-content"');
+  });
   it("移除底部字号与选文提示栏，顶部阅读选项保持可用", async () => {
     const page = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
     expect(page).not.toContain('className="selection-bar"');

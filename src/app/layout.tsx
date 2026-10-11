@@ -29,6 +29,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return <html lang="zh-CN" data-reading-theme={DEFAULT_READING_APPEARANCE.theme} suppressHydrationWarning
     className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} style={defaultVariables}>
     <head><script dangerouslySetInnerHTML={{ __html: getReadingAppearanceBootstrapScript() }} /><script dangerouslySetInnerHTML={{ __html: uiTextSizeBootstrapScript() }} /></head>
-    <body className="min-h-full flex flex-col" style={{ background: "var(--reading-paper, #fffdf9)", color: "var(--reading-text, #263238)" }}><SpeechProvider>{children}</SpeechProvider></body>
+    <body className="min-h-full flex flex-col" style={{ background: "var(--reading-paper, #fffdf9)", color: "var(--reading-text, #263238)" }}><a className="skip-link" href="#main-content">跳转到主要内容</a><SpeechProvider>{children}</SpeechProvider></body>
   </html>;
 }

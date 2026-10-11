@@ -168,7 +168,7 @@ export default function SettingsPage() {
       <span className={styles.railButton + " " + styles.railButtonActive} aria-label="设置" title="设置"><RailIcon name="settings" /></span>
     </nav>
     <SettingsSidebar activeSection={activeSection} query={query} onQueryChange={setQuery} onSelect={selectSection} />
-    <section className={styles.main} ref={contentRef} aria-label="设置内容">
+    <section id="main-content" tabIndex={-1} className={styles.main} ref={contentRef} aria-label="设置内容">
       <div className={styles.content}>
         <header className={styles.mainHeader}><span className={styles.kicker}>JUDU SETTINGS</span><h1>{SECTION_COPY[activeSection].title}</h1><p>{SECTION_COPY[activeSection].description}</p></header>
         <div className={styles.sectionStack}>
