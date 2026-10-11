@@ -15,7 +15,7 @@ export function paintTextEnhancement(root:HTMLElement,sources:readonly Source[],
   const sourceById=new Map(sources.map(p=>[p.id,p.text]));
   const paint=()=>{
     const ranges:{term:Range[];key_sentence:Range[]}={term:[],key_sentence:[]};
-    for(const element of root.querySelectorAll<HTMLElement>('p[data-paragraph-id]')){
+    for(const element of root.querySelectorAll<HTMLElement>('[data-paragraph-id]')){
       const text=sourceById.get(element.dataset.paragraphId??'');if(text===undefined)continue;
       const base=Number(element.dataset.sourceStart??0),end=Number(element.dataset.sourceEnd??text.length);
       if(!Number.isInteger(base)||!Number.isInteger(end)||base<0||end>text.length)continue;

@@ -1,5 +1,4 @@
 "use client";
-import { useState } from "react";
 import { resolveConvertedEpub } from "@/lib/converted-epub-artifact";
 import {isCbzFormat} from "@/lib/cbz-manifest";
 import {isFb2Format} from "@/lib/fb2-format";
@@ -16,20 +15,11 @@ export function originalReaderKind(book:LibraryBookContent):"epub"|"pdf"|"mobi"|
  return book.editionId&&book.edition?.hasOriginalFile&&book.edition.fileType.replace(/^\./u,"").toLowerCase()==="pdf"?"pdf":null;
 }
 export function useReaderMode(book: LibraryBookContent) {
-  const [choices, setChoices] = useState<Record<string, "text" | "original">>({});
   const available = originalReaderKind(book)!==null;
-  const key = book.editionId ?? "unselected";
-  const mode = available ? isCbzFormat(book.edition?.fileType??"")?"original":choices[key] ?? "original" : "text";
-  function selectMode(next: "text" | "original") { setChoices(previous => ({ ...previous, [key]: next })); }
-  return { available, original: mode === "original", selectMode };
+  // WHY：有原件的格式始终使用原版，旧的text选择不再创建另一套阅读视图；无原件历史和纯文本格式保留数据读取能力。
+  return { available, original:available };
 }
-export function ReaderModeSwitch({ book, original, onChange, disabled }: { book: LibraryBookContent; original: boolean; onChange(mode: "text" | "original"): void; disabled?: boolean }) {
-  const available = originalReaderKind(book)!==null;
-  const conversion = resolveConvertedEpub(book);
-  const converted = book.edition?.fileType === ".umd";
-  const title = converted ? conversion.kind === "ready" ? "阅读由 UMD 生成的 EPUB 转换版；原 UMD 独立保留，不代表原文件版式" : conversion.kind === "invalid" ? conversion.message : "此版本没有可用转换版" : available ? "保留原文件的图片、公式、脚注与版式" : "此版本没有可用原文件；旧书仍可精读，新导入 EPUB/PDF/MOBI/FB2/CBZ 可使用原版";
-  return <div className="reader-mode" aria-label="阅读视图">
-    <button type="button" disabled={disabled || !available} aria-pressed={original} onClick={() => onChange("original")} title={title}>{converted ? "转换版" : "原版"}</button>
-    <button type="button" disabled={disabled||isCbzFormat(book.edition?.fileType??"")} title={isCbzFormat(book.edition?.fileType??"")?"CBZ无文字层，OCR尚未启用":undefined} aria-pressed={!original} onClick={() => onChange("text")}>精读</button>
-  </div>;
+export function ReaderFormatStatus({book}:{book:LibraryBookContent}) {
+  const kind=originalReaderKind(book);
+  return <span className="reader-format-status">{kind==='umd'?'UMD 转换版':kind?'原书排版':book.edition?.hasOriginalFile?'文本原文':'历史正文（未保存原件）'}</span>;
 }

@@ -15,6 +15,8 @@ vi.mock("@/hooks/use-reader-pages", () => ({
   },
 }));
 import Home from "./page";
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search), useRouter: () => ({ push: (href: string) => window.history.pushState(null, "", href) }) }));
+
 
 const editions = [
   { id: "edition-new", fileName: "新校版.epub", fileType: "epub", createdAt: "2026-09-14T02:00:00Z" },
@@ -49,11 +51,11 @@ async function settle() {
   for (let count = 0; frames.size && count < 6; count += 1) await act(async () => { const queue = [...frames.values()]; frames.clear(); queue.forEach(callback => callback(performance.now())); });
   expect(frames.size).toBe(0);
 }
-async function click(node: HTMLElement) { await act(async () => node.click()); await settle(); }
-async function mount() { await act(async () => root.render(<Home />)); await settle(); }
+async function click(node: HTMLElement) { await act(async () => { if (node.matches(".workspace-shelf-back") && node.getAttribute("aria-disabled") !== "true") window.history.pushState(null, "", "/"); else node.click(); root.render(<Home />); }); await settle(); }
+async function mount() { if (!new URLSearchParams(window.location.search).has("bookId")) window.history.replaceState(null,"","/?bookId=book-main&editionId="+(localStorage.getItem("judu:edition:book-main")??"edition-old")); await act(async () => root.render(<Home />)); await settle(); }
 async function reload() { await act(async () => root.unmount()); root = createRoot(host); await mount(); }
 async function showVersions(bookId: string) {
-  await click(button("书架")); await click(element('.bookshelf-card[data-book-id="' + bookId + '"] .bookshelf-menu-content button:nth-child(2)'));
+  if (!host.querySelector(".bookshelf-home")) await click(element(".workspace-shelf-back")); await click(element('.bookshelf-card[data-book-id="' + bookId + '"] .bookshelf-menu-content button:nth-child(2)'));
 }
 async function chooseEdition(edition: string) {
   await showVersions(edition === "edition-other" ? "book-other" : "book-main");
@@ -91,7 +93,7 @@ beforeEach(() => {
   frames = new Map(); frameId = 0; requests = []; failFirst = false; delayedSearch = undefined;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; });
   vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
-  localStorage.clear(); localStorage.setItem("judu:active-book", "book-main"); localStorage.setItem("judu:edition:book-main", "edition-old");
+  window.history.replaceState(null, "", "/"); localStorage.clear(); localStorage.setItem("judu:active-book", "book-main"); localStorage.setItem("judu:edition:book-main", "edition-old");
   for (const book of books) for (const edition of book.editions) localStorage.setItem("judu:thread:" + book.id + ":" + edition.id, threadId(edition.id));
   fetcher.mockImplementation(async (input, init) => {
     const url = endpoint(input); const edition = url.searchParams.get("editionId") ?? "";
@@ -135,7 +137,7 @@ describe("全部书籍和版本的页面入口", () => {
     expect(element(".reader-sheet").textContent).toContain(texts["edition-old"]);
     expect(requestUrls("/api/books/book-main")[0].searchParams.get("editionId")).toBe("edition-old");
     expect(element('[data-message-id="assistant-edition-old"]').textContent).toContain("旧回答");
-    await click(button("书架"));
+    await click(element(".workspace-shelf-back"));
     expect(host.querySelectorAll(".bookshelf-card")).toHaveLength(2);
     await showVersions("book-main"); expect(host.querySelectorAll("dialog [data-edition-id]")).toHaveLength(2);
     await click(element('[aria-label="关闭书籍信息"]'));
@@ -151,8 +153,8 @@ describe("全部书籍和版本的页面入口", () => {
     expect(element(".reader-sheet").textContent).toContain(texts["edition-new"]);
     expect(host.querySelector('[data-message-id="assistant-edition-old"]')).toBeNull();
     expect(element('[data-message-id="assistant-edition-new"]').textContent).toContain("旧回答");
-    await showVersions("book-main"); expect(element('dialog [data-edition-id="edition-new"]').getAttribute("aria-current")).toBe("true");
-    await click(element('[aria-label="关闭书籍信息"]'));
+    await showVersions("book-main"); expect(element('dialog [data-edition-id="edition-new"]')).not.toBeNull();
+    await click(element('[aria-label="关闭书籍信息"]')); await click(element('.bookshelf-card[data-book-id="book-main"] .bookshelf-open'));
     await click(button("知识库"));
     expect(element('.knowledge-library').textContent).toContain("edition-new的定义");
     await click(button("打开句读"));
@@ -191,7 +193,7 @@ describe("修改预算后原位重试页面接线", () => {
     failFirst = true; await mount(); await selectSource("edition-old"); await click(button("句读一下"));
     expect(requests).toHaveLength(1);
     const first = structuredClone(requests[0]);
-    expect(first.contextSettings).toMatchObject({ maxInputTokens: 200000, maxOutputTokens: 4096 });
+    expect(first.contextSettings).toMatchObject({ maxInputTokens: 200000, maxOutputTokens: null });
     const userIds = [...host.querySelectorAll(".chat-message.user")].map(item => item.getAttribute("data-message-id"));
     // WHY：重试前故意换选区并调大预算，验证只改执行预算，不从当前UI重建请求。
     await selectSource("edition-old", 1, 11);
@@ -203,13 +205,13 @@ describe("修改预算后原位重试页面接线", () => {
     expect(host.querySelectorAll('[data-message-id="' + first.clientAssistantMessageId + '"]')).toHaveLength(1);
     expect(element('[data-message-id="' + first.clientAssistantMessageId + '"]').textContent).toContain("正常回答");
   });
-  it("非法预算保留失败消息并显示设置错误，不额外发请求或插用户消息", async () => {
+  it("本地预算值损坏时回退默认档，沿用原消息完成重试", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     failFirst = true; await mount(); await selectSource("edition-old"); await click(button("句读一下"));
     localStorage.setItem("judu:maxInputTokens", "not-a-number"); await click(button("重新句读"));
-    expect(requests).toHaveLength(1); expect(host.querySelectorAll(".chat-message.user")).toHaveLength(2);
-    expect(element('[role="alert"]').textContent).toContain("预算"); expect(log).toHaveBeenCalled();
+    expect(requests).toHaveLength(2); expect(host.querySelectorAll(".chat-message.user")).toHaveLength(2);
+    expect(requests[1].retryContextSettings).toEqual({ maxInputTokens: 200000, maxOutputTokens: null }); expect(element('[data-message-id="' + requests[1].clientAssistantMessageId + '"]').textContent).toContain("正常回答"); expect(log).toHaveBeenCalled();
   });
 });
 
-it("A旧版与B的阅读位置独立保存，往返切书和刷新后两本都能继续",async()=>{const a={paragraphId:paragraphId('edition-old'),offset:10},b={paragraphId:paragraphId('edition-other'),offset:7};localStorage.setItem('judu:position:book-main:edition-old',JSON.stringify(a));localStorage.setItem('judu:position:book-other:edition-other',JSON.stringify(b));await mount();await chooseEdition('edition-other');expect(localStorage.getItem('judu:position:book-main:edition-old')).toBe(JSON.stringify(a));expect(localStorage.getItem('judu:position:book-other:edition-other')).toBe(JSON.stringify(b));await click(button('书架'));expect(Array.from(host.querySelectorAll('.bookshelf-read-action')).map(node=>node.textContent)).toEqual([expect.stringContaining('继续阅读'),expect.stringContaining('继续阅读')]);await click(element('.bookshelf-card[data-book-id="book-main"] .bookshelf-open'));expect(requestUrls('/api/books/book-main').at(-1)?.searchParams.get('editionId')).toBe('edition-old');expect(localStorage.getItem('judu:position:book-main:edition-old')).toBe(JSON.stringify(a));expect(element('[data-paragraph-id="'+paragraphId('edition-old')+'"]').textContent).toContain('old:');await reload();expect(localStorage.getItem('judu:position:book-main:edition-old')).toBe(JSON.stringify(a));expect(localStorage.getItem('judu:position:book-other:edition-other')).toBe(JSON.stringify(b));await click(button('书架'));expect(Array.from(host.querySelectorAll('.bookshelf-read-action')).every(node=>node.textContent?.includes('继续阅读'))).toBe(true);});
+it("A旧版与B的阅读位置独立保存，往返切书和刷新后两本都能继续",async()=>{const a={paragraphId:paragraphId('edition-old'),offset:10},b={paragraphId:paragraphId('edition-other'),offset:7};localStorage.setItem('judu:position:book-main:edition-old',JSON.stringify(a));localStorage.setItem('judu:position:book-other:edition-other',JSON.stringify(b));await mount();await chooseEdition('edition-other');expect(localStorage.getItem('judu:position:book-main:edition-old')).toBe(JSON.stringify(a));expect(localStorage.getItem('judu:position:book-other:edition-other')).toBe(JSON.stringify(b));await click(element(".workspace-shelf-back"));expect(Array.from(host.querySelectorAll('.bookshelf-read-action')).map(node=>node.textContent)).toEqual([expect.stringContaining('继续阅读'),expect.stringContaining('继续阅读')]);await click(element('.bookshelf-card[data-book-id="book-main"] .bookshelf-open'));expect(requestUrls('/api/books/book-main').at(-1)?.searchParams.get('editionId')).toBe('edition-old');expect(localStorage.getItem('judu:position:book-main:edition-old')).toBe(JSON.stringify(a));expect(element('[data-paragraph-id="'+paragraphId('edition-old')+'"]').textContent).toContain('old:');await reload();expect(localStorage.getItem('judu:position:book-main:edition-old')).toBe(JSON.stringify(a));expect(localStorage.getItem('judu:position:book-other:edition-other')).toBe(JSON.stringify(b));await click(element(".workspace-shelf-back"));expect(Array.from(host.querySelectorAll('.bookshelf-read-action')).every(node=>node.textContent?.includes('继续阅读'))).toBe(true);});

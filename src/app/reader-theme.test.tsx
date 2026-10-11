@@ -7,7 +7,7 @@ import { DEFAULT_READING_APPEARANCE, READING_APPEARANCE_STORAGE_KEYS, READING_TH
 const pagination = vi.hoisted(() => ({ pages: [], pageIndex: 0, currentPage: undefined, setPageIndex: vi.fn(), setAnchor: vi.fn(), anchor: null, busy: false, error: "", renderedScale: 1 }));
 // WHY：只替换 jsdom 不具备的排版测量；使用真实页面、外观控件、存储事件和工作区切换。
 vi.mock("@/hooks/use-reader-pages", () => ({ useReaderPages: () => pagination }));
-import Home from "./page";
+import { BookWorkspace as Home } from "./page";
 let host: HTMLDivElement;
 let root: Root;
 
@@ -58,10 +58,10 @@ describe("工作台整页主题同步", () => {
     writeReadingAppearance(localStorage, { ...DEFAULT_READING_APPEARANCE, theme });
     await act(async () => root.render(<Home />)); expectTheme(theme);
   });
-  it("阅读选项、书架切换、跨标签更新均保持根主题一致", async () => {
+  it("阅读选项、书内切换、跨标签更新均保持根主题一致", async () => {
     await act(async () => root.render(<Home />)); await click("阅读");
     await chooseTheme("dark"); expectTheme("dark");
-    await click("书架"); expectTheme("dark"); expect(host.querySelector(".bookshelf-workspace")).not.toBeNull();
+    await click("知识库"); expectTheme("dark"); expect(host.querySelector(".workspace-main")?.getAttribute("data-workspace-view")).toBe("knowledge");
     expect(JSON.parse(localStorage.getItem(READING_APPEARANCE_STORAGE_KEYS.preferences)!).theme).toBe("dark");
     writeReadingAppearance(localStorage, { ...DEFAULT_READING_APPEARANCE, theme: "paper" });
     await act(async () => window.dispatchEvent(new StorageEvent("storage", { key: READING_APPEARANCE_STORAGE_KEYS.preferences })));

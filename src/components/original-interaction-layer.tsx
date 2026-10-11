@@ -1,15 +1,14 @@
 "use client";
 import {useCallback,useEffect,useId,useMemo,useRef,useState,type RefObject} from "react";
 import {AnnotationPopover,type PopoverSource} from "./annotation-popover";
-import {ConceptPopoverContent,HistoryPopoverContent} from "./reading-popover-content";
+import {ConceptPopoverContent,HistoryPopoverContent,type HistoryPopoverReading} from "./reading-popover-content";
 import {readerConceptPageKey,clipReaderRect,epubPointToHost,epubRectToHost,insideRect,type ReaderInteraction,type ReaderRect} from "@/lib/reader-interactions";
-
 import type {TextAnnotation} from "@/lib/annotations";
 import "./epub-interaction-layer.css";
+import { installEpubHistorySpacers } from "@/lib/epub-history-spacers";
 export type ReferencePreview={title:string;text:string;address?:string;index?:number;fragment?:string};
 export type ReaderInteractionDocument={doc:Document;index:number;targets:ReaderInteraction[];scope?:HTMLElement};
-export type OriginalInteractionProps={host:RefObject<HTMLDivElement|null>;documents:readonly ReaderInteractionDocument[];book:object;documentsIdentity?:object;relocationSources?:readonly EventTarget[];disabled?:boolean;deduplicatePageConcepts?:boolean;onOpenAnnotation?:(annotation:TextAnnotation)=>void;previewLink?:(link:Element,index:number,doc:Document)=>Promise<ReferencePreview>;interceptLink?:(link:Element)=>boolean;referenceUnavailableText?:string;onJump:(preview:ReferencePreview)=>Promise<void>;onNotice:(message:string)=>void};
-
+export type OriginalInteractionProps={host:RefObject<HTMLDivElement|null>;documents:readonly ReaderInteractionDocument[];book:object;documentsIdentity?:object;relocationSources?:readonly EventTarget[];disabled?:boolean;historyReadingsByMessageId?:ReadonlyMap<string,HistoryPopoverReading>;isHistoryVisible?:(range:Range)=>boolean;reserveHistoryMarkerSpace?:boolean;deduplicatePageConcepts?:boolean;onOpenAnnotation?:(annotation:TextAnnotation)=>void;previewLink?:(link:Element,index:number,doc:Document)=>Promise<ReferencePreview>;interceptLink?:(link:Element)=>boolean;referenceUnavailableText?:string;onJump:(preview:ReferencePreview)=>Promise<void>;onNotice:(message:string)=>void};
 type Located={target:ReaderInteraction;doc:Document;rect:ReaderRect;rects:ReaderRect[]};
 type Active={ownerBook:object;ownerDocuments:object;key:string;pinned:boolean;doc:Document;rect:ReaderRect;sourceRect:()=>ReaderRect|null;focus?:()=>void}&({kind:"concept";target:Extract<ReaderInteraction,{kind:"concept"}>}|{kind:"history";target:Extract<ReaderInteraction,{kind:"history"}>}|{kind:"mark";target:Extract<ReaderInteraction,{kind:"mark"}>}|{kind:"link";link:Element;preview:ReferencePreview|null;index:number});
 function selectedInSource(doc:Document,scope?:HTMLElement):boolean{
@@ -55,6 +54,7 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
    frame=undefined;const bounds=container.getBoundingClientRect();
    const seenConcepts=new Map<Document,Set<string>>();
    const next:Located[]=targets.flatMap(({doc,target})=>{
+    if(target.kind==="history"&&latest.current.isHistoryVisible?.(target.range)===false)return [];
     const source=Array.from(target.range.getClientRects()).filter(rect=>rect.width>0&&rect.height>0);
     const raw=target.kind==="history" ? source.slice(-1) : source;
     const rects=raw.map(rect=>epubRectToHost(doc,rect)).flatMap(rect=>{const clipped=clipReaderRect(rect,bounds);return clipped?[clipped]:[];});
@@ -63,7 +63,7 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
     if(target.kind==="concept"){const seen=seenConcepts.get(doc)??new Set<string>();const key=props.deduplicatePageConcepts?readerConceptPageKey(target):target.key;if(seen.has(key))return [];seen.add(key);seenConcepts.set(doc,seen);}
     const last=rects[rects.length-1];
     // WHY：末端标识只在真实结束点所在页显示，不把跨页裁剪的假末尾当作句读结尾。
-    if(target.kind==="history"&&source.length){const end=epubRectToHost(doc,source[source.length-1]);if(end.right>bounds.right+1||end.bottom>bounds.bottom+1||end.right<=bounds.left)return [];}
+    if(target.kind==="history"&&source.length){const end=epubRectToHost(doc,source[source.length-1]);if(end.right>bounds.right+1||end.bottom>bounds.bottom+1||end.left<bounds.left-1||end.top<bounds.top-1||end.right<=bounds.left)return [];}
     const rect=target.kind==="history"?{left:Math.min(last.right+2,bounds.right-18),right:Math.min(last.right+2,bounds.right-18)+16,top:Math.max(bounds.top,last.bottom-16),bottom:Math.max(bounds.top,last.bottom-16)+16,width:16,height:16}:rects[0];
     return [{target,doc,rect,rects}];
    });
@@ -73,13 +73,14 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
     if(!rect||(current.doc!==container.ownerDocument&&!current.doc.defaultView?.frameElement?.isConnected)){request.current++;activeRef.current=null;setActive(null);}else{const item=next.find(item=>item.doc===current.doc&&item.target.key===current.key);const updated={...current,rect,...(item?{target:item.target}:{})} as Active;activeRef.current=updated;setActive(updated);}}
   };
   const schedule=()=>{if(frame!==undefined)cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(!disposed)paint();});};
-  const relocate=()=>{request.current++;activeRef.current=null;setActive(null);hoverKey.current="";schedule();};
+  const relocate=()=>{request.current++;activeRef.current=null;setActive(null);hoverKey.current="";geometry.current=[];setLocated([]);schedule();};
+  // WHY：占位节点只为 EPUB 流式排版预留标记空间；PDF Range 依赖文字层节点映射，不能插入 EPUB 专用占位。
+  const spacerCleanup = props.reserveHistoryMarkerSpace ? installEpubHistorySpacers(props.documents) : () => {};
   paint();const resize=typeof ResizeObserver==='undefined'?null:new ResizeObserver(schedule);resize?.observe(container);
   window.addEventListener('resize',schedule);window.addEventListener('scroll',schedule,true);for(const target of props.relocationSources??[])target.addEventListener('relocate',relocate);
   for(const {doc} of props.documents){if(doc.body)resize?.observe(doc.body);if(doc.documentElement)resize?.observe(doc.documentElement);doc.defaultView?.addEventListener('resize',schedule);doc.addEventListener('scroll',relocate,true);doc.fonts?.addEventListener('loadingdone',schedule);}
-  return()=>{disposed=true;if(frame!==undefined)cancelAnimationFrame(frame);resize?.disconnect();window.removeEventListener('resize',schedule);window.removeEventListener('scroll',schedule,true);for(const target of props.relocationSources??[])target.removeEventListener('relocate',relocate);for(const {doc}of props.documents){doc.defaultView?.removeEventListener('resize',schedule);doc.removeEventListener('scroll',relocate,true);doc.fonts?.removeEventListener('loadingdone',schedule);}};
- },[props.host,props.relocationSources,props.documents,props.deduplicatePageConcepts,targets]);
-
+  return()=>{disposed=true;if(frame!==undefined)cancelAnimationFrame(frame);resize?.disconnect();spacerCleanup();window.removeEventListener('resize',schedule);window.removeEventListener('scroll',schedule,true);for(const target of props.relocationSources??[])target.removeEventListener('relocate',relocate);for(const {doc}of props.documents){doc.defaultView?.removeEventListener('resize',schedule);doc.removeEventListener('scroll',relocate,true);doc.fonts?.removeEventListener('loadingdone',schedule);}};
+ },[props.host,props.relocationSources,props.documents,props.reserveHistoryMarkerSpace,props.deduplicatePageConcepts,targets]);
  useEffect(()=>{
   const cleanups=props.documents.map(({doc,index,scope})=>{
    const selected=()=>selectedInSource(doc,scope);
@@ -128,10 +129,9 @@ export function OriginalInteractionLayer(props:OriginalInteractionProps){
  return <div ref={root} className="epub-interactions original-interactions" data-reader-decoration="" aria-label="原版阅读交互层">
   {located.filter(item=>item.target.kind!=='mark').map(item=><button key={item.target.key} type="button" data-epub-target={item.target.key} className={item.target.kind==='history'?'epub-history-marker':'epub-concept-trigger'} style={local(item.rect)} disabled={props.disabled} aria-label={item.target.kind==='concept'?'查看概念：'+item.target.concept.name:'查看句读历史（'+(item.target.kind==='history'?item.target.annotations.length:0)+'条）'} aria-haspopup="dialog" aria-controls={active?.key===item.target.key?id:undefined} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openTarget(item,true);}else enterCard(event);}} aria-expanded={active?.key===item.target.key} onMouseEnter={event=>{if(item.target.kind==='mark'&&!event.buttons){hoverKey.current=item.target.key;openTarget(item,false);}}} onFocus={()=>{if(ignoreFocus.current){ignoreFocus.current=false;return;}if(item.target.kind==='mark')openTarget(item,false);}} onClick={()=>openTarget(item,true)}>{item.target.kind==='history'&&<svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 3.5h12v9H9l-4 3v-3H4zM7 7h6M7 9.5h4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>}</button>)}
   {active&&<button ref={bindAnchor} type="button" tabIndex={-1} className="epub-popover-anchor" style={local(active.rect)} aria-label="返回原版引用位置"/>}
-  {active&&anchor&&<AnnotationPopover id={id} anchor={anchor} source={source} placement={active.kind==='concept'?'word':undefined} onPlacementUnavailable={props.onNotice} returnFocus={restoreFocus} title={active.kind==='concept'?active.target.concept.name:active.kind==='history'?'句读历史':active.kind==='mark'?(active.target.annotation.kind==='note'?'笔记':'阅读标记'):(active.preview?.title?.trim() || '引用预览')} pinned={active.pinned} onClose={close}>
-
+  {active&&anchor&&<AnnotationPopover id={id} anchor={anchor} source={source} placement={active.kind==='concept'?'word':undefined} onPlacementUnavailable={props.onNotice} returnFocus={restoreFocus} title={active.kind==='concept'?active.target.concept.name:active.kind==='history'?'句读历史':active.kind==='mark'?(active.target.annotation.kind==='note'?'笔记':'阅读标记'):(active.preview?.title?.trim() || '引用预览')} headerAction={active.kind==='history'&&active.target.annotations.length>0?<button type="button" className="judu-annotation-popover__action" aria-label="查看最近一条完整句读" title="查看最近一条完整句读" disabled={props.disabled||!props.onOpenAnnotation} onClick={()=>{props.onOpenAnnotation?.(active.target.annotations[0]);close();}}>查看完整句读</button>:undefined} pinned={active.pinned} onClose={close}>
    {active.kind==='concept'&&<ConceptPopoverContent concept={active.target.concept}/>}
-   {active.kind==='history'&&<HistoryPopoverContent annotations={active.target.annotations} disabled={props.disabled||!props.onOpenAnnotation} onOpen={annotation=>{props.onOpenAnnotation?.(annotation);close();}}/>}
+   {active.kind==='history'&&<HistoryPopoverContent annotations={active.target.annotations} hideFirstOpenButton readingsByMessageId={props.historyReadingsByMessageId} disabled={props.disabled||!props.onOpenAnnotation} onOpen={annotation=>{props.onOpenAnnotation?.(annotation);close();}}/>}
    {active.kind==='mark'&&<p>{active.target.annotation.summary||'此标记已保存，可在知识卡片中查看。'}</p>}
    {active.kind==='link'&&<div className="epub-reference-preview">{active.preview?<><ReferencePreviewText key={active.key} text={active.preview.text}/>{active.preview.address&&<details className="epub-link-details"><summary>定位详情</summary><p className="epub-link-address">{active.preview.address}</p></details>}{active.preview.index!==undefined&&<button type="button" disabled={props.disabled} onClick={()=>{const preview=active.preview,sequence=request.current,key=active.key;if(preview)void props.onJump(preview).then(()=>{if(sequence===request.current&&activeRef.current?.key===key)close();}).catch((cause:unknown)=>{console.warn('引用跳转失败',cause);if(sequence===request.current)props.onNotice('引用跳转失败，请从原书目录重试。');});}}>跳转到原文</button>}</>:<p role="status">正在读取引用…</p>}</div>}
   </AnnotationPopover>}

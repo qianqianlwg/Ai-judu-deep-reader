@@ -20,19 +20,20 @@ export async function paginateMeasuredParagraphs(sources: readonly PaginatedPara
   let chapterId = "";
   let chapterTitle = "";
   let chapterStart = true;
+  let hasSourceHeading = false;
   let checks = 0;
   const height = Math.floor(options.height) - 2;
   if (height < 32) throw new Error("正文区域过小，请扩大窗口或缩小字号。");
-  const fits = (parts: PaginatedParagraph[]) => options.measure(parts, chapterStart ? chapterTitle : undefined) <= height;
+  const fits = (parts: PaginatedParagraph[]) => options.measure(parts, chapterStart && !hasSourceHeading ? chapterTitle : undefined) <= height;
   const flush = () => {
     if (!current.length) return;
-    pages.push({ pageNumber: pages.length + 1, chapterId, chapterTitle, paragraphs: current, isChapterStart: chapterStart });
+    pages.push({ pageNumber: pages.length + 1, chapterId, chapterTitle, paragraphs: current, isChapterStart: chapterStart && !hasSourceHeading });
     current = [];
     chapterStart = false;
   };
   for (const source of sources) {
     options.signal?.throwIfAborted();
-    if (source.chapterId !== chapterId) { flush(); chapterId = source.chapterId; chapterTitle = source.chapterTitle; chapterStart = true; }
+    if (source.chapterId !== chapterId) { flush(); chapterId = source.chapterId; chapterTitle = source.chapterTitle; chapterStart = true; hasSourceHeading = source.kind === "heading"; }
     let start = 0;
     const base = source.sourceStartOffset ?? 0;
     const fragment = (end: number): PaginatedParagraph => ({ ...source, text: source.text.slice(start, end), sourceStartOffset: base + start, sourceEndOffset: base + end });

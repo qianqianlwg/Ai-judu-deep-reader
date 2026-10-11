@@ -2,7 +2,7 @@
 export class ReaderOperationTimeout extends Error {
   readonly code = "READER_OPERATION_TIMEOUT";
   constructor(readonly phase: string) {
-    super(`原版渲染超时（${phase}），请重试或切回精读。`);
+    super(`原版渲染超时（${phase}），请重试或返回书架。`);
     this.name = "ReaderOperationTimeout";
   }
 }

@@ -32,6 +32,13 @@ export function buildReaderInteractions(paragraphs:readonly LibraryParagraph[],r
  }
  return result;
 }
+/** WHY：页首边界排除上一页的句末；以真实可见原文范围判断归属，不靠被裁剪的矩形猜测页码。 */
+export function readerRangeEndVisible(target: Range, visible: Range): boolean {
+ const targetDoc=target.endContainer.ownerDocument,visibleDoc=visible.startContainer.ownerDocument;
+ if(targetDoc!==visibleDoc||!targetDoc||visible.collapsed)return false;
+ const end=target.cloneRange();end.collapse(false);
+ return end.compareBoundaryPoints(0,visible)>0&&end.compareBoundaryPoints(2,visible)<=0;
+}
 /** WHY：书内 iframe 的坐标独立于应用窗口；只投影可见位置，不更改书籍 DOM、CFI 或 shadow root。 */
 export function epubPointToHost(doc:Document,x:number,y:number):{x:number;y:number}{
  const frame=doc.defaultView?.frameElement,rect=frame?.getBoundingClientRect();

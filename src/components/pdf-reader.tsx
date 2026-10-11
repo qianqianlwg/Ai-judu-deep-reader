@@ -1,4 +1,6 @@
-"use client";
+"use client";import { ReaderPageJump } from "./reader-page-jump";
+import {readAnalysisOnlySelection} from "@/lib/analysis-only-selection";
+import {ANALYSIS_ONLY_NOTICE} from "@/lib/analysis-only-source";
 import {bindSettledSelection} from "@/lib/settled-selection";
 import{useCallback,useEffect,useMemo,useRef,useState}from'react';
 import{loadPdfRuntime,openPdf,indexPdfPages,type PdfRuntime}from'@/lib/pdf-loader';
@@ -50,7 +52,7 @@ export function PdfReader(props:EpubReaderProps){
     if(saved&&typeof saved==='object'&&'hash'in saved&&saved.hash===props.book.edition?.originalHash){
      if('page'in saved&&Number.isInteger(saved.page)&&Number(saved.page)>0&&Number(saved.page)<=document.numPages){
       current.current=Number(saved.page);setPage(Number(saved.page));
-      // WHY：同一初始精读锚点不是新导航，不能覆盖刚恢复的PDF页；加载中及就绪后的新锚点仍由导航effect处理。
+      // WHY：同一初始原文锚点不是新导航，不能覆盖刚恢复的PDF页；加载中及就绪后的新锚点仍由导航effect处理。
       // 旧记录无anchor时仅消费本次初始值；新记录用保存时锚点区分刷新和从另一精读位置主动打开。
       if(initialAnchor&&(!('anchor'in saved)||sameSavedAnchor(saved.anchor,initialAnchor)))navigated.current=initialAnchor.paragraphId+':'+initialAnchor.offset;
      }
@@ -92,7 +94,11 @@ export function PdfReader(props:EpubReaderProps){
    // WHY：文本选区可用于朗读；生成期间的导航和批注仍受 disabled 约束。
    if(latest.current.selectionDisabled ?? latest.current.disabled)return;const selected=document.getSelection();if(!selected||selected.isCollapsed||!selected.rangeCount)return;const range=selected.getRangeAt(0);if(!range.intersectsNode(root))return;
    const snapshot=readLimitedPdfSelection(selected,[...dom.current.values()],session.index.paragraphs,()=>latest.current.onNotice('最多选择 3000 字符，选区已限制到上限。'));
-   if(!snapshot){last='';setSelection(null);latest.current.onClearSelection?.();latest.current.onNotice('该选区没有完整可核验的PDF文字来源；扫描图片需OCR后才能文字句读。');return;}
+   if(!snapshot){setSelection(null);
+    const loose=latest.current.onAnalysisOnlySelect && readAnalysisOnlySelection(selected,root,()=>latest.current.onNotice('最多选择 3000 字符，选区已限制到上限。'));
+    if(!loose){last='';latest.current.onClearSelection?.();latest.current.onNotice('该选区没有可分析的PDF文字；扫描图片需OCR后才能分析。');return;}
+    const identity=JSON.stringify(loose);if(identity===last)return;last=identity;const rect=selected.getRangeAt(0).getBoundingClientRect();latest.current.onSelectionDocument?.(document);
+    latest.current.onAnalysisOnlySelect?.(loose,{left:rect.left+rect.width/2,top:Math.max(58,rect.top-8)});latest.current.onNotice(ANALYSIS_ONLY_NOTICE);return;}
    const identity=JSON.stringify(snapshot);if(identity===last)return;last=identity;setSelection(snapshot);const rect=selected.getRangeAt(0).getBoundingClientRect();latest.current.onSelectionDocument?.(document);latest.current.onSelect(snapshot,{left:rect.left+rect.width/2,top:Math.max(58,rect.top-8)});
   };
   const start=()=>{last='';setSelection(null);latest.current.onStartSelection?.();};
@@ -125,13 +131,14 @@ export function PdfReader(props:EpubReaderProps){
  const unknownGlyph=session?.index.pages[page-1]?.items.some(item=>item.str.includes("�"));
  return <section className="pdf-reader" aria-label="PDF 原版阅读器" aria-busy={Boolean(status)}>
   <nav className="pdf-navigation" aria-label="PDF导航"><button disabled={!session||page<=1||props.disabled} onClick={()=>goToPage(page-1)}>上一页</button><label>页码 <input aria-label="PDF页码" type="number" min={1} max={session?.document.numPages??1} value={page} disabled={!session||props.disabled} onChange={event=>goToPage(Number(event.target.value))}/></label><span>/ {session?.document.numPages??0}</span><button disabled={!session||page>=session.document.numPages||props.disabled} onClick={()=>goToPage(page+1)}>下一页</button><select aria-label="PDF缩放" value={zoom} onChange={event=>setZoom(Number(event.target.value))}>{[50,75,100,125,150,200,250].map(value=><option key={value} value={value}>{value===100?'适合宽度':value+'%'}</option>)}</select><button aria-label="顺时针旋转PDF" onClick={()=>setRotation(value=>(value+90)%360)}>旋转</button>{outline.length>0&&<select aria-label="PDF目录" value="" onChange={event=>{const value=outline[Number(event.target.value)]?.destination;if(links&&(typeof value==='string'||Array.isArray(value)))void links.goToDestination(value);}}><option value="">原书目录</option>{outline.map((item,index)=><option key={index} value={index}>{'　'.repeat(item.depth)+item.title}</option>)}</select>}</nav>
-  {status&&<p role="status">{status}</p>}{error&&<div role="alert"><p>{error}</p><button onClick={()=>setRetry(n=>n+1)}>重试原版</button><button onClick={props.onFallback}>切回精读</button></div>}
+  {status&&<p role="status">{status}</p>}{error&&<div role="alert"><p>{error}</p><button onClick={()=>setRetry(n=>n+1)}>重试原版</button><button onClick={props.onFallback}>返回书架</button></div>}
   {unknownGlyph&&<p className="pdf-capability-note" role="status">本页含无法识别的文字或公式字符，选文用 � 标明；请对照原版，不把占位符当作原公式。</p>}
   {textless&&<p className="pdf-capability-note" role="status">本页没有可提取的文字层，可查看原版；OCR 尚未启用，不能直接文字句读。</p>}
   <div ref={interactionHost} className="pdf-document-surface"><div ref={viewport} className="pdf-viewport" data-reading-viewport="" onScroll={event=>scrolled(event.currentTarget)}>
    <div className="pdf-scroll-space" style={{height:total,width:layout.reduce((maximum,item)=>Math.max(maximum,item.width+32),width)}}>{session&&links&&visible.map(item=><div className="pdf-page-slot" data-pdf-page={item.page.pageNumber} data-source-mapped={item.page.mapped} key={item.page.pageNumber} style={{top:item.top,width:item.width,height:item.height}}><PdfPage document={session.document} runtime={session.runtime} page={item.page} scale={item.scale} rotation={rotation} linkService={links} onReady={ready} onRemove={removed}/></div>)}</div>
   </div>
-  {session&&<PdfInteractionLayer host={interactionHost} book={props.book} document={session.document} index={session.index} pages={interactionPages} annotations={props.annotations} concepts={props.concepts} disabled={props.disabled} onOpenAnnotation={props.onOpenAnnotation} onNotice={props.onNotice} onJump={goToPage}/>}
+  {session&&<PdfInteractionLayer host={interactionHost} book={props.book} document={session.document} index={session.index} pages={interactionPages} annotations={props.annotations} concepts={props.concepts} disabled={props.disabled} historyReadingsByMessageId={props.historyReadingsByMessageId} onOpenAnnotation={props.onOpenAnnotation} onNotice={props.onNotice} onJump={goToPage}/>}
   </div>
+  <nav className="pdf-navigation" aria-label="底部页码跳转"><ReaderPageJump key={props.book.editionId} current={page} total={session?.document.numPages??0} disabled={!session||props.disabled} onJump={goToPage}/></nav>
  </section>;
 }

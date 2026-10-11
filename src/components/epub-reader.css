@@ -20,3 +20,10 @@
 .epub-link-address{overflow-wrap:anywhere;color:var(--reading-muted);}.epub-footnote button{color:var(--reading-accent);cursor:pointer;}
 .epub-conversion-notice{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-top:1px solid var(--reading-border);color:var(--reading-muted);font:11px/1.5 system-ui;}
 .epub-conversion-notice a{flex-shrink:0;color:var(--reading-accent);text-decoration:underline;text-underline-offset:3px;}
+
+.epub-navigation .epub-reading-progress { display:flex; align-items:center; justify-content:center; min-width:0; color:var(--reading-muted); font-size:11px; }
+.epub-navigation > button { color:var(--reading-muted); font-size:12px; cursor:pointer; }
+.epub-navigation > button:hover:not(:disabled) { color:var(--reading-text); }
+
+.epub-navigation .epub-book-progress { display:flex; align-items:center; white-space:nowrap; font-size:11px; font-variant-numeric:tabular-nums; }
+.epub-book-progress::before { content:"·"; margin:0 8px 0 2px; opacity:.5; }

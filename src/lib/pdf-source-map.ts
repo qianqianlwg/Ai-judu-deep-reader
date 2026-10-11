@@ -31,36 +31,47 @@ export function mapPdfDocument(pages:readonly PdfTextPage[],book:LibraryBookCont
  });
  return {pages:mapped,paragraphs,complete:mapped.every(page=>page.mapped)};
 }
-export type PdfDomPoint={node:Text;offset:number;paragraphId:string;sourceOffset:number};
-export type PdfDomPage={pageNumber:number;container:HTMLElement;points:PdfDomPoint[]};
+export type PdfDomPoint={node:Text;offset:number;itemIndex:number;itemOffset:number;paragraphId:string;sourceOffset:number};
+export type PdfDomPage={pageNumber:number;container:HTMLElement;items:readonly PdfTextItem[];points:PdfDomPoint[];refresh?:()=>PdfDomPoint[]|null};
 export function bindPdfTextLayer(page:PdfTextPage,container:HTMLElement,divs:readonly HTMLElement[],strings:readonly string[]):PdfDomPage{
  const points:PdfDomPoint[]=[];
- if(!page.mapped||divs.length!==page.items.length||strings.length!==page.items.length||divs.some((div,index)=>page.items[index].str.length>0&&!container.contains(div)))return {pageNumber:page.pageNumber,container,points};
+ if(!page.mapped||divs.length!==page.items.length||strings.length!==page.items.length||divs.some((div,index)=>page.items[index].str.length>0&&!container.contains(div)))return {pageNumber:page.pageNumber,container,items:page.items,points};
  const nodes=divs.map((div,index)=>{
   const text=div.textContent??'';if(text!==strings[index]||text!==page.items[index].str)throw new Error("PDF文字层与提取文本不一致，未启用句读");
   const list:{node:Text;start:number;end:number}[]=[];let offset=0;const walker=div.ownerDocument.createTreeWalker(div,4);
   for(let node=walker.nextNode();node;node=walker.nextNode()){const length=node.nodeValue?.length??0;list.push({node:node as Text,start:offset,end:offset+length});offset+=length;}return list;
  });
  for(const run of page.runs)for(let offset=run.itemStart;offset<run.itemEnd;offset++){
-  const at=nodes[run.itemIndex].find(node=>node.start<=offset&&node.end>offset);if(at)points.push({node:at.node,offset:offset-at.start,paragraphId:run.paragraphId,sourceOffset:run.startOffset+offset-run.itemStart});
+  const at=nodes[run.itemIndex].find(node=>node.start<=offset&&node.end>offset);if(at)points.push({node:at.node,offset:offset-at.start,itemIndex:run.itemIndex,itemOffset:offset,paragraphId:run.paragraphId,sourceOffset:run.startOffset+offset-run.itemStart});
  }
- return {pageNumber:page.pageNumber,container,points};
+ return {pageNumber:page.pageNumber,container,items:page.items,points};
+}
+function pdfPointIsCurrent(page:PdfDomPage,point:PdfDomPoint):boolean{
+ const item=page.items[point.itemIndex];
+ return Boolean(item&&Number.isSafeInteger(point.sourceOffset)&&point.sourceOffset>=0&&Number.isSafeInteger(point.itemOffset)&&point.itemOffset>=0&&point.itemOffset<item.str.length&&point.node.ownerDocument===page.container.ownerDocument&&point.node.isConnected&&page.container.contains(point.node)&&Number.isInteger(point.offset)&&point.offset>=0&&point.offset<point.node.length&&point.node.data.charAt(point.offset)===item.str.charAt(point.itemOffset));
+}
+function refreshPdfPage(page:PdfDomPage):boolean{
+ if(page.points.every(point=>pdfPointIsCurrent(page,point)))return true;
+ const points=page.refresh?.();
+ if(!points)return false;
+ page.points=points;
+ return page.points.every(point=>pdfPointIsCurrent(page,point));
 }
 export function pdfRangesForSource(pages:readonly PdfDomPage[],part:Pick<ReadingSelectionPart,'paragraphId'|'startOffset'|'endOffset'>):Range[]{
- return pages.flatMap(page=>{const points=page.points.filter(p=>p.paragraphId===part.paragraphId&&p.sourceOffset>=part.startOffset&&p.sourceOffset<part.endOffset);if(!points.length)return [];const first=points[0],last=points[points.length-1],range=first.node.ownerDocument.createRange();range.setStart(first.node,first.offset);range.setEnd(last.node,last.offset+1);return [range];});
+ return pages.flatMap(page=>{if(!refreshPdfPage(page))return [];const points=page.points.filter(p=>p.paragraphId===part.paragraphId&&p.sourceOffset>=part.startOffset&&p.sourceOffset<part.endOffset);if(!points.length)return [];const first=points[0],last=points[points.length-1],range=first.node.ownerDocument.createRange();range.setStart(first.node,first.offset);range.setEnd(last.node,last.offset+1);return [range];});
 }
 export function selectionFromPdfRange(range:Range,pages:readonly PdfDomPage[],paragraphs:readonly LibraryParagraph[]):ReadingSelection|null{
  if(range.collapsed)return null;
  const registered=[...pages].sort((a,b)=>a.pageNumber-b.pageNumber);
  const touchedPages=registered.filter(page=>range.intersectsNode(page.container));
  if(!touchedPages.length)return null;
+ for(const page of touchedPages)if(!refreshPdfPage(page))return null;
  for(let index=0;index<touchedPages.length;index++){
   const page=touchedPages[index],previous=touchedPages[index-1];
-  if(page.points.some(point=>!page.container.contains(point.node)))return null;
   if(previous&&(page.pageNumber!==previous.pageNumber+1||!(previous.container.compareDocumentPosition(page.container)&Node.DOCUMENT_POSITION_FOLLOWING)))return null;
  }
  const selected=new Map<string,{start:number;end:number}>();
- for(const page of [...pages].sort((a,b)=>a.pageNumber-b.pageNumber))for(const point of page.points){
+ for(const page of touchedPages)for(const point of page.points){
   const probe=point.node.ownerDocument.createRange();probe.setStart(point.node,point.offset);probe.setEnd(point.node,point.offset+1);
   if(range.compareBoundaryPoints(Range.END_TO_START,probe)>=0||range.compareBoundaryPoints(Range.START_TO_END,probe)<=0)continue;
   const previous=selected.get(point.paragraphId);selected.set(point.paragraphId,{start:Math.min(previous?.start??point.sourceOffset,point.sourceOffset),end:Math.max(previous?.end??0,point.sourceOffset+1)});

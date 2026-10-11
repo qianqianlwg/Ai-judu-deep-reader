@@ -19,7 +19,7 @@ function variant(name:string){
  const doc=document.implementation.createHTMLDocument(name);doc.body.innerHTML='<p>第一段😀原文</p><p>第二段</p>';
  const raw=document.createElement('div'),renderer=document.createElement('div');raw.dataset.auditView=name;
  Object.assign(renderer,{setStyles:vi.fn(),goTo:vi.fn(async(target:{anchor:(d:Document)=>unknown})=>{target.anchor(doc)}),getContents:()=>[{doc,index:0}]});
- Object.assign(raw,{renderer,open:vi.fn(async()=>{}),init:vi.fn(async()=>{raw.dispatchEvent(new CustomEvent('load',{detail:{doc,index:0}}))}),next:vi.fn(async()=>{}),prev:vi.fn(async()=>{}),close:vi.fn(),getCFI:()=> 'epubcfi(/6/2!/4/1:1)',resolveCFI:vi.fn(()=>({index:0,anchor:(d:Document)=>d.body})),lastLocation:{cfi:'epubcfi(/6/2!/4/1:1)'}});
+ Object.assign(raw,{renderer,open:vi.fn(async()=>{}),init:vi.fn(async()=>{raw.dispatchEvent(new CustomEvent('load',{detail:{doc,index:0}}))}),next:vi.fn(async()=>{}),prev:vi.fn(async()=>{}),close:vi.fn(),goTo:vi.fn(async()=>{}),getCFI:()=> 'epubcfi(/6/2!/4/1:1)',resolveCFI:vi.fn(()=>({index:0,anchor:(d:Document)=>d.body})),lastLocation:{cfi:'epubcfi(/6/2!/4/1:1)'}});
  const view=raw as unknown as FoliateView;
  const fbook:FoliateBook={sections:[{id:'OPS/chapter-0001.xhtml',createDocument:vi.fn(async()=>doc),load:async()=>null,unload:()=>{}}],destroy:vi.fn(),toc:[]};
  const book:EpubReaderProps['book']={id:'same-book',title:name,author:'audit',editionId:'same-edition',edition:{id:'same-edition',fileName:'audit.umd',fileType:'.umd',hasOriginalFile:true,fileSize:627,originalHash:'a'.repeat(64),createdAt:'now',conversion:{format:'.epub',sourceHash:'a'.repeat(64),fileHash,fileSize:bytes.byteLength,converterVersion:'umd-epub-v1',createdAt:'now'}},chapters:[{id:'c',title:'章',sourceHref:'OPS/chapter-0001.xhtml',paragraphs:[{id:'p',text:'第一段😀原文'},{id:'p2',text:'第二段'}]}]};
@@ -29,7 +29,7 @@ function variant(name:string){
 function queue(v:ReturnType<typeof variant>){vi.mocked(fetch).mockResolvedValueOnce(v.response);loaders.loadEpub.mockResolvedValueOnce(v.fbook);loaders.createFoliateView.mockResolvedValueOnce(v.view)}
 async function render(next:Partial<EpubReaderProps>){props={...props,...next};await act(async()=>{root.render(<EpubReader {...props}/>)})}
 async function ready(v:ReturnType<typeof variant>){await act(async()=>{await vi.waitFor(()=>expect(v.view.init).toHaveBeenCalled())});await act(async()=>{});expect(host.querySelector('[data-audit-view="'+v.book.title+'"]')).toBe(v.view);expect(host.querySelector('section')?.getAttribute('aria-busy')).toBe('false');expect(host.querySelector('[role="alert"]')).toBeNull()}
-beforeEach(()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('crypto',webcrypto);vi.stubGlobal('fetch',vi.fn());vi.spyOn(console,'error').mockImplementation(()=>{});vi.spyOn(console,'warn').mockImplementation(()=>{});localStorage.clear();host=document.createElement('div');document.body.append(host);root=createRoot(host);const initial=variant('seed');props={book:initial.book,anchor:null,appearance:DEFAULT_READING_APPEARANCE,annotations:[],concepts:[],onSelect:vi.fn(),onStartSelection:vi.fn(),onClearSelection:vi.fn(),onPosition:vi.fn(),onNotice:vi.fn(),onFallback:vi.fn()}});
+beforeEach(()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('crypto',webcrypto);vi.stubGlobal('fetch',vi.fn());vi.spyOn(console,'error').mockImplementation(()=>{});vi.spyOn(console,'warn').mockImplementation(()=>{});localStorage.clear();host=document.createElement('div');document.body.append(host);root=createRoot(host);const initial=variant('seed');props={book:initial.book,anchor:null,appearance:DEFAULT_READING_APPEARANCE,annotations:[],concepts:[],onSelect:vi.fn(),onStartSelection:vi.fn(),onClearSelection:vi.fn(),onPosition:vi.fn(),onNotice:vi.fn(),onTocLocation:vi.fn(),onFallback:vi.fn()}});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreAllMocks();vi.unstubAllGlobals();vi.resetAllMocks()});
 it('late body bytes from the previous derived hash cannot replace current book',async()=>{
  const a=variant('A'),b=variant('B'),body=deferred<ArrayBuffer>();vi.mocked(fetch).mockResolvedValueOnce({ok:true,arrayBuffer:()=>body.promise} as Response);queue(b);
@@ -78,15 +78,15 @@ it('stale saved-CFI init failure must not retry a closed view or publish a notic
 it('late initial canonical navigation must not resurrect a closed old session after replacement is ready',async()=>{
  const a=variant('A'),b=variant('B'),documentWork=deferred<Document>();a.fbook.toc=[{label:'OLD_A_TOC',href:'OPS/chapter-0001.xhtml'}];b.fbook.toc=[{label:'CURRENT_B_TOC',href:'OPS/chapter-0001.xhtml'}];vi.mocked(a.fbook.sections[0].createDocument).mockReturnValueOnce(documentWork.promise);queue(a);queue(b);
  await render({book:a.book,anchor:{paragraphId:'p',offset:1}});await act(async()=>{await vi.waitFor(()=>expect(a.fbook.sections[0].createDocument).toHaveBeenCalledOnce())});
- await render({book:b.book,anchor:null});await ready(b);expect(host.textContent).toContain('CURRENT_B_TOC');await act(async()=>documentWork.resolve(a.doc));
- expect(host.querySelector('[data-audit-view]')).toBe(b.view);expect(host.textContent).toContain('CURRENT_B_TOC');expect(host.textContent).not.toContain('OLD_A_TOC');
+ await render({book:b.book,anchor:null});await ready(b);vi.mocked(props.onTocLocation!).mockClear();await act(async()=>documentWork.resolve(a.doc));
+ expect(host.querySelector('[data-audit-view]')).toBe(b.view);expect(a.view.renderer.goTo).not.toHaveBeenCalled();expect(props.onTocLocation).not.toHaveBeenCalled();expect(host.querySelector('[role="alert"]')).toBeNull();
 });
 
 it('stale table-of-contents navigation failure cannot fail the replacement session',async()=>{
- const a=variant('A'),b=variant('B'),navigation=deferred<void>();a.fbook.toc=[{label:'A章',href:'OPS/chapter-0001.xhtml'}];a.fbook.resolveHref=()=>({index:0,anchor:d=>d.body});vi.mocked(a.view.renderer.goTo).mockReturnValueOnce(navigation.promise);queue(a);queue(b);
- await render({book:a.book});await ready(a);const select=host.querySelector('select')!;
- await act(async()=>{select.value='OPS/chapter-0001.xhtml';select.dispatchEvent(new Event('change',{bubbles:true}))});expect(a.view.renderer.goTo).toHaveBeenCalledOnce();
- await render({book:b.book});await ready(b);await act(async()=>navigation.reject(new Error('stale table of contents')));expect(host.querySelector('[role="alert"]')).toBeNull();
+ const a=variant('A'),b=variant('B'),navigation=deferred<void>();a.fbook.toc=[{label:'A章',href:'OPS/chapter-0001.xhtml'}];a.fbook.resolveHref=()=>({index:0,anchor:d=>d.body});vi.mocked(a.view.goTo).mockReturnValueOnce(navigation.promise);queue(a);queue(b);
+ await render({book:a.book});await ready(a);
+ await render({navigationTarget:{href:'OPS/chapter-0001.xhtml',sequence:1}});expect(a.view.goTo).toHaveBeenCalledWith('OPS/chapter-0001.xhtml');
+ await render({book:b.book,navigationTarget:null});await ready(b);vi.mocked(props.onNotice).mockClear();await act(async()=>navigation.reject(new Error('stale table of contents')));expect(host.querySelector('[role="alert"]')).toBeNull();expect(props.onNotice).not.toHaveBeenCalled();
 });
 it('a superseded anchor request in the same session cannot fail the current anchor',async()=>{
  const a=variant('A'),older=deferred<Document>();queue(a);await render({book:a.book});await ready(a);vi.mocked(a.fbook.sections[0].createDocument).mockReturnValueOnce(older.promise);

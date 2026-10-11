@@ -92,7 +92,10 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     expect(element('[role="dialog"]').textContent).toContain("第一次解释");
     expect(document.querySelectorAll(".judu-history-marker")).toHaveLength(1);
     expect(document.querySelectorAll(".judu-annotation-history li")).toHaveLength(2);
-    expect(onOpen).not.toHaveBeenCalled(); click(element(".judu-annotation-history button"));
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(element(".judu-annotation-popover__title-group button").getAttribute("aria-label")).toBe("查看最近一条完整句读");
+    expect(document.querySelectorAll(".judu-annotation-history button")).toHaveLength(1);
+    click(element(".judu-annotation-popover__title-group button"));
     expect(onOpen).toHaveBeenCalledWith(annotation); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
@@ -105,10 +108,18 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     click(element(".judu-history-marker")); expect(element('[role="dialog"]').textContent).toContain(annotation.summary);
   });
 
+  it("\u5355\u6761\u5386\u53f2\u7684\u5b8c\u6574\u53e5\u8bfb\u5165\u53e3\u53ea\u663e\u793a\u5728\u6807\u9898\u680f", () => {
+    render();
+    click(element(".judu-history-marker"));
+    const titleGroup = element(".judu-annotation-popover__title-group");
+    expect(titleGroup.querySelector(".judu-annotation-popover__action")?.textContent).toBe("\u67e5\u770b\u5b8c\u6574\u53e5\u8bfb");
+    expect(document.querySelectorAll(".judu-annotation-history button")).toHaveLength(0);
+  });
+
   it("Escape 从浮层归还触发点焦点，不会被 onFocus 立即重新打开", () => {
     render(); const marker = element(".judu-history-marker"); act(() => marker.focus()); click(marker);
     act(() => marker.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
-    expect(document.activeElement).toBe(element('[aria-label="关闭浮层"]'));
+    expect(document.activeElement).toBe(element('.judu-annotation-popover__action'));
     act(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(document.activeElement).toBe(marker); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
@@ -139,14 +150,15 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     render({ paragraphId: "other", text: "另页内容" }); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it("独立 CSS 不改变正文尺寸：标记零宽零高、按钮绝对定位、概念不加粗", async () => {
+  it("历史按钮在行内占位推开正文，不增加原文字符或改变概念字重", async () => {
     const css = await readFile(path.resolve("src/components/annotation-popover.css"), "utf8");
     const style = document.createElement("style"); style.textContent = css; document.head.append(style);
     try {
       render();
       const marker = getComputedStyle(element(".judu-history-marker"));
       const anchor = getComputedStyle(element(".judu-history-anchor"));
-      expect(marker.position).toBe("absolute"); expect(anchor.width).toBe("0px"); expect(anchor.height).toBe("0px");
+      expect(marker.position).toBe("absolute"); expect(anchor.display).toBe("inline-block"); expect(anchor.width).toBe("20px"); expect(anchor.height).toBe("0px");
+      expect(parseFloat(anchor.width)).toBeGreaterThanOrEqual(parseFloat(marker.left) + parseFloat(marker.width));
       expect(element(".judu-history-anchor").textContent).toBe("");
       expect(getComputedStyle(element(".judu-concept-term")).fontWeight).toBe("normal");
       expect(getComputedStyle(element(".judu-annotation-text")).backgroundColor).toBe("rgba(0, 0, 0, 0)");
@@ -154,6 +166,7 @@ describe("AnnotatedParagraph 实测组件交互", () => {
     } finally { style.remove(); }
   });
 });
+
 
 describe("AnnotatedParagraph \u672c\u6bb5\u53e5\u8bfb\u6982\u5ff5", () => {
   const bookConcepts = [{ name: "\u81ea\u6211\u610f\u8bc6", text: "\u672c\u4e66\u4fdd\u5b58\u7684\u9010\u8bcd\u5b9a\u4e49" }] as const;
@@ -300,6 +313,11 @@ it("精读同段同名词按句读块独立展示，当前词位重读后实时�
   expect(history.open).toBe(false);
   expect(history.textContent).toContain("前句解释");
   expect(element("p").textContent).toBe(text);
+});
+
+it('真实标题用同一来源块渲染，可保存标注且保留原文而非额外章名',()=>{
+ const html=renderToStaticMarkup(<AnnotatedParagraph headingLevel={2} paragraphId="source-heading" text="信息与权力" annotations={[]} showConcepts={false} onOpenAnnotation={()=>{}}/>);
+ expect(html).toContain('<h2');expect(html).toContain('data-paragraph-id="source-heading"');expect(html).toContain('data-block-kind="heading"');expect(html).toContain('信息与权力');expect(html).not.toContain('<p');
 });
 
 it('精读概念只响应点击或 Enter，悬停和聚焦不弹窗', () => {

@@ -19,7 +19,7 @@ vi.mock("@/hooks/use-reader-pages", () => ({
 vi.mock("@/components/knowledge-workspace", () => ({
   KnowledgeWorkspace: (props: KnowledgeWorkspaceProps) => <><button type="button" onClick={() => props.onOpenConversation?.(boundary.invalidThread, "old-assistant")}>打开旧卡片来源</button><button type="button" onClick={() => props.onOpenMaterial?.({id:"passage:b",kind:"passage",origin:"original",title:"乙章",body:result.excerpt??"",quote:result.matchedText??result.excerpt??"",createdAt:"2026-09-26",source:{bookId:"book",editionId:"edition",bookTitle:"导航验收书",author:"测试作者",fileName:"test.txt",fileType:".txt",createdAt:"2026-09-26",paragraphCount:2},chapterTitle:result.chapterTitle,anchor:{editionId:"edition",chapterId:result.chapterId,paragraphId:result.paragraphId,startOffset:result.startOffset??0,endOffset:(result.startOffset??0)+(result.matchedText??result.excerpt??"").length,selectedText:result.matchedText??result.excerpt??""},locationReason:null,concepts:[],conversation:null})}>打开知识命中</button></>,
 }));
-import Home from "./page";
+import { BookWorkspace as Home } from "./page";
 
 let host: HTMLDivElement; let root: Root;
 let frames: Map<number, FrameRequestCallback>; let frameId: number;
@@ -96,7 +96,7 @@ describe("页面锁定前ID校验", () => {
     boundary.invalidThread = id; await mount(); await click(button("知识库")); await click(button("打开旧卡片来源"));
     expect(element('[data-message-id="old-assistant"]').textContent).toContain("原会话回答");
     expect(element<HTMLTextAreaElement>('textarea[aria-label="继续追问"]').disabled).toBe(false);
-    await click(button("书架")); expect(element<HTMLButtonElement>(".bookshelf-open").disabled).toBe(false);
+    expect(element(".workspace-shelf-back").getAttribute("aria-disabled")).not.toBe("true");
     expect(element('[role="status"]').textContent).toContain("会话定位无效");
     expect(fetcher.mock.calls.filter(([input]) => endpoint(input).pathname.startsWith("/api/threads/")).map(([input]) => endpoint(input).pathname)).toEqual(["/api/threads/good"]);
   });

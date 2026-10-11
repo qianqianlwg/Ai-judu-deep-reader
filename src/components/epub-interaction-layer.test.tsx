@@ -146,6 +146,25 @@ describe("原版概念/历史共用浮窗", () => {
     expect(mount.querySelector(".epub-history-marker")).toBeNull(); expect(button("查看完整句读")).toBeUndefined();
     await event(doc.querySelector("p")!, "click", { clientX: 20, clientY: 50 }); expect(props.onOpenAnnotation).not.toHaveBeenCalled();
   });
+  it('上一页末端即使有落在当前视窗内的矩形，也不能泄漏到下一页',async()=>{
+    const paragraph=doc.querySelector('p')!,textNode=paragraph.firstChild!;
+    const first=doc.createRange();first.setStart(textNode,0);first.setEnd(textNode,6);view.lastLocation={index:0,range:first};
+    await render({annotations:[annotation()]});expect(mount.querySelectorAll('.epub-history-marker')).toHaveLength(1);
+    await click(button('查看句读历史（1条）'));expect(dialog()).not.toBeNull();
+    const next=doc.createRange();next.selectNodeContents(paragraph);next.setStart(textNode,6);view.lastLocation={index:0,range:next};
+    await act(async()=>view.dispatchEvent(new CustomEvent('relocate')));
+    expect(mount.querySelector('.epub-history-marker')).toBeNull();expect(dialog()).toBeNull();
+    await flushFrames();expect(mount.querySelector('.epub-history-marker')).toBeNull();
+    view.lastLocation={index:0,range:first};await act(async()=>view.dispatchEvent(new CustomEvent('relocate')));await flushFrames();expect(mount.querySelectorAll('.epub-history-marker')).toHaveLength(1);
+  });
+  it('原版单条句读入口与标题同排，正文不重复，重点与右侧同源',async()=>{
+    const content='财政体制是解读重点。';
+    await render({annotations:[annotation()],historyReadingsByMessageId:new Map([['m1',{content,emphasis:{version:1,marks:[{kind:'term',quote:'财政体制',occurrence:1}]}}]])});
+    await click(button('查看句读历史（1条）'));
+    expect(dialog()?.querySelector('.judu-annotation-popover__title-group button')?.textContent).toBe('查看完整句读');expect(dialog()?.querySelector('.judu-annotation-history button')).toBeNull();
+    expect(dialog()?.querySelector('[data-answer-emphasis="term"]')?.textContent).toBe('财政体制');
+    await click(button('查看最近一条完整句读'));expect(props.onOpenAnnotation).toHaveBeenCalledExactlyOnceWith(props.annotations[0]);
+  });
   it("只显示当前页真实末端，不能把被裁剪的跨页范围当作末端", async () => {
     rangeRects = () => [box(40, 40, 80, 20), box(900, 40, 20, 20)];
     await render({ annotations: [annotation()] }); expect(mount.querySelector(".epub-history-marker")).toBeNull();
@@ -326,7 +345,7 @@ describe("EPUB适配器P1回归：禁用与identity往返", () => {
     const current = target(kind), before = doc.body.innerHTML; await render(); await current.open(); expect(dialog()?.textContent).toContain(current.expected);
     await render({ disabled: true }); expect(dialog()).toBeNull(); await current.open(); expect(dialog()).toBeNull();
     await render({ disabled: false }); await flushFrames(); await render(); expect(dialog()).toBeNull();
-    await current.open(); expect(dialog()?.textContent).toContain(current.expected); expect(doc.body.innerHTML).toBe(before);
+    await current.open(); expect(dialog()?.textContent).toContain(current.expected); if (kind === "history") { expect(doc.body.querySelectorAll("[data-judu-history-spacer]")).toHaveLength(1); expect(doc.body.textContent).toContain("理解财政体制，才能理解地方发展。"); } else expect(doc.body.innerHTML).toBe(before);
     expect(props.onJump).not.toHaveBeenCalled(); expect(props.onOpenAnnotation).not.toHaveBeenCalled();
   });
   const cases = (["concept", "history", "link"] as const).flatMap(kind => (["book", "documents"] as const).map(boundary => ({ kind, boundary })));

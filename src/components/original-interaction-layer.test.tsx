@@ -82,7 +82,7 @@ describe("共享原版浮层：真实内容和host Document", () => {
     const records = [mark({ id: "a2", messageId: "m2", summary: "第二条概述" }), mark()];
     await render({ documents: [{ ...props.documents[0], targets: [{ kind: "history", key: "history", range: sourceRange(5, 6, box(120, 40, 10, 20)), annotations: records }] }] });
     await click(button("查看句读历史（2条）")); expect(dialog()?.querySelectorAll("li")).toHaveLength(2);
-    await click(dialog()!.querySelectorAll("li button")[1] as HTMLButtonElement); expect(props.onOpenAnnotation).toHaveBeenCalledExactlyOnceWith(records[1]);
+    await click(dialog()!.querySelectorAll("li button")[0] as HTMLButtonElement); expect(props.onOpenAnnotation).toHaveBeenCalledExactlyOnceWith(records[1]);
   });
   it.each(["note", "favorite"] as const)("手动%s只显示本地内容不伪装AI", async kind => {
     const annotation = mark({ kind, summary: "我的手动笔记", threadId: "manual-mark" });
@@ -205,6 +205,7 @@ describe("共享原版浮层：引用隔离和生命周期", () => {
     await mouse(reference, "mouseover", 170, 50); expect(props.previewLink).not.toHaveBeenCalled();
   });
 });
+
 
 describe("P1回归：清除状态而非暂时隐藏", () => {
   function target(kind: "concept" | "history" | "link") {

@@ -34,3 +34,9 @@ describe("按实测高度分页", () => {
     await expect(paginateMeasuredParagraphs(source, { height: 230, measure: measure(20), signal: controller.signal })).rejects.toThrow();
   });
 });
+
+it('原文章首标题仅显示一次，中间标题保持有来源的顺序及UTF16锚点',async()=>{
+ const sources=[{id:'h',text:'真实章标题',kind:'heading' as const,headingLevel:1 as const,chapterId:'c',chapterTitle:'真实章标题'},{id:'p',text:'正文😀',chapterId:'c',chapterTitle:'真实章标题'},{id:'sub',text:'信息与权力',kind:'heading' as const,headingLevel:2 as const,chapterId:'c',chapterTitle:'真实章标题'}];
+ const headings:(string|undefined)[]=[];const pages=await paginateMeasuredParagraphs(sources,{height:180,measure:(parts,heading)=>{headings.push(heading);return parts.reduce((size,p)=>size+p.text.length*5,0);}});
+ expect(headings.every(h=>h===undefined)).toBe(true);expect(pages[0].isChapterStart).toBe(false);expect(pages[0].paragraphs.map(p=>p.id)).toEqual(['h','p','sub']);expect(pages[0].paragraphs[1].sourceEndOffset).toBe(4);
+});

@@ -67,13 +67,14 @@ type Props = {
   id: string;
   anchor: HTMLElement;
   title: string;
+  headerAction?: ReactNode;
   pinned?: boolean;
   onClose: (restoreFocus: boolean) => void;
   children: ReactNode;
 };
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 
-export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, children, source, returnFocus, placement, onPlacementUnavailable }: Props) {
+export function AnnotationPopover({ id, anchor, title, headerAction, pinned = false, onClose, children, source, returnFocus, placement, onPlacementUnavailable }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -231,7 +232,7 @@ export function AnnotationPopover({ id, anchor, title, pinned = false, onClose, 
           onCloseRef.current(false);
         }
       }}>
-      <header className="judu-annotation-popover__header"><strong id={id + "-title"}>{title}</strong><button type="button" aria-label="关闭浮层" onClick={() => onCloseRef.current(true)}>×</button></header>
+      <header className="judu-annotation-popover__header"><div className="judu-annotation-popover__title-group"><strong id={id + "-title"}>{title}</strong>{headerAction}</div><button type="button" className="judu-annotation-popover__close" aria-label="关闭浮层" onClick={() => onCloseRef.current(true)}>×</button></header>
       <div className="judu-annotation-popover__body">{children}</div>
     </div>, anchor.ownerDocument.body,
   );

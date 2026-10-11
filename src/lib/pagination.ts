@@ -1,4 +1,5 @@
-export type PaginatedParagraph = {
+import type { SourceBlockMetadata } from "./source-block";
+export type PaginatedParagraph = SourceBlockMetadata & {
   id: string;
   text: string;
   chapterId: string;

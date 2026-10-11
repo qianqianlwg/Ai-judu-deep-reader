@@ -4,7 +4,7 @@ import type{PDFDocumentProxy,RenderTask,PDFPageProxy}from'pdfjs-dist/types/src/d
 import type{IPDFLinkService}from'pdfjs-dist/types/web/interfaces';
 import type{PdfRuntime}from'@/lib/pdf-loader';
 import{pdfSafeText}from'@/lib/pdf-text';
-import{bindPdfTextLayer,type PdfDomPage,type PdfTextPage}from'@/lib/pdf-source-map';
+import{bindPdfTextLayer,type PdfDomPage,type PdfDomPoint,type PdfTextPage}from'@/lib/pdf-source-map';
 type Props={document:PDFDocumentProxy;runtime:PdfRuntime;page:PdfTextPage;scale:number;rotation:number;linkService:IPDFLinkService;onReady(page:PdfDomPage):void;onRemove(page:number):void};
 export function PdfPage(props:Props){
  const canvas=useRef<HTMLCanvasElement>(null),text=useRef<HTMLDivElement>(null),annotations=useRef<HTMLDivElement>(null),latest=useRef(props);
@@ -28,7 +28,12 @@ export function PdfPage(props:Props){
    content.items=content.items.map(item=>'str'in item?{...item,str:pdfSafeText(item.str)}:item);
    textLayer=new props.runtime.TextLayer({textContentSource:content,container:textNode,viewport});
    const [renderedResult]=await Promise.all([rendered,textLayer.render()]);if(disposed)return;if(!renderedResult.ok)throw renderedResult.cause;
-   const dom=bindPdfTextLayer(props.page,textNode,textLayer.textDivs,textLayer.textContentItemsStr);latest.current.onReady(dom);
+   const refresh=():PdfDomPoint[]|null=>{
+    if(disposed||!textLayer||!textNode.isConnected)return null;
+    try{return bindPdfTextLayer(props.page,textNode,textLayer.textDivs,textLayer.textContentItemsStr).points;}
+    catch(cause:unknown){console.warn('PDF 文本层 Range 映射刷新失败',{name:cause instanceof Error?cause.name:'UnknownError'});return null;}
+   };
+   const dom=bindPdfTextLayer(props.page,textNode,textLayer.textDivs,textLayer.textContentItemsStr);dom.refresh=refresh;latest.current.onReady(dom);
    const data:unknown[]=await page.getAnnotations({intent:'display'});if(disposed)return;
    const allowed=new Set([props.runtime.AnnotationType.LINK,props.runtime.AnnotationType.TEXT,props.runtime.AnnotationType.POPUP,props.runtime.AnnotationType.HIGHLIGHT,props.runtime.AnnotationType.UNDERLINE,props.runtime.AnnotationType.STRIKEOUT,props.runtime.AnnotationType.SQUIGGLY]);
    const safe=data.filter(item=>item!==null&&typeof item==='object'&&'annotationType'in item&&typeof item.annotationType==='number'&&allowed.has(item.annotationType));

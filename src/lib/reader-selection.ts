@@ -143,7 +143,7 @@ export function readReadingSelection(selection: Selection | null, container: HTM
   const range = selection.getRangeAt(0);
   if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
   const parts: ReadingSelectionPart[] = [];
-  const elements = Array.from(container.querySelectorAll<HTMLElement>("p[data-paragraph-id]"));
+  const elements = Array.from(container.querySelectorAll<HTMLElement>("[data-paragraph-id]"));
   for (const element of elements) {
     if (!range.intersectsNode(element)) continue;
     const partRange = range.cloneRange();

@@ -6,6 +6,8 @@ import { DEFAULT_SPEECH_PREFERENCES } from "@/lib/speech";
 import { SpeechButton, SpeechPlaybackBar, SpeechProvider } from "./speech-controls";
 import { SelectionActions } from "./selection-actions";
 import { MessageActions } from "./message-actions";
+import { SemanticReadingResult } from "./semantic-reading-result";
+import type { SemanticUnit } from "@/lib/semantic-reading";
 class FakeAudioContext {
   state = "running"; currentTime = 0; destination = {};
   createGain() { return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }; }
@@ -94,4 +96,55 @@ it("流式回答可以朗读已收到文字，后续增量不改变已发出的�
   expect(fetcher.mock.calls.find(call => call[0] === "/api/speech")?.[1]?.body).toBe(JSON.stringify({ text: "已收到的第一段。" }));
   await act(async () => root.render(<SpeechProvider><MessageActions message={{ role: "assistant", content: "已收到的第一段。第二段也到了。", status: "streaming" }} /></SpeechProvider>));
   expect(fetcher.mock.calls.filter(call => call[0] === "/api/speech")).toHaveLength(1);
+});
+
+const readingUnit: SemanticUnit = {
+  id: "speech-unit", label: "价值与交换价值", action: "read", reason: "",
+  anchor: { paragraphId: "p", startOffset: 0, endOffset: 5, selectedText: "来源原文。" },
+  status: "completed", content: "**释读正文**，参见[说明](https://example.com)。",
+};
+it("句读块标题右侧朗读本块正文，保留来源折叠及暂停继续停止", async () => {
+  await act(async () => root.render(<SpeechProvider><SemanticReadingResult state={{ version: 1, phase: "completed", units: [readingUnit] }}/><SpeechPlaybackBar/></SpeechProvider>));
+  const button = host.querySelector<HTMLButtonElement>('.semantic-unit-heading button')!;
+  expect(button.textContent).toBe("朗读");
+  expect(button.getAttribute("aria-label")).toBe("朗读句读：价值与交换价值");
+  expect(host.querySelector<HTMLDetailsElement>('.semantic-unit .semantic-source')?.open).toBe(false);
+  await act(async () => button.click());
+  expect(fetcher.mock.calls.find(call => call[0] === "/api/speech")?.[1]?.body).toBe(JSON.stringify({ text: "释读正文，参见说明。" }));
+  expect(host.querySelector('.speech-footer strong')?.textContent).toBe("句读：价值与交换价值");
+  await act(async () => Array.from(host.querySelectorAll("button")).find(b => b.textContent === "暂停朗读")!.click());
+  expect(host.textContent).toContain("已暂停");
+  await act(async () => Array.from(host.querySelectorAll("button")).find(b => b.textContent === "继续朗读")!.click());
+  expect(host.textContent).toContain("正在朗读");
+  await act(async () => Array.from(host.querySelectorAll("button")).find(b => b.textContent === "停止朗读")!.click());
+  expect(host.querySelector('.speech-footer')).toBeNull();
+});
+it("句读朗读不使用生成中、错误或略过内容，空正文禁用", async () => {
+  const units: SemanticUnit[] = [
+    { ...readingUnit, id: "streaming", status: "streaming" },
+    { ...readingUnit, id: "error", status: "error" },
+    { ...readingUnit, id: "skip", action: "skip", status: "skipped" },
+    { ...readingUnit, id: "empty", content: " " },
+  ];
+  await act(async () => root.render(<SpeechProvider><SemanticReadingResult state={{ version: 1, phase: "reading", units }}/></SpeechProvider>));
+  expect(host.querySelectorAll('.semantic-unit-heading button')).toHaveLength(1);
+  expect(host.querySelector<HTMLButtonElement>('.semantic-unit-heading button')?.disabled).toBe(true);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+it("多个句读块朗读各自正文，切换块中止上一块请求", async () => {
+  fetcher.mockImplementation(async (url) => String(url).includes("settings") ? Response.json(DEFAULT_SPEECH_PREFERENCES) : new Response(new ReadableStream<Uint8Array>(), { headers: { "content-type": "audio/pcm" } }));
+  await act(async () => root.render(<SpeechProvider><SemanticReadingResult state={{ version: 1, phase: "completed", units: [readingUnit, { ...readingUnit, id: "second", label: "第二块", content: "第二块释读。" }] }}/><SpeechPlaybackBar/></SpeechProvider>));
+  const buttons = host.querySelectorAll<HTMLButtonElement>('.semantic-unit-heading button');
+  await act(async () => buttons[0].click());
+  const firstRequest = fetcher.mock.calls.find(call => call[0] === "/api/speech")!;
+  await act(async () => buttons[1].click());
+  expect(firstRequest[1]?.signal?.aborted).toBe(true);
+  expect(fetcher.mock.calls.filter(call => call[0] === "/api/speech").at(-1)?.[1]?.body).toBe(JSON.stringify({ text: "第二块释读。" }));
+  expect(host.querySelector('.speech-footer strong')?.textContent).toBe("句读：第二块");
+});
+it("句读朗读失败沿用共享控制栏明确报错", async () => {
+  fetcher.mockResolvedValue(Response.json({ error: "请先配置朗读密钥" }, { status: 503 }));
+  await act(async () => root.render(<SpeechProvider><SemanticReadingResult state={{ version: 1, phase: "completed", units: [readingUnit] }}/><SpeechPlaybackBar/></SpeechProvider>));
+  await act(async () => host.querySelector<HTMLButtonElement>('.semantic-unit-heading button')!.click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("请先配置朗读密钥");
 });

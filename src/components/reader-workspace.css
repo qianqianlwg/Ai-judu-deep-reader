@@ -42,3 +42,10 @@
 .app-shell.workspace-shell .epub-navigation { border-top-color:var(--ui-divider); }
 
 ::highlight(judu-source-selection) { background-color: var(--reading-selection, #ffe36e99); }
+
+/* WHY：真实标题参与原文分页和选文，不另造章首标题；与测量层共享元素样式，不由入口显隐改变版面。 */
+.reader-sheet [data-block-kind="heading"]{font-family:inherit;font-weight:600;line-height:1.5;text-indent:0;margin:1em 0 .6em;}
+.reader-sheet h1[data-block-kind="heading"]{font-size:1.45em;}
+.reader-sheet h2[data-block-kind="heading"]{font-size:1.3em;}
+.reader-sheet h3[data-block-kind="heading"]{font-size:1.2em;}
+.reader-sheet :is(h4,h5,h6)[data-block-kind="heading"]{font-size:1.1em;}

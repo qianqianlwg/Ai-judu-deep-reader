@@ -6,8 +6,9 @@ import {analysisHistoryMarkerIds} from "@/lib/analysis-history-markers";
 import {buildReaderInteractions} from '@/lib/reader-interactions';
 import {pdfRangesForSource,type PdfDomPage,type PdfDocumentIndex} from '@/lib/pdf-source-map';
 import {previewPdfReference} from '@/lib/pdf-reference-preview';
+import type {HistoryPopoverReading} from './reading-popover-content';
 import {OriginalInteractionLayer} from './original-interaction-layer';
-type Props={host:RefObject<HTMLDivElement|null>;book:object;document:PDFDocumentProxy;index:PdfDocumentIndex;pages:readonly PdfDomPage[];annotations:readonly TextAnnotation[];concepts:readonly ConceptDetail[];disabled?:boolean;onOpenAnnotation?:(annotation:TextAnnotation)=>void;onNotice:(message:string)=>void;onJump:(page:number)=>void};
+type Props={host:RefObject<HTMLDivElement|null>;book:object;document:PDFDocumentProxy;index:PdfDocumentIndex;pages:readonly PdfDomPage[];annotations:readonly TextAnnotation[];concepts:readonly ConceptDetail[];disabled?:boolean;historyReadingsByMessageId?:ReadonlyMap<string,HistoryPopoverReading>;onOpenAnnotation?:(annotation:TextAnnotation)=>void;onNotice:(message:string)=>void;onJump:(page:number)=>void};
 export function PdfInteractionLayer(props:Props){
  const identity=useMemo(()=>({book:props.book,document:props.document,pages:props.pages}),[props.book,props.document,props.pages]);
  const documents=useMemo(()=>props.pages.map(page=>({doc:page.container.ownerDocument,index:page.pageNumber,scope:page.container.parentElement??page.container,targets:buildReaderInteractions(props.index.paragraphs.filter(p=>page.points.some(point=>point.paragraphId===p.id)),(id,start,end)=>pdfRangesForSource([page],{paragraphId:id,startOffset:start,endOffset:end})[0]??null,props.annotations,props.concepts,analysisHistoryMarkerIds(props.annotations,props.index.paragraphs.map(p=>p.id))).map(target=>({...target,key:'pdf:'+page.pageNumber+':'+target.key}))})),[props.pages,props.index,props.annotations,props.concepts]);

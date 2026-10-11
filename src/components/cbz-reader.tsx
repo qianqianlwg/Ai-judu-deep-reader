@@ -1,4 +1,4 @@
-"use client";
+"use client";import { ReaderPageJump } from "./reader-page-jump";
 import {useEffect,useRef,useState} from 'react';
 import type {EpubReaderProps} from './epub-reader';
 import type {ImageChapterRequest} from '@/hooks/use-image-chapters';
@@ -45,5 +45,6 @@ export function CbzReader(props:CbzReaderProps){
     <img key={visible.url} src={visible.url} alt={book.chapters[page-1]?.title??'第 '+page+' 页'} width={visible.width} height={visible.height} draggable={false} style={{width:visible.width*scale,height:visible.height*scale}} onError={()=>{console.error('CBZ浏览器图片解码失败',{page});setError('浏览器无法显示此图片页，可重试或重新导入原件。');}}/>
    </div>}
   </div>
+  <nav className="cbz-navigation" aria-label="底部页码跳转"><ReaderPageJump key={book.editionId} current={page} total={count} disabled={!active||props.disabled} onJump={go}/></nav>
  </section>;
 }

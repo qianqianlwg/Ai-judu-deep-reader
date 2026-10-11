@@ -272,3 +272,6 @@ describe("PDF.js 未挂载空 textDiv 的真实契约回归", () => {
     expect(() => bindPdfTextLayer(f.pages[0], layer.container, layer.divs, strings)).toThrow(/文字层.*不一致/);
   });
 });
+
+it('refreshes a stale PDF Range map when a text node is split',()=>{const f=fixture([['abcd']]),page=f.dom[0],div=f.layers[0].divs[0];page.refresh=()=>bindPdfTextLayer(f.pages[0],f.layers[0].container,f.layers[0].divs,f.pages[0].items.map(item=>item.str)).points;(div.firstChild as Text).splitText(2);const range=pdfRangesForSource(f.dom,{paragraphId:'p1-1',startOffset:2,endOffset:4})[0];expect(range?.toString()).toBe('cd');expect(page.points.find(point=>point.sourceOffset===2)?.node).toBe(div.childNodes[1]);});
+it('refuses to create a PDF Range from stale detached text nodes without a refresh source',()=>{const f=fixture([['abcd']]),div=f.layers[0].divs[0];div.replaceChildren(document.createTextNode('abcd'));expect(pdfRangesForSource(f.dom,{paragraphId:'p1-1',startOffset:0,endOffset:4})).toEqual([]);});

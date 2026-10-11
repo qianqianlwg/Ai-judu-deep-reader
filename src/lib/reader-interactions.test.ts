@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildReaderInteractions, clipReaderRect, epubPointToHost, epubRectToHost, insideRect, type ReaderInteraction, type ReaderRect } from "./reader-interactions";
+import { buildReaderInteractions, readerRangeEndVisible, clipReaderRect, epubPointToHost, epubRectToHost, insideRect, type ReaderInteraction, type ReaderRect } from "./reader-interactions";
 import type { ConceptDetail, TextAnnotation } from "./annotations";
 
 const annotation = (overrides: Partial<TextAnnotation> = {}): TextAnnotation => ({ id: "analysis-1", paragraphId: "p0", startOffset: 0, endOffset: 4, textHash: "synthetic", threadId: "thread-1", messageId: "message-1", kind: "analysis", summary: "句读摘要不能冒充逐词定义", concepts: [], createdAt: "2026-09-18T01:00:00Z", ...overrides });
@@ -159,6 +159,18 @@ it("多段同一次句读只在完整选文末尾生成历史入口，下横线�
  const items=f.paragraphs.map((p,i)=>annotation({id:"part-"+i,paragraphId:p.id,startOffset:0,endOffset:p.text.length}));
  const before=JSON.stringify(items),result=historiesOf(f.build(items));
  expect(result).toHaveLength(1);expect(result[0].key).toContain("p2:history:");expect(JSON.stringify(items)).toBe(before);
+});
+
+
+describe('原版历史末端的真实页归属',()=>{
+ it.each([[1,false],[2,false],[3,true],[4,true],[5,false]])('当前原文页2..4，末端%s可见为%s',(end,expected)=>{
+  const f=fixture(['甲乙丙丁戊']);const target=f.rangeFor('p0',end-1,end)!;const visible=f.rangeFor('p0',2,4)!;
+  expect(readerRangeEndVisible(target,visible)).toBe(expected);
+ });
+ it('其它文档和空页范围不借用当前页坐标显示历史标符',()=>{
+  const a=fixture(['甲乙']),b=fixture(['丙丁']);const target=a.rangeFor('p0',0,1)!,visible=b.rangeFor('p0',0,2)!;
+  expect(readerRangeEndVisible(target,visible)).toBe(false);const empty=a.rangeFor('p0',0,1)!;empty.collapse(false);expect(readerRangeEndVisible(target,empty)).toBe(false);
+ });
 });
 
 it("原版交互同段同词不同句读使用各自定义、unitId和物理词位", () => {

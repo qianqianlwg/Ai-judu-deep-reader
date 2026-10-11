@@ -11,5 +11,5 @@ export function OriginalReader(props:CbzReaderProps){
  if(kind==='epub'||kind==='fb2'||kind==='umd'||kind==='mobi')return <Epub {...props}/>;
  if(kind==='cbz')return <Cbz {...props}/>;
  if(kind==='pdf')return <Pdf {...props}/>;
- return <div role="alert">此版本没有可用原文件。<button onClick={props.onFallback}>切回精读</button></div>;
+ return <div role="alert">此版本没有可用原文件。<button onClick={props.onFallback}>返回书架</button></div>;
 }

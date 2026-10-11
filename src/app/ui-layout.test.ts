@@ -11,6 +11,13 @@ describe("工作台布局契约", () => {
     expect(page).toContain('inert={workspaceView !== "reader"}');
     expect(page).not.toContain("knowledgeOpen ?"); expect(page).not.toContain("top-actions");
   });
+  it("移除底部字号与选文提示栏，顶部阅读选项保持可用", async () => {
+    const page = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    expect(page).not.toContain('className="selection-bar"');
+    expect(page).not.toContain("setReaderScale");
+    expect(page).toContain("<ReaderOptions");
+    expect(page).toContain("<SelectionActions");
+  });
   it("全站 skip link 指向各路由可聚焦的主要内容区", async () => {
     const home = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
     const settings = await readFile(new URL("./settings/page.tsx", import.meta.url), "utf8");
@@ -20,13 +27,6 @@ describe("工作台布局契约", () => {
     for (const page of [home, settings, library]) expect(page).toContain('id="main-content" tabIndex={-1}');
     expect(global).toContain(".skip-link:focus-visible");
     expect(rootLayout).toContain('href="#main-content"');
-  });
-  it("移除底部字号与选文提示栏，顶部阅读选项保持可用", async () => {
-    const page = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
-    expect(page).not.toContain('className="selection-bar"');
-    expect(page).not.toContain("setReaderScale");
-    expect(page).toContain("<ReaderOptions");
-    expect(page).toContain("<SelectionActions");
   });
   it("减少动态效果时停用加载脉冲和流式光标闪烁", async () => {
     const css = await readFile(new URL("./globals.css", import.meta.url), "utf8");

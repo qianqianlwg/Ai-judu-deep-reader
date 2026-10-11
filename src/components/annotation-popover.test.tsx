@@ -76,6 +76,13 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("AnnotationPopover DOM 交互与重定位", () => {
+  it("历史快捷操作与标题并排，关闭按钮仍独立位于右侧", () => {
+    act(() => root.render(<AnnotationPopover id="test-popover" title="句读历史" headerAction={<button className="judu-annotation-popover__action">查看完整句读</button>} anchor={anchor} onClose={close}><p>历史内容</p></AnnotationPopover>));
+    const heading = card().querySelector(".judu-annotation-popover__title-group")!;
+    expect(heading.querySelector("strong")?.textContent).toBe("句读历史");
+    expect(heading.querySelector(".judu-annotation-popover__action")?.textContent).toBe("查看完整句读");
+    expect(card().querySelector(".judu-annotation-popover__close[aria-label=\"关闭浮层\"]")).toBeTruthy();
+  });
   it("初始真实测量，resize 与捕获 scroll 后重新定位，卸载清理 observer", async () => {
     show(); expect(card().style.left).toBe("612px"); expect(card().style.visibility).toBe("visible");
     const originalTop = card().style.top;

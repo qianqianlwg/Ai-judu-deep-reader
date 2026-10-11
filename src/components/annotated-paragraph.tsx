@@ -4,10 +4,12 @@ import { analysisHistoryMarkerIds } from "@/lib/analysis-history-markers";
 import React, { Fragment, useId, useRef, useState } from "react";
 import { segmentAnnotatedText, type AnnotationConcept, type ConceptDetail, type TextAnnotation } from "@/lib/annotations";
 import { AnnotationPopover } from "./annotation-popover";
-import { ConceptPopoverContent, HistoryPopoverContent } from "./reading-popover-content";
+import { ConceptPopoverContent, HistoryPopoverContent, type HistoryPopoverReading } from "./reading-popover-content";
 import "./annotation-popover.css";
 
+import type { HeadingLevel } from "@/lib/source-block";
 type Props = {
+  headingLevel?: HeadingLevel;
   paragraphId: string;
   /** 必须是未经 trim / 改写的原段落 UTF-16 片段。 */
   text: string;
@@ -17,6 +19,7 @@ type Props = {
   bookConcepts?: readonly ConceptDetail[];
   highlightedConceptStarts?: ReadonlySet<number>;
   historyMarkerIds?: ReadonlySet<string>;
+  historyReadingsByMessageId?: ReadonlyMap<string, HistoryPopoverReading>;
   annotations: TextAnnotation[];
   showConcepts: boolean;
   showAnalysisHints?: boolean;
@@ -28,7 +31,7 @@ type ActivePopover = { anchor: HTMLElement; pinned: boolean; key: string; sliceK
   { kind: "history"; annotations: TextAnnotation[] } | { kind: "concept"; concept: AnnotationConcept }
 );
 
-export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, sourceEndOffset = sourceStartOffset + text.length, sourceText, bookConcepts, highlightedConceptStarts, historyMarkerIds, annotations, showConcepts, showAnalysisHints = true, analysisHintOpacity = 0.25, active: activeSource = false, onOpenAnnotation }: Props) {
+export function AnnotatedParagraph({ headingLevel, paragraphId, text, sourceStartOffset = 0, sourceEndOffset = sourceStartOffset + text.length, sourceText, bookConcepts, highlightedConceptStarts, historyMarkerIds, historyReadingsByMessageId, annotations, showConcepts, showAnalysisHints = true, analysisHintOpacity = 0.25, active: activeSource = false, onOpenAnnotation }: Props) {
   const segments = segmentAnnotatedText({ paragraphId, text, sourceStartOffset, sourceEndOffset, sourceText, bookConcepts, annotations, showConcepts });
   const markerIds = historyMarkerIds ?? analysisHistoryMarkerIds(annotations, [paragraphId]);
   const historyAt = (items: readonly TextAnnotation[]) => items.filter(item => markerIds.has(item.id));
@@ -59,7 +62,8 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
     setActive(null);
   }
 
-  return <p className="judu-annotated-paragraph" data-active-source={activeSource} data-show-analysis-hints={showAnalysisHints} style={{ "--analysis-hint-opacity": analysisHintOpacity } as React.CSSProperties} data-paragraph-id={paragraphId} data-source-start={sourceStartOffset} data-source-end={sourceEndOffset}>
+  const Block = headingLevel ? (`h${headingLevel}` as "h1"|"h2"|"h3"|"h4"|"h5"|"h6") : "p";
+  return <Block className="judu-annotated-paragraph" data-block-kind={headingLevel ? "heading" : "paragraph"} data-active-source={activeSource} data-show-analysis-hints={showAnalysisHints} style={{ "--analysis-hint-opacity": analysisHintOpacity } as React.CSSProperties} data-paragraph-id={paragraphId} data-source-start={sourceStartOffset} data-source-end={sourceEndOffset}>
     {segments.map((segment) => {
       // WHY：同页重复词按普通正文渲染，不留下悬停、焦点或点击弹窗入口。
       const concept = highlightedConceptStarts === undefined || highlightedConceptStarts.has(segment.startOffset) ? segment.concept : undefined;
@@ -83,7 +87,7 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
           </span> : segment.text}
         </span>
         {endingHistory.length > 0 && <span className="judu-history-anchor" data-reader-decoration="" contentEditable={false}>
-          {/* WHY：零宽锚点和绝对定位 SVG 不增加字数、行宽或行高，分页测量只包含原文。 */}
+          {/* WHY：行内锚点为按钮占位，避免遮住后文；装饰不含文本，不改变原文字符和选区偏移。 */}
           <button type="button" className="judu-history-marker" data-reader-decoration="" data-annotation-end={segment.endOffset}
             aria-label={"查看句读历史（" + endingHistory.length + "条）"} aria-haspopup="dialog"
             aria-expanded={visible?.key === historyKey} aria-controls={visible?.key === historyKey ? id : undefined}
@@ -95,8 +99,11 @@ export function AnnotatedParagraph({ paragraphId, text, sourceStartOffset = 0, s
       </Fragment>;
     })}
     {placementNotice&&<span data-reader-decoration="" role="status">{placementNotice}</span>}
-    {visible && <AnnotationPopover key={visible.key} id={id} anchor={visible.anchor} placement={visible.kind==='concept'?'word':undefined} onPlacementUnavailable={setPlacementNotice} title={visible.kind === "concept" ? visible.concept.name : "句读历史"} pinned={visible.pinned} onClose={close}>
-      {visible.kind === "concept" ? <ConceptPopoverContent concept={visible.concept}/> : <HistoryPopoverContent annotations={visible.annotations} onOpen={annotation=>{onOpenAnnotation(annotation);close(false);}}/>}
+    {/* WHY：标题栏快捷入口固定指向最新一条；更早记录仍保留各自入口，历史列表可以精确跳转。 */}
+    {visible && <AnnotationPopover key={visible.key} id={id} anchor={visible.anchor} placement={visible.kind==='concept'?'word':undefined} onPlacementUnavailable={setPlacementNotice} title={visible.kind === "concept" ? visible.concept.name : "句读历史"}
+      headerAction={visible.kind === "history" && visible.annotations.length > 0 ? <button type="button" className="judu-annotation-popover__action" title="查看最近一条完整句读" aria-label="查看最近一条完整句读" onClick={() => { onOpenAnnotation(visible.annotations[0]); close(false); }}>查看完整句读</button> : undefined}
+      pinned={visible.pinned} onClose={close}>
+      {visible.kind === "concept" ? <ConceptPopoverContent concept={visible.concept}/> : <HistoryPopoverContent annotations={visible.annotations} hideFirstOpenButton={visible.annotations.length > 0} readingsByMessageId={historyReadingsByMessageId} onOpen={annotation=>{onOpenAnnotation(annotation);close(false);}}/>}
     </AnnotationPopover>}
-  </p>;
+  </Block>;
 }

@@ -11,7 +11,7 @@ export function normalizeReadingDifficulty(value: unknown): ReadingDifficulty {
 export function readingDifficultyPrompt(value: unknown): string {
   const difficulty = normalizeReadingDifficulty(value);
   const guidance = { beginner: "假设读者没有相关背景。先补齐理解原文所必需的基础常识，解释术语，再用具体例子说明；不幼稚化，不牺牲准确性。", accessible: "使用日常语言解释，减少术语并随文说明；不必从零补齐所有背景。", normal: "易懂与准确兼顾，保留必要术语。", advanced: "重视概念边界、论证关系与容易混淆的区别，不堆砌专业词。" };
-  return "当前解读方式：" + READING_DIFFICULTY_LABELS[difficulty] + "。" + guidance[difficulty] + "解读方式与回复长度独立；通俗不等于简短，深入不等于冗长。";
+  return "统一解读方式标准：beginner/小白补齐必要基础、解释术语并用具体例子；accessible/通俗用日常语言、减少术语；normal/正常兼顾易懂与准确、保留必要术语；advanced/深入强调概念边界、论证关系与易混区别。当前解读方式：" + READING_DIFFICULTY_LABELS[difficulty] + "。" + guidance[difficulty] + "解读方式与回复长度独立；通俗不等于简短，深入不等于冗长。";
 }
 export function readReadingPreferences(storage: Pick<Storage, "getItem">, bookId: string): ReadingPreferences {
   if (!bookId) return { ...DEFAULT_READING_PREFERENCES };

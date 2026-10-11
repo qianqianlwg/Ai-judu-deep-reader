@@ -12,7 +12,7 @@ export function useTextSourceHighlights(viewport: RefObject<HTMLElement|null>, s
   if(!enabled||!selection)return;
   const paint=()=>{
   const ranges:Range[]=[];
-  for(const part of selectionParts(selection))for(const element of root.querySelectorAll<HTMLElement>('p[data-paragraph-id]')){
+  for(const part of selectionParts(selection))for(const element of root.querySelectorAll<HTMLElement>('[data-paragraph-id]')){
    if(element.dataset.paragraphId!==part.paragraphId)continue;
    const base=Number(element.dataset.sourceStart??0),end=Number(element.dataset.sourceEnd??base+(element.textContent?.length??0));
    const low=Math.max(base,part.startOffset),high=Math.min(end,part.endOffset);if(high<=low)continue;

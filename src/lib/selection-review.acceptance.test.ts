@@ -25,6 +25,7 @@ vi.mock("@/hooks/use-reader-pages", () => ({
   },
 }));
 import Home from "@/app/page";
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search), useRouter: () => ({ push: (href: string) => window.history.pushState(null, "", href) }) }));
 import { useTextSourceHighlights } from "@/hooks/use-text-source-highlights";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 
@@ -48,7 +49,7 @@ async function settle() {
   await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
   for (let i = 0; frames.size && i < 8; i++) await act(async () => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(performance.now())); });
 }
-async function click(element: HTMLElement) { await act(async () => element.click()); await settle(); }
+async function click(element: HTMLElement) { await act(async () => { if (element.matches(".workspace-shelf-back") && element.getAttribute("aria-disabled") !== "true") window.history.pushState(null, "", "/"); else element.click(); root!.render(createElement(Home)); }); await settle(); }
 async function mount() { root = createRoot(host); await act(async () => root!.render(createElement(Home))); await settle(); }
 function paragraph(index: number): HTMLElement {
   const element = host.querySelector<HTMLElement>('p[data-paragraph-id="A-p' + index + '"]');
@@ -75,6 +76,7 @@ function domSelection(values: string[], reverse: boolean, textMode: boolean): Se
 }
 
 beforeEach(() => {
+  window.history.replaceState(null,"","/?bookId=A");
   vi.clearAllMocks(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.stubGlobal("ResizeObserver", undefined);
   vi.stubGlobal("CSS", { escape: (value: string) => value });
   frames = new Map(); sequence = 0; requests = []; savedAnnotations = []; root = undefined; storedMessageOverride = undefined;
@@ -233,7 +235,7 @@ describe("P0 独立验收：选择边界与多段保存", () => {
   });
   it("切书后清空来源、菜单和可发送选文", async () => {
     await mount(); await selectParagraph(0);
-    const shelfNav = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "书架")!;
+    const shelfNav = host.querySelector<HTMLAnchorElement>(".workspace-shelf-back")!;
     await click(shelfNav);
     const shelfButtons = host.querySelectorAll<HTMLButtonElement>(".bookshelf-open");
     expect(shelfButtons).toHaveLength(2); await click(shelfButtons[1]);

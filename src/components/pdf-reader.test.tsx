@@ -22,7 +22,10 @@ vi.mock("./pdf-page", async () => {
     const { page, document: sourceDocument, scale, rotation, onReady, onRemove } = props;
     useEffect(() => {
       const node = ref.current!;
-      onReady(bindPdfTextLayer(page, node, [...node.querySelectorAll("span")], page.items.map(item => item.str)));
+      const divs = [...node.querySelectorAll("span")], strings = page.items.map(item => item.str);
+      const dom = bindPdfTextLayer(page, node, divs, strings);
+      dom.refresh = () => bindPdfTextLayer(page, node, divs, strings).points;
+      onReady(dom);
       return () => { onRemove(page.pageNumber); pageProbe.removed(page.pageNumber); };
     }, [page, sourceDocument, scale, rotation, onReady, onRemove]);
     return <div ref={ref} className="textLayer" data-pdf-page={props.page.pageNumber} data-scale={props.scale} data-rotation={props.rotation}>
@@ -68,6 +71,7 @@ async function change(selector: string, value: string) {
   });
 }
 async function select(start: Node, startOffset: number, end: Node, endOffset: number, reverse = false) {
+
   await act(async () => {
     const selection = document.getSelection()!;
     selection.setBaseAndExtent(reverse ? end : start, reverse ? endOffset : startOffset, reverse ? start : end, reverse ? startOffset : endOffset);
@@ -141,7 +145,7 @@ describe("PdfReader 原件版本、索引与能力提示", () => {
   it("加载错误展示重试与回退，重试销毁旧加载任务", async () => {
     h.task.promise = Promise.reject(new Error("受控原件读取失败")); await render();
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("受控原件读取失败");
-    await act(async () => button("切回精读").click()); expect(props.onFallback).toHaveBeenCalledOnce();
+    await act(async () => button("返回书架").click()); expect(props.onFallback).toHaveBeenCalledOnce();
     const oldTask = h.task; h = fixture(); await act(async () => button("重试原版").click());
     expect(oldTask.destroy).toHaveBeenCalledOnce(); expect(loader.openPdf).toHaveBeenCalledTimes(2); expect(host.querySelector('[role="alert"]')).toBeNull();
   });
@@ -338,7 +342,7 @@ describe("PdfReader 末页导航与滚动钳制", () => {
   });
 });
 
-describe("PdfReader 非空精读锚点与原版页恢复", () => {
+describe("PdfReader 非空原文锚点与原版页恢复", () => {
   const save = (value: Record<string, unknown>, edition = "edition") => localStorage.setItem(
     `judu:pdf-position:${edition}`, JSON.stringify({ version: 1, hash: "a".repeat(64), page: 2, zoom: 150, rotation: 90, ...value }),
   );
@@ -505,4 +509,10 @@ it('PDF原文增强独立开关，不改写文字层或影响选文',async()=>{
  const node=textNode();expect(highlights.get('judu-pdf-enhance-term')?.ranges.length).toBeGreaterThan(0);expect(highlights.get('judu-pdf-enhance-sentence')?.ranges.length).toBeGreaterThan(0);
  await render({appearance:{...DEFAULT_READING_APPEARANCE,sourceSentences:true}});expect(highlights.get('judu-pdf-enhance-term')?.ranges).toHaveLength(0);expect(highlights.get('judu-pdf-enhance-sentence')?.ranges.length).toBeGreaterThan(0);expect(textNode()).toBe(node);
  await render({appearance:DEFAULT_READING_APPEARANCE});expect(highlights.get('judu-pdf-enhance-sentence')?.ranges).toHaveLength(0);expect(textNode()).toBe(node);
+});
+
+it("PDF文字层缺少可靠索引时仍能仅分析，不生成来源或标亮",async()=>{
+ h.pages[0].items=[{str:"未定位的PDF文字",transform:[1,0,0,1,0,0],width:100,height:12}];
+ const onAnalysisOnlySelect=vi.fn();await render({onAnalysisOnlySelect});const node=textNode();await select(node,0,node,node.textContent!.length);
+ expect(props.onSelect).not.toHaveBeenCalled();expect(onAnalysisOnlySelect).toHaveBeenCalledWith({sourceMode:"analysis-only",text:"未定位的PDF文字"},expect.any(Object));expect(props.onNotice).toHaveBeenCalledWith(expect.stringContaining("仅分析"));expect(highlights.get("judu-pdf-selection")?.ranges).toHaveLength(0);
 });

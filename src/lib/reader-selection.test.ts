@@ -71,3 +71,22 @@ it("跨页连续选文可合并，超限、断段和重叠拒绝",()=>{
  expect(mergeContinuousSelections(a,b,p)?.text).toBe("二三\n\n四五");expect(mergeContinuousSelections(a,a,p)).toBeNull();
  expect(mergeContinuousSelections({...a,text:"字".repeat(1800),startOffset:0,endOffset:1800},{...b,text:"字".repeat(1800),endOffset:1800},[{id:"a",text:"字".repeat(1800)},{id:"b",text:"字".repeat(1800)}])).toBeNull();
 });
+
+it('章标题、正文和中间小标题都保留为独立逐字选文锚点', () => {
+  const host=document.createElement('div');
+  host.innerHTML='<h2 data-paragraph-id="h1">章标题😀</h2><p data-paragraph-id="p1">正文原文</p><h4 data-paragraph-id="h2">小标题</h4><p data-paragraph-id="p2">后续正文</p>';
+  document.body.append(host);
+  const selection=window.getSelection()!;
+  try {
+    const range=document.createRange();range.selectNodeContents(host);
+    selection.removeAllRanges();selection.addRange(range);
+    const result=readReadingSelection(selection,host);
+    expect(result).not.toBeNull();
+    expect(selectionAnchors(result!)).toEqual([
+      {paragraphId:'h1',startOffset:0,endOffset:5,selectedText:'章标题😀'},
+      {paragraphId:'p1',startOffset:0,endOffset:4,selectedText:'正文原文'},
+      {paragraphId:'h2',startOffset:0,endOffset:3,selectedText:'小标题'},
+      {paragraphId:'p2',startOffset:0,endOffset:4,selectedText:'后续正文'},
+    ]);
+  } finally {selection.removeAllRanges();host.remove();}
+});

@@ -81,7 +81,7 @@ describe("PDF真实适配到共享浮层", () => {
     const newer = analysis({ id: "a2", messageId: "m2", summary: "新句读概述", createdAt: "2026-09-18T02:00:00Z" });
     await render({ annotations: [analysis(), newer] }); expect(host.querySelectorAll(".epub-history-marker")).toHaveLength(1);
     await click(button("查看句读历史（2条）")); const items = dialog()!.querySelectorAll("li"); expect(items[0].textContent).toContain("新句读概述");
-    expect(items[1].textContent).toContain("第一次句读完整概述"); await click(items[0].querySelector("button")!); expect(props.onOpenAnnotation).toHaveBeenCalledExactlyOnceWith(newer);
+    expect(items[1].textContent).toContain("第一次句读完整概述"); await click(dialog()!.querySelector<HTMLButtonElement>('[aria-label="查看最近一条完整句读"]')!); expect(props.onOpenAnnotation).toHaveBeenCalledExactlyOnceWith(newer);
   });
   it("真实鼠标点击完整句读入口不能在pointerdown被关闭吞掉", async () => {
     await render({ annotations: [analysis()] }); await click(button("查看句读历史（1条）")); const open = button("查看完整句读");

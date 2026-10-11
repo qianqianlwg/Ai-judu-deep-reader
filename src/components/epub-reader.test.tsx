@@ -98,7 +98,7 @@ it("字体与 canonical 跳转不重复下载，切书释放资源",async()=>{
 it("原件缺失显示错误且可回落，错误时不允许翻页",async()=>{
  vi.spyOn(console,"error").mockImplementation(()=>{});vi.mocked(fetch).mockResolvedValue({ok:false,status:404,headers:new Headers({"content-type":"application/json"}),json:async()=>({error:"此版本没有原文件"})} as Response);
  await render();expect(host.querySelector('[role="alert"]')?.textContent).toContain("没有原文件");
- const fallback=Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="切回精读")!;await act(async()=>fallback.click());expect(props.onFallback).toHaveBeenCalledOnce();
+ const fallback=Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="返回书架")!;await act(async()=>fallback.click());expect(props.onFallback).toHaveBeenCalledOnce();
  expect(loader.loadEpub).not.toHaveBeenCalled();
 });
 it("创建 viewer 失败也释放已展开的书籍",async()=>{
@@ -195,7 +195,7 @@ it.each(["fb2","fbz","fb2.zip"])("%s原文件按版本获取并装配FB2 loader�
  await render({book:assembleFb2(format)});
  expect(fetch).toHaveBeenCalledWith("/api/books/b/original?editionId=e-fb2",expect.objectContaining({cache:"no-store"}));
  expect(fb2loader.loadFb2).toHaveBeenCalledWith(expect.any(Blob),format);expect(loader.loadEpub).not.toHaveBeenCalled();
- expect(view.open).toHaveBeenCalledWith(original);expect(view.getAttribute("aria-label")).toBe("FB2 原版内容");expect(host.textContent).toContain("FB2章节");
+ expect(view.open).toHaveBeenCalledWith(original);expect(view.getAttribute("aria-label")).toBe("FB2 原版内容");expect(host.textContent).toContain("章节 1 / 1");
 });
 it("FB2标题和表格单元使用data-fb2-paragraph精确映射，原版选择与来源回跳都覆盖",async()=>{
  const book=assembleFb2();doc.body.innerHTML='<h1 data-fb2-paragraph="0">世界😀原版文字</h1><table><tbody><tr><td data-fb2-paragraph="1">第二段</td></tr></tbody></table>';
@@ -210,7 +210,7 @@ it("FB2标题和表格单元使用data-fb2-paragraph精确映射，原版选择�
 it("FB2解析失败明确回退精读，不降级为raw EPUB或静默成功",async()=>{
  fb2loader.loadFb2.mockRejectedValueOnce(new Error("受控FB2解析失败"));const error=vi.spyOn(console,"error").mockImplementation(()=>{});
  await render({book:assembleFb2()});expect(host.textContent).toContain("受控FB2解析失败");expect(loader.loadEpub).not.toHaveBeenCalled();expect(view.open).not.toHaveBeenCalled();
- const fallback=[...host.querySelectorAll("button")].find(button=>button.textContent==="切回精读")!;await act(async()=>fallback.click());expect(props.onFallback).toHaveBeenCalledOnce();expect(error).toHaveBeenCalled();
+ const fallback=[...host.querySelectorAll("button")].find(button=>button.textContent==="返回书架")!;await act(async()=>fallback.click());expect(props.onFallback).toHaveBeenCalledOnce();expect(error).toHaveBeenCalled();
 });
 it("FB2延迟load在组件卸载后完成仍销毁归属资源，不创建迟到View",async()=>{
  let resolve!:(book:FoliateBook)=>void;fb2loader.loadFb2.mockReturnValueOnce(new Promise<FoliateBook>(done=>{resolve=done;}));
@@ -228,7 +228,7 @@ async function settleConversion() {await act(async()=>{await vi.waitFor(()=>{if(
 it("UMD只读取转换EPUB并校验字节，原件下载单独保留且界面不伪称原版",async()=>{
  await render({book:assembleUmd()});await settleConversion();
  expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/books/b/converted?editionId=e",expect.objectContaining({cache:"no-store"}));
- expect(loader.loadEpub).toHaveBeenCalledWith(expect.any(Blob));expect(fb2loader.loadFb2).not.toHaveBeenCalled();
+ expect(loader.loadEpub).toHaveBeenCalledWith(expect.any(Blob),expect.objectContaining({progressive:true}));expect(fb2loader.loadFb2).not.toHaveBeenCalled();
  expect(host.querySelector('section')?.getAttribute('aria-label')).toBe('UMD 转换版阅读器');expect(view.getAttribute('aria-label')).toBe('UMD 转换版内容');
  expect(host.textContent).toContain('转换版下一页');expect(host.textContent).toContain('不代表原文件版式');
  expect(host.querySelector('a[download]')?.getAttribute('href')).toBe('/api/books/b/original?editionId=e');
@@ -350,19 +350,19 @@ it.each(["match","old-layout","old-version","original-hash","epub-key","other-ed
  if(kind==="match")expect(resolve).toHaveBeenCalledExactlyOnceWith(cfi);else expect(resolve).not.toHaveBeenCalled();
  expect(props.onPosition).not.toHaveBeenCalled();expect(loader.loadEpub).not.toHaveBeenCalled();
 });
-it("MOBI身份匹配但精读锚点改变时不恢复旧CFI",async()=>{
+it("MOBI身份匹配但原文锚点改变时不恢复旧CFI",async()=>{
  const book=assembleMobi(),cfi="epubcfi(/6/2!/4/1:4)";
  localStorage.setItem(originalPositionKey("mobi:e-mobi"),JSON.stringify({version:1,originalHash:mobiIdentity,cfi,anchor:{paragraphId:"p",offset:0}}));
  const resolve=vi.spyOn(view,"resolveCFI");await render({book,anchor:{paragraphId:"p2",offset:1}});
  expect(resolve).not.toHaveBeenCalled();expect(view.init).toHaveBeenCalledWith({showTextStart:true});
  expect(vi.mocked(view.renderer.goTo).mock.calls.at(-1)![0].anchor(doc).toString()).toBe("二");
 });
-it("MOBI同身份CFI已经失效时明确通知并回到精读锚点",async()=>{
+it("MOBI同身份CFI已经失效时明确通知并回到原文锚点",async()=>{
  const book=assembleMobi(),anchor={paragraphId:"p2",offset:1},cfi="epubcfi(/6/2!/4/1:4)";
  localStorage.setItem(originalPositionKey("mobi:e-mobi"),JSON.stringify({version:1,originalHash:mobiIdentity,cfi,anchor}));
  vi.spyOn(view,"resolveCFI").mockImplementation(()=>{throw new Error("过期CFI");});vi.spyOn(console,"warn").mockImplementation(()=>{});
  await render({book,anchor});
- expect(props.onNotice).toHaveBeenCalledWith("原版位置已失效，已回退到精读锚点。");expect(view.init).toHaveBeenCalledExactlyOnceWith({showTextStart:true});
+ expect(props.onNotice).toHaveBeenCalledWith("原版位置已失效，已回退到原文锚点。");expect(view.init).toHaveBeenCalledExactlyOnceWith({showTextStart:true});
  expect(vi.mocked(view.renderer.goTo).mock.calls.at(-1)![0].anchor(doc).toString()).toBe("二");expect(host.querySelector('[role="alert"]')).toBeNull();
 });
 it("MOBI手势位置按真实章节UTF-16锚点保存，重流不覆盖位置",async()=>{
@@ -395,7 +395,7 @@ it.each(["http","loader"])("MOBI %s失败明确显示错误与回退按钮，不
  expect([...host.querySelectorAll("nav button")].every(button=>(button as HTMLButtonElement).disabled)).toBe(true);
  expect(view.open).not.toHaveBeenCalled();expect(loader.createFoliateView).not.toHaveBeenCalled();expect(loader.loadEpub).not.toHaveBeenCalled();expect(fb2loader.loadFb2).not.toHaveBeenCalled();
  if(kind==="http")expect(mobiloader.loadMobiPublication).not.toHaveBeenCalled();
- const fallback=[...host.querySelectorAll("button")].find(button=>button.textContent==="切回精读")!;
+ const fallback=[...host.querySelectorAll("button")].find(button=>button.textContent==="返回书架")!;
  expect([...host.querySelectorAll("button")].some(button=>button.textContent==="重试原版")).toBe(true);
  await act(async()=>fallback.click());expect(props.onFallback).toHaveBeenCalledOnce();expect(fetch).toHaveBeenCalledOnce();
 });
@@ -437,6 +437,7 @@ it("正常导航连续点击时依次完成，不丢失用户翻页",async()=>{
  await act(async()=>{next.click();next.click();});
  expect(view.next).toHaveBeenCalledOnce();await act(async()=>navigation.resolve());expect(view.next).toHaveBeenCalledTimes(2);
 });
+
 it("合法CFI的文档加载异常不能误报位置失效或重入初始化",async()=>{
  vi.spyOn(console,"error").mockImplementation(()=>{});const cfi="epubcfi(/6/2!/4)",anchor={paragraphId:"p",offset:1};
  localStorage.setItem(originalPositionKey("e"),JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor}));
@@ -445,14 +446,14 @@ it("合法CFI的文档加载异常不能误报位置失效或重入初始化",as
  expect(host.querySelector('[role="alert"]')?.textContent).toContain("章节文档加载失败");
  expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(view.close).toHaveBeenCalledOnce();
 });
-it("CFI章节有效但正文偏移越界时，清理坏记录并回退精读锚点",async()=>{
+it("CFI章节有效但正文偏移越界时，清理坏记录并回退原文锚点",async()=>{
  vi.spyOn(console,"warn").mockImplementation(()=>{});const cfi="epubcfi(/6/2!/4/2/1:999)",anchor={paragraphId:"p",offset:1};
  const vendorPath="../../public/vendor/foliate/view.js";const {View:RealView}=await import(vendorPath) as {View:new()=>FoliateView};
  const real=new RealView();Object.assign(real,{book:original});vi.spyOn(view,"resolveCFI").mockImplementation(value=>real.resolveCFI(value));
  const target=real.resolveCFI(cfi);expect(target.index).toBe(0);expect(()=>target.anchor(doc)).toThrow();
  localStorage.setItem(originalPositionKey("e"),JSON.stringify({version:1,originalHash:"a".repeat(64),cfi,anchor}));
  const remove=vi.spyOn(Storage.prototype,"removeItem");await render({anchor});
- expect(view.init).toHaveBeenCalledExactlyOnceWith({showTextStart:true});expect(props.onNotice).toHaveBeenCalledWith("原版位置已失效，已回退到精读锚点。");
+ expect(view.init).toHaveBeenCalledExactlyOnceWith({showTextStart:true});expect(props.onNotice).toHaveBeenCalledWith("原版位置已失效，已回退到原文锚点。");
  expect(remove).toHaveBeenCalledWith(originalPositionKey("e"));expect(host.querySelector('[role="alert"]')).toBeNull();
  expect(view.renderer.goTo).toHaveBeenCalledOnce();expect(JSON.parse(localStorage.getItem(originalPositionKey("e"))!).cfi).not.toBe(cfi);
 });
@@ -484,4 +485,97 @@ it("真实有效CFI正文偏移通过预检，仍使用原位置而不回退",as
  await render({anchor});expect(view.init).toHaveBeenCalledExactlyOnceWith({lastLocation:cfi,showTextStart:true});
  expect(view.renderer.goTo).not.toHaveBeenCalled();expect(localStorage.getItem(originalPositionKey("e"))).toBe(stored);
  expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining("位置已失效"));expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+
+it('首屏装配完成后才启动后台准备，后台失败明确反馈并停止当前会话',async()=>{
+  vi.spyOn(console,'error').mockImplementation(()=>{});
+  let reject!: (cause:unknown)=>void;const background=new Promise<void>((_,no)=>{reject=no;});
+  const start=vi.fn(()=>background);original.preparation={start};
+  vi.mocked(view.init).mockImplementationOnce(async()=>{expect(start).not.toHaveBeenCalled();});
+  await render();expect(start).toHaveBeenCalledOnce();
+  expect(loader.loadEpub).toHaveBeenCalledWith(expect.any(Blob),expect.objectContaining({progressive:true,signal:expect.any(AbortSignal)}));
+  await act(async()=>{reject(new Error('CRC failed'));});
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('后台准备原版章节失败');expect(original.destroy).toHaveBeenCalledOnce();
+});
+it('过期会话的后台失败不能覆盖新书',async()=>{
+  vi.spyOn(console,'warn').mockImplementation(()=>{});
+  let reject!: (cause:unknown)=>void;const background=new Promise<void>((_,no)=>{reject=no;});
+  original.preparation={start:()=>background};await render();const next=makeBook('next');delete next.preparation;
+  loader.loadEpub.mockResolvedValueOnce(next);loader.createFoliateView.mockResolvedValueOnce(makeView());await render({book:makeSourceBook('next','next-edition')});
+  await act(async()=>{reject(new Error('old failure'));});expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('已建立标题来源时跨标题与正文选文完整交给句读，不剔除或伪造来源',async()=>{
+ doc.body.innerHTML='<h1>复杂信息</h1><p>正文😀。</p><h2>信息与权力</h2><p>后段</p>';
+ const book={...props.book,chapters:[{id:'c',title:'复杂信息',sourceHref:'OEBPS/ch.xhtml',paragraphs:[{id:'h',text:'复杂信息',kind:'heading' as const,headingLevel:1 as const,sourceOrdinal:0},{id:'p',text:'正文😀。',kind:'paragraph' as const,sourceOrdinal:1},{id:'sub',text:'信息与权力',kind:'heading' as const,headingLevel:2 as const,sourceOrdinal:2},{id:'p2',text:'后段',kind:'paragraph' as const,sourceOrdinal:3}]}]};
+ await render({book});const range=doc.createRange();range.setStart(doc.querySelector('h1')!.firstChild!,0);range.setEnd(doc.querySelectorAll('p')[1].firstChild!,2);
+ Object.defineProperty(range,'getBoundingClientRect',{value:()=>({left:10,top:60,width:30})});vi.spyOn(doc.defaultView!,'getSelection').mockReturnValue({rangeCount:1,isCollapsed:false,getRangeAt:()=>range} as unknown as Selection);
+ await act(async()=>doc.dispatchEvent(new MouseEvent('mouseup')));
+ expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({text:'复杂信息\n\n正文😀。\n\n信息与权力\n\n后段'}),expect.any(Object));
+ expect(props.onNotice).not.toHaveBeenCalledWith(expect.stringContaining('剔除标题'));
+});
+
+it("未索引的任意标签选文进入仅分析，不裁掉标题、不改旧定位",async()=>{
+ doc.body.innerHTML='<h6>未索引标题</h6><custom-text>裸文字</custom-text><p>原文😀原版文字</p>';
+ const onAnalysisOnlySelect=vi.fn();await render({onAnalysisOnlySelect});const prior=localStorage.getItem(originalPositionKey("e"));
+ const range=doc.createRange();range.selectNodeContents(doc.body);Object.defineProperty(range,'getBoundingClientRect',{value:()=>({left:10,top:60,width:30})});
+ vi.spyOn(doc.defaultView!,'getSelection').mockReturnValue({rangeCount:1,isCollapsed:false,getRangeAt:()=>range} as unknown as Selection);
+ await act(async()=>doc.dispatchEvent(new MouseEvent('mouseup')));
+ expect(props.onSelect).not.toHaveBeenCalled();expect(onAnalysisOnlySelect).toHaveBeenCalledWith({sourceMode:"analysis-only",text:"未索引标题\n裸文字\n原文😀原版文字"},expect.any(Object));
+ expect(localStorage.getItem(originalPositionKey("e"))).toBe(prior);expect(props.onNotice).toHaveBeenCalledWith(expect.stringContaining("仅分析"));expect(range.toString()).toContain("未索引标题");
+});
+
+it('原书目录跳转使用Foliate原生片段href，保持原版会话并记录主动导航',async()=>{
+ const go=vi.fn(async(href:string)=>{
+  view.dispatchEvent(new CustomEvent('relocate',{detail:{index:0,cfi:'epubcfi(/6/2!/4/2)',tocItem:{label:'第二节',href},range:null}}));
+ });
+ Object.assign(view,{goTo:go});Object.assign(original,{resolveHref:()=>({index:0,anchor:(target:Document)=>target.body})});const tocLocation=vi.fn();
+ await render({onTocLocation:tocLocation});await render({navigationTarget:{href:'OEBPS/ch.xhtml#two',sequence:1}});
+ expect(go).toHaveBeenCalledWith('OEBPS/ch.xhtml#two');expect(view.open).toHaveBeenCalledOnce();expect(props.onFallback).not.toHaveBeenCalled();
+ expect(tocLocation).toHaveBeenCalledWith('OEBPS/ch.xhtml#two');expect(localStorage.getItem(originalPositionKey('e'))).toContain('epubcfi(/6/2!/4/2)');
+});
+
+it("底部本章页码使用原生屏幕分页，输入提交后精确映射本章页",async()=>{
+ await render(); const goTo=vi.fn(async(_target:unknown)=>{});Object.assign(view.renderer,{page:5,pages:22,scrolled:false,goTo});
+ await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},location:{current:80,total:100}}})));
+ await act(()=>host.querySelector<HTMLButtonElement>('button[aria-label="选择页码跳转"]')!.click());
+ const input=document.querySelector<HTMLInputElement>('input[aria-label="本章页码"]')!;expect(input.value).toBe("5");
+ await act(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(input,"15");input.dispatchEvent(new Event("input",{bubbles:true}));});
+ expect(goTo).not.toHaveBeenCalled();
+ await act(()=>input.closest("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+ expect(goTo).toHaveBeenCalledOnce();const target=goTo.mock.calls[0][0] as {index:number;anchor:()=>number};expect(target.index).toBe(0);expect(target.anchor()).toBe(14/19);
+});
+it("全书估算位置变化多页时，底部仍只跟随实际屏幕翻一页",async()=>{
+ await render();Object.assign(view.renderer,{page:14,pages:22,scrolled:false});
+ await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},location:{current:77,total:100}}})));
+ expect(host.querySelector('button[aria-label="选择页码跳转"]')!.textContent).toContain("14 / 20");
+ Object.assign(view.renderer,{page:13});await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},location:{current:75,total:100}}})));
+ expect(host.querySelector('button[aria-label="选择页码跳转"]')!.textContent).toContain("13 / 20");
+});
+it("无真实屏幕分页或滚动模式时，不伪造章节页数",async()=>{
+ await render();const trigger=host.querySelector<HTMLButtonElement>('button[aria-label="选择页码跳转"]')!;expect(trigger.disabled).toBe(true);
+ Object.assign(view.renderer,{page:3,pages:22,scrolled:true});await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0}}})));expect(trigger.disabled).toBe(true);
+});
+
+it("底栏同时显示本章屏幕页和全书进度，切章后全书进度继续累计",async()=>{
+ await render();Object.assign(view.renderer,{page:13,pages:20,scrolled:false});
+ await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},fraction:0.69}})));
+ expect(host.querySelector('button[aria-label="选择页码跳转"]')!.textContent).toContain("本章13 / 18");
+ expect(host.querySelector('[aria-label="全书阅读进度"]')!.textContent).toBe("全书 69%");
+ Object.assign(view.renderer,{page:1,pages:12});await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:1},fraction:0.72}})));
+ expect(host.querySelector('button[aria-label="选择页码跳转"]')!.textContent).toContain("本章1 / 10");
+ expect(host.querySelector('[aria-label="全书阅读进度"]')!.textContent).toBe("全书 72%");
+});
+it.each([0,1])("全书进度正确显示起止边界 %s",async fraction=>{
+ await render();Object.assign(view.renderer,{page:1,pages:12,scrolled:false});
+ await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},fraction}})));
+ expect(host.querySelector('[aria-label="全书阅读进度"]')!.textContent).toBe(`全书 ${fraction*100}%`);
+});
+it.each([undefined,NaN,Infinity,-0.1,1.1])("未取得合法全书进度 %s 时不展示旧值或伪造值",async fraction=>{
+ await render();Object.assign(view.renderer,{page:1,pages:12,scrolled:false});
+ await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},fraction:0.69}})));
+ expect(host.querySelector('[aria-label="全书阅读进度"]')).not.toBeNull();
+ await act(()=>view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},fraction}})));
+ expect(host.querySelector('[aria-label="全书阅读进度"]')).toBeNull();
 });
