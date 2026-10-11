@@ -6,7 +6,9 @@ import type { FoliateView, FoliateBook, FoliateLoadDetail } from './foliate-type
 describe('pinned foliate narrow contract', () => {
   it('exposes required section href IDs and canonical renderer/CFI APIs', () => {
     expectTypeOf<FoliateBook['sections'][number]['id']>().toEqualTypeOf<string>();
-    expectTypeOf<FoliateView['renderer']['goTo']>().parameter(0).toEqualTypeOf<{ index: number; anchor: (doc: Document) => Range | Element }>();
+    expectTypeOf<FoliateView['renderer']['goTo']>().parameter(0).toEqualTypeOf<{ index: number; anchor: (doc: Document) => Range | Element | number }>();
+    expectTypeOf<FoliateView['renderer']['page']>().toEqualTypeOf<number | undefined>();
+    expectTypeOf<FoliateView['renderer']['pages']>().toEqualTypeOf<number | undefined>();
     expectTypeOf<FoliateView['renderer']['setStyles']>().parameter(0).toEqualTypeOf<string>();
     expectTypeOf<FoliateLoadDetail>().toEqualTypeOf<{ doc: Document; index: number }>();
     expectTypeOf<FoliateView['getCFI']>().returns.toEqualTypeOf<string>();

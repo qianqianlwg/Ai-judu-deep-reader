@@ -1,3 +1,4 @@
+import { EPUB_BLOCK_SCHEMA } from "./epub-block-store";
 import { GUIDE_SCHEMA } from "./guide-schema";
 import { SOURCE_EMPHASIS_SCHEMA } from "./source-enhancement-store";
 import {BOOK_SHELF_SCHEMA} from "./book-shelf";
@@ -70,6 +71,7 @@ export function createDatabase() {
     `);
     // WHY：兼容已有本地书架，以增量迁移保存概念定义及每次句读的消息锚点。
     db.exec(READING_MARKS_SCHEMA);
+    db.exec(EPUB_BLOCK_SCHEMA);
     db.exec(BOOK_SHELF_SCHEMA);
     const editionColumns = db.prepare("PRAGMA table_info(editions)").all() as { name: string }[];
     if (!editionColumns.some((column) => column.name === "original_file_path")) db.exec("ALTER TABLE editions ADD COLUMN original_file_path TEXT NOT NULL DEFAULT ''");

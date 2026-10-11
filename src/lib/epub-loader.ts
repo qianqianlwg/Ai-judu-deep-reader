@@ -1,6 +1,7 @@
 import type { FoliateBook, FoliateBridge, FoliateView } from './foliate-types';
 import { inspectZip, validateArchive } from './epub-security-zip';
 import { prepareEpubResources, type SafeEpubResources } from './epub-security-resources';
+import { initialEpubSection, nearbyEpubSections, prepareEpubSections, prepareRemainingEpubSections, type EpubPreparationPosition } from './epub-preparation';
 
 const REVISION = '78914aef4466eb960965702401634c2cb348e9b1';
 let initialization: Promise<FoliateBridge> | undefined;
@@ -45,26 +46,60 @@ export async function createFoliateView(): Promise<FoliateView> {
   return (await initializeFoliate()).createView();
 }
 
-export async function loadEpub(original: Blob): Promise<FoliateBook> {
+export type LoadEpubOptions = EpubPreparationPosition & { progressive?: boolean; signal?: AbortSignal };
+
+export async function loadEpub(original: Blob, options: LoadEpubOptions = {}): Promise<FoliateBook> {
   if (typeof window === 'undefined') throw new Error('EPUB 只能在浏览器中加载');
+  options.signal?.throwIfAborted();
   const records = await inspectZip(original);
   const bridge = await initializeFoliate();
+  options.signal?.throwIfAborted();
   const archive = await bridge.openArchive(original);
   let resources: SafeEpubResources | undefined, book: FoliateBook | undefined;
+  const lifetime = new AbortController();
+  let closing: Promise<void> | undefined;
+  const closeArchive = () => closing ??= (async () => { await resources?.drained(); await archive.close(); })();
+  const abort = () => { lifetime.abort(); resources?.destroy(); book?.destroy?.(); };
+  options.signal?.addEventListener('abort', abort, { once: true });
   try {
+    options.signal?.throwIfAborted();
     validateArchive(archive, records);
-    resources = await prepareEpubResources(archive, bridge.sanitizeCss);
+    resources = await prepareEpubResources(archive, bridge.sanitizeCss, { lazy: options.progressive });
     const safe = resources;
+    options.signal?.throwIfAborted();
     book = await bridge.createBook(original, safe);
-    // WHY：所有可能成为 iframe 文档的章节提前净化，失败不能等到用户翻页后才出现。
-    for (const section of book.sections) await section.createDocument();
-    const destroy = book.destroy?.bind(book);
+    const loaded = book, destroy = loaded.destroy?.bind(loaded);
     let destroyed = false;
-    book.destroy = () => { if (destroyed) return; destroyed = true; try { destroy?.(); } finally { safe.destroy(); } };
-    return book;
-  } catch (error) {
-    book?.destroy?.(); resources?.destroy(); throw error;
-  } finally {
-    try { await archive.close(); } catch (error) { book?.destroy?.(); resources?.destroy(); throw error; }
+    loaded.destroy = () => {
+      if (destroyed) return;
+      destroyed = true; lifetime.abort(); options.signal?.removeEventListener('abort', abort);
+      try { destroy?.(); } finally {
+        safe.destroy();
+        // WHY：渐进加载返回时 ZIP 仍供后台解压使用；必须等活动解压排空再关，不能沿用 eager 的 finally 关闭。
+        void closeArchive().catch(cause => console.error('关闭 EPUB 归档失败', cause));
+      }
+    };
+    const indices = options.progressive
+      ? nearbyEpubSections(loaded.sections.length, initialEpubSection(loaded, options))
+      : loaded.sections.map((_, index) => index);
+    await prepareEpubSections(loaded, indices, lifetime.signal);
+    options.signal?.throwIfAborted();
+    if (options.progressive) {
+      let background: Promise<void> | undefined;
+      loaded.preparation = { start: () => background ??= (async () => {
+        try {
+          lifetime.signal.throwIfAborted();
+          await Promise.all([safe.prefetch(), prepareRemainingEpubSections(loaded, new Set(indices), lifetime.signal)]);
+        } catch (cause: unknown) { loaded.destroy?.(); throw cause; }
+        finally { await closeArchive(); }
+      })() };
+    } else await closeArchive();
+    return loaded;
+  } catch (cause: unknown) {
+    lifetime.abort(); options.signal?.removeEventListener('abort', abort);
+    try { book?.destroy?.(); } finally { resources?.destroy(); }
+    try { await closeArchive(); }
+    catch (closeError: unknown) { throw new AggregateError([cause, closeError], 'EPUB 准备与归档关闭失败'); }
+    throw cause;
   }
 }

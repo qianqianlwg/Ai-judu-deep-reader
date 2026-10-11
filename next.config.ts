@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   // WHY：上传代理缓冲覆盖300MB文件及multipart开销，避免正文被默认10MB静默截断。
   experimental: { proxyClientMaxBodySize: IMPORT_PROXY_BUFFER_BYTES },
   // WHY：worker由子进程加载，不能依赖静态import推断；导入与MOBI布局路由携带私有运行时和许可。
-  outputFileTracingIncludes: { "/api/import": ["./runtime/mobi/**/*", "./runtime/umd/**/*"], "/api/books/*/mobi-layout": ["./runtime/mobi/**/*"] },
+  outputFileTracingIncludes: { "/api/import": ["./runtime/mobi/**/*", "./runtime/umd/**/*", "./scripts/epub/**/*", "./public/vendor/foliate/epub.js", "./public/vendor/foliate/epubcfi.js", "./public/vendor/foliate/package.json"], "/api/books/*": ["./scripts/epub/**/*", "./public/vendor/foliate/epub.js", "./public/vendor/foliate/epubcfi.js", "./public/vendor/foliate/package.json"], "/api/books/*/mobi-layout": ["./runtime/mobi/**/*"] },
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   async headers() {
     // WHY：UI 之外再加响应头兜底，禁止不可信模型/书籍内容自动加载第三方图片或嵌入对象。

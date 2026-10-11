@@ -55,3 +55,15 @@ describe("EPUB 章节分类不修改正文", () => {
     expect(skips('<div><img src="cover.png"/></div>')).toBe(true);
   });
 });
+
+it('保留章标题、小标题与正文的顺序和真实层级，不把标题交给本地规则生成',()=>{
+ expect(htmlToBlocks('<h1>章标题</h1><p>正文😀。</p><h3><em>信息与权力</em></h3><p>后段。</p>').blocks).toEqual([
+  {kind:'heading',headingLevel:1,text:'章标题',sourceOrdinal:0},{kind:'paragraph',text:'正文😀。',sourceOrdinal:1},{kind:'heading',headingLevel:3,text:'信息与权力',sourceOrdinal:2},{kind:'paragraph',text:'后段。',sourceOrdinal:3}
+ ]);
+});
+
+it('样式div小标题作为逐字文本纳入来源，不硬编码类名或推断标题层级',()=>{
+ const result=htmlToBlocks('<h2>第二部 先验逻辑</h2><h3>导言 先验逻辑之理念</h3><div class="ht4fc" id="d1e448">一 泛论逻辑</div><p>吾人之知识。</p>');
+ expect(result.blocks.map(b=>[b.text,b.kind,b.headingLevel,b.sourceOrdinal])).toEqual([['第二部 先验逻辑','heading',2,0],['导言 先验逻辑之理念','heading',3,1],['一 泛论逻辑','paragraph',undefined,2],['吾人之知识。','paragraph',undefined,3]]);
+ expect(result.paragraphs).toEqual(['吾人之知识。']);expect(result.legacySourceOrdinals).toEqual([0,1,null,2]);
+});

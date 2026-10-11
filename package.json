@@ -12,6 +12,7 @@
         "predev": "npm run build:mobi-worker && npm run build:umd-worker",
         "prebuild": "npm run build:mobi-worker && npm run build:umd-worker",
         "pretest": "npm run build:mobi-worker && npm run build:umd-worker",
+        "test:epub-worker": "node --test scripts/epub/foliate-import-worker.test.mjs",
         "build:umd-worker": "node scripts/build-umd-worker.mjs"
     },
     "dependencies": {
@@ -35,7 +36,9 @@
         "simple-mind-map": "0.14.0-fix.3",
         "unified": "^11.0.5",
         "unist-util-visit": "^5.1.0",
-        "zod": "^4.6.5"
+        "zod": "^4.6.5",
+        "parse5": "8.0.1",
+        "jsdom": "^30.0.1"
     },
     "devDependencies": {
         "@lingo-reader/mobi-parser": "0.4.6",
@@ -47,8 +50,6 @@
         "esbuild": "0.28.2",
         "eslint": "^9",
         "eslint-config-next": "16.3.5",
-        "jsdom": "^30.0.1",
-        "parse5": "8.0.1",
         "tailwindcss": "^4",
         "typescript": "^5",
         "vitest": "^3.2.4"

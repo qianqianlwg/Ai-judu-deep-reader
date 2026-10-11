@@ -74,38 +74,24 @@ it("原版可见选区跨段限3000字，不只是截断请求文本",()=>{
  document.body.innerHTML='';
 });
 
-it("只剔除选区开头的标题，并将可见选区同步收缩到正文",()=>{
- const doc=document;doc.body.innerHTML='<h1>第一章 <em>地方政府</em></h1><p>第一段正文</p><p>第二段正文</p>';
- const maps=mapEpubDocument(doc,chapter(['第一段正文','第二段正文']));
- const range=doc.createRange();range.setStart(doc.querySelector('h1')!.firstChild!,0);range.setEnd(doc.querySelectorAll('p')[1].firstChild!,3);
+it("旧正文索引缺少标题时不再裁掉标题，保留完整范围交给仅分析",()=>{
+ document.body.innerHTML='<h1>第一章 <em>地方政府</em></h1><p>第一段正文</p><p>第二段正文</p>';
+ const maps=mapEpubDocument(document,chapter(['第一段正文','第二段正文'])),range=document.createRange();range.selectNodeContents(document.body);
  const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
- let omitted=false;
- const snapshot=readLimitedEpubSelection(selection,maps,undefined,()=>{omitted=true});
- expect(omitted).toBe(true);
- expect(snapshot).toMatchObject({version:2,text:'第一段正文\n\n第二段'});
- expect(selection.toString()).toBe('第一段正文第二段');
- expect(selectionFromEpubRange(selection.getRangeAt(0),maps)).toEqual(snapshot);
+ expect(readLimitedEpubSelection(selection,maps)).toBeNull();expect(selection.toString()).toBe('第一章 地方政府第一段正文第二段正文');
 });
-
-it("倒向选区剔除标题后保持方向，并按正文限制可见选区",()=>{
- const doc=document;doc.body.innerHTML='<h1>标题</h1><p>'+'甲'.repeat(3100)+'</p>';
- const maps=mapEpubDocument(doc,chapter(['甲'.repeat(3100)]));
- const heading=doc.querySelector('h1')!.firstChild!,body=doc.querySelector('p')!.firstChild!;
- const selection=window.getSelection()!;selection.removeAllRanges();selection.setBaseAndExtent(body,3100,heading,0);
- let limited=false,omittedLimited=false;
- const snapshot=readLimitedEpubSelection(selection,maps,()=>{limited=true},wasLimited=>{omittedLimited=wasLimited});
- expect(limited).toBe(true);expect(omittedLimited).toBe(true);
- expect(snapshot?.text).toBe('甲'.repeat(3000));expect(selection.toString()).toBe('甲'.repeat(3000));
- expect(selection.anchorNode).toBe(body);expect(selection.anchorOffset).toBe(3100);
+it("倒向含未定位标题的范围不被按正文暗中截短",()=>{
+ document.body.innerHTML='<h1>标题</h1><p>'+'甲'.repeat(3100)+'</p>';
+ const maps=mapEpubDocument(document,chapter(['甲'.repeat(3100)])),heading=document.querySelector('h1')!.firstChild!,body=document.querySelector('p')!.firstChild!;
+ const selection=window.getSelection()!;selection.removeAllRanges();selection.setBaseAndExtent(body,3100,heading,0);let limited=false;
+ expect(readLimitedEpubSelection(selection,maps,()=>{limited=true})).toBeNull();expect(limited).toBe(false);expect(selection.toString()).toBe('标题'+'甲'.repeat(3100));expect(selection.anchorNode).toBe(body);
 });
 
 it("未映射内容不属于开头标题时仍拒绝，不触发自动剔除",()=>{
  for(const html of ['<aside>脚注</aside><h1>标题</h1><p>正文</p>','<h1>标题</h1><aside>脚注</aside><p>正文</p>','<h1>标题</h1><p>正文</p><aside>脚注</aside>']){
   const doc=document;doc.body.innerHTML=html;const maps=mapEpubDocument(doc,chapter(['正文'])),range=doc.createRange();range.selectNodeContents(doc.body);
   const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
-  let omitted=false;
-  expect(readLimitedEpubSelection(selection,maps,undefined,()=>{omitted=true})).toBeNull();
-  expect(omitted).toBe(false);
+  expect(readLimitedEpubSelection(selection,maps)).toBeNull();
  }
 });
 it("stale text-node offsets are rebuilt after layout splits a node", () => {
@@ -131,4 +117,40 @@ it("refuses to build a range if the live paragraph no longer matches its source"
  const text = "x".repeat(220), doc = fixture(`<p>${text}</p>`), maps = mapEpubDocument(doc, chapter([text]));
  doc.querySelector("p")!.textContent = "short text";
  expect(rangeForEpubAnchor(maps, "p0", 177, 178)).toBeNull();
+});
+
+it('标题+正文+中间小标题的多块选文保留完整来源和UTF16位置',()=>{
+ const doc=fixture('<h1>复杂信息</h1><p>正文😀。</p><h2>信息与权力</h2><p>后段文字。</p>');
+ const source={id:'c',title:'复杂信息',paragraphs:[{id:'h',text:'复杂信息',kind:'heading' as const,headingLevel:1 as const,sourceOrdinal:0},{id:'p',text:'正文😀。',kind:'paragraph' as const,sourceOrdinal:1},{id:'sub',text:'信息与权力',kind:'heading' as const,headingLevel:2 as const,sourceOrdinal:2},{id:'last',text:'后段文字。',kind:'paragraph' as const,sourceOrdinal:3}]};
+ const maps=mapEpubDocument(doc,source);expect(maps).toHaveLength(4);
+ const range=doc.createRange();range.setStart(doc.querySelector('h1')!.firstChild!,0);range.setEnd(doc.querySelectorAll('p')[1].firstChild!,2);
+ expect(selectionFromEpubRange(range,maps)).toMatchObject({text:'复杂信息\n\n正文😀。\n\n信息与权力\n\n后段',fragments:[{paragraphId:'h',startOffset:0,endOffset:4},{paragraphId:'p',startOffset:0,endOffset:5},{paragraphId:'sub',startOffset:0,endOffset:5},{paragraphId:'last',startOffset:0,endOffset:2}]});
+ expect(rangeForEpubAnchor(maps,'sub',0,5)?.toString()).toBe('信息与权力');
+});
+it('同名标题用原书次序核对，净化移除标题后不将后一个冒充前一个',()=>{
+ const source={id:'c',title:'同名',paragraphs:[{id:'h1',text:'同名',kind:'heading' as const,headingLevel:2 as const,sourceOrdinal:0},{id:'h2',text:'同名',kind:'heading' as const,headingLevel:2 as const,sourceOrdinal:1}]};
+ expect(mapEpubDocument(fixture('<h2>同名</h2><h2>同名</h2>'),source).map(m=>m.paragraph.id)).toEqual(['h1','h2']);
+ expect(mapEpubDocument(fixture('<h2>同名</h2>'),source)).toHaveLength(0);
+});
+
+it('有标题来源的新版本若标题层级不匹配，不能自动裁剪标题改成正文成功', () => {
+  document.body.innerHTML='<h1>同文标题</h1><p>正文</p>';
+  const maps=mapEpubDocument(document,{id:'c',title:'章',paragraphs:[{id:'h',text:'同文标题',kind:'heading',headingLevel:2,sourceOrdinal:0},{id:'p',text:'正文',kind:'paragraph',sourceOrdinal:1}]});
+  expect(maps.map(m=>m.paragraph.id)).toEqual(['p']);
+  const selection=window.getSelection()!,range=document.createRange();range.selectNodeContents(document.body);
+  selection.removeAllRanges();selection.addRange(range);
+  expect(readLimitedEpubSelection(selection,maps)).toBeNull();
+  expect(selection.toString()).toBe('同文标题正文');
+  selection.removeAllRanges();
+});
+
+it('原版标准标题、div小标题和正文完整跨选，不能漏掉非标准小标题',()=>{
+ const doc=document;doc.body.innerHTML='<h2>第二部 先验逻辑</h2><h3>导言 先验逻辑之理念</h3><div class="ht4fc">一 泛论逻辑</div><p>吾人之知识，发自心之二种根本源流。</p>';
+ const paragraphs=[{id:'h1',text:'第二部 先验逻辑',kind:'heading' as const,headingLevel:2 as const,sourceOrdinal:0},{id:'h2',text:'导言 先验逻辑之理念',kind:'heading' as const,headingLevel:3 as const,sourceOrdinal:1},{id:'d',text:'一 泛论逻辑',kind:'paragraph' as const,sourceOrdinal:2},{id:'p',text:'吾人之知识，发自心之二种根本源流。',kind:'paragraph' as const,sourceOrdinal:3}];
+ const maps=mapEpubDocument(doc,{id:'c',title:'第二部 先验逻辑',paragraphs});
+ expect(maps.map(m=>m.paragraph.id)).toEqual(['h1','h2','d','p']);
+ const range=doc.createRange();range.selectNodeContents(doc.body);
+ const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+ expect(readLimitedEpubSelection(selection,maps)).toMatchObject({text:paragraphs.map(p=>p.text).join('\n\n'),fragments:paragraphs.map(p=>({paragraphId:p.id,text:p.text,startOffset:0,endOffset:p.text.length}))});
+ selection.removeAllRanges();
 });

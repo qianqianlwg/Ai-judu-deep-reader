@@ -1,3 +1,5 @@
+import { readBookNavigation, type BookNavigationItem } from './book-navigation';
+import { readSourceBlockMetadata, type SourceBlockMetadata } from "./source-block";
 export type LibraryConversion = {
   format: ".epub";
   sourceHash: string;
@@ -83,9 +85,9 @@ export function bookEditionUrl(bookId: string, editionId?: string): string {
   return "/api/books/" + encodeURIComponent(bookId) + (editionId ? "?" + new URLSearchParams({ editionId }) : "");
 }
 
-export type LibraryParagraph = { id: string; text: string };
+export type LibraryParagraph = { id: string; text: string } & SourceBlockMetadata;
 export type LibraryChapter = { id: string; title: string; sourceHref?: string; paragraphs: LibraryParagraph[] };
-export type LibraryBookContent = LibraryBook & { editionId?: string; edition?: LibraryEdition; chapters: LibraryChapter[] };
+export type LibraryBookContent = LibraryBook & { editionId?: string; edition?: LibraryEdition; chapters: LibraryChapter[]; navigation?: BookNavigationItem[] };
 export function readBookResponse(value: unknown, bookId: string, editionId?: string): LibraryBookContent {
   if (!record(value) || value.id !== bookId || !Array.isArray(value.chapters) || (editionId !== undefined && value.editionId !== editionId)) throw new Error("返回的书籍或版本不匹配，未替换当前原文");
   const book = readLibraryResponse([value])[0];
@@ -103,9 +105,10 @@ export function readBookResponse(value: unknown, bookId: string, editionId?: str
     if (!record(chapter) || !identifier(chapter.id) || typeof chapter.title !== "string" || (chapter.sourceHref !== undefined && typeof chapter.sourceHref !== "string") || !Array.isArray(chapter.paragraphs)) throw new Error("章节数据不完整");
     const paragraphs = chapter.paragraphs.map(paragraph => {
       if (!record(paragraph) || !identifier(paragraph.id) || typeof paragraph.text !== "string") throw new Error("正文段落数据不完整");
-      return { id: paragraph.id, text: paragraph.text };
+      return { id: paragraph.id, text: paragraph.text, ...readSourceBlockMetadata(paragraph) };
     });
     return { id: chapter.id, title: chapter.title, ...(typeof chapter.sourceHref === "string" ? { sourceHref: chapter.sourceHref } : {}), paragraphs };
   });
-  return { ...book, editionId: selectedId, edition: selected, chapters };
+  const navigation = value.navigation === undefined ? undefined : readBookNavigation(value.navigation);
+  return { ...book, editionId: selectedId, edition: selected, chapters, ...(navigation ? { navigation } : {}) };
 }

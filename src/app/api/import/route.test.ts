@@ -48,8 +48,8 @@ describe("import and original retrieval integration", () => {
     ["book.txt", Buffer.from("第一段。\n\n第二段。"), ["第一段。", "第二段。"]],
     ["book.md", Buffer.from("# Heading\n\nMarkdown paragraph."), ["# Heading", "Markdown paragraph."]],
     ["book.mobi", makeMobiFixture(), ["第一段。", "第二段😀。"]],
-    ["book.epub", makeEpub(), ["First paragraph important .", "第二段， 保持原文。"]],
-    ["compressed-directories.epub", makeEpub(false,true), ["First paragraph important .", "第二段， 保持原文。"]],
+    ["book.epub", makeEpub(), ["First chapter", "First paragraph important .", "第二段， 保持原文。"]],
+    ["compressed-directories.epub", makeEpub(false,true), ["First chapter", "First paragraph important .", "第二段， 保持原文。"]],
     ["book.pdf", makePdf(), ["First page text.", "Second page text."]],
   ] as const)("imports %s with unchanged paragraphs, raw bytes, metadata and restart persistence", async (name, bytes, paragraphs) => {
     const response = await POST(request(bytes, name)); const result = await response.json();
@@ -84,7 +84,7 @@ describe("import and original retrieval integration", () => {
     expect(await fs.readdir(path.join(directory, "originals"))).toHaveLength(2);
     expect((await getOriginal(first.id, second.editionId)).status).toBe(404);
   });
-  it.each([["empty.txt", Buffer.alloc(0)], ["blank.txt", Buffer.from("\r\n \n")], ["empty.epub", makeEpub(true)], ["bad.epub", Buffer.from("not a zip")], ["bad.pdf", Buffer.from("not a PDF")]])("rejects empty/malformed %s without rows or originals", async (name, bytes) => {
+  it.each([["empty.txt", Buffer.alloc(0)], ["blank.txt", Buffer.from("\r\n \n")], ["bad.epub", Buffer.from("not a zip")], ["bad.pdf", Buffer.from("not a PDF")]])("rejects empty/malformed %s without rows or originals", async (name, bytes) => {
     const response = await POST(request(bytes, name)); expect(response.status).toBe(422); expect(await response.json()).toHaveProperty("error"); await expectEmpty();
   });
   it("rejects missing/duplicate/non-file upload and broken multipart with JSON", async () => {
@@ -140,7 +140,7 @@ it("高重复但有界的 EPUB 文件可以完整导入并原样取回",async()=
  expect(bytes.length).toBeLessThan(10000);
  const response=await POST(request(bytes,'repeated.epub'));const result=await response.json();
  expect(response.status,JSON.stringify(result)).toBe(200);
- expect(result.chapters[0].paragraphs[0].text).toContain('First paragraph');
+ expect(result.chapters[0].paragraphs.find((p:{text:string})=>p.text.startsWith("First paragraph"))).toBeDefined();
  expect(Buffer.from(await (await getOriginal(result.id,result.editionId)).arrayBuffer())).toEqual(bytes);
 });
 it("服务端有界拒绝 ZIP 炸弹及虚报大小，返回JSON且无遗留",async()=>{
@@ -171,3 +171,27 @@ it("精简导入不发送正文 base64 副本，数据库哈希和原件保持�
 });
 
 it('超限请求明确返回413与300MB上限，不生成书籍或文件',async()=>{const response=await POST(new NextRequest('http://localhost/api/import',{method:'POST',headers:{'content-type':'multipart/form-data; boundary=x','content-length':String(302*1024*1024)},body:'x'}));expect(response.status).toBe(413);expect(await response.json()).toMatchObject({code:'upload_too_large',error:expect.stringContaining('300 MB')});await expectEmpty();});
+
+it('只有真实标题的EPUB仍有可追溯原文，不再当作没有正文而丢弃',async()=>{
+ const response=await POST(request(makeEpub(true),'heading-only.epub'));const result=await response.json();expect(response.status).toBe(200);
+ expect(result.chapters[0].paragraphs[0]).toMatchObject({text:'First chapter',kind:'heading',headingLevel:1,sourceOrdinal:0});
+ const content=await book(new Request('http://local/api/books/'+result.id),{params:Promise.resolve({bookId:result.id})});expect(content.status).toBe(200);
+ expect((await content.json()).chapters[0].paragraphs[0]).toMatchObject({kind:'heading',headingLevel:1});
+});
+
+it('旧EPUB懒补建标题后，正文ID、哈希、已有标注和原件均保留且重复加载幂等',async()=>{
+ const imported=await (await POST(request(makeEpub(),'legacy-heading.epub'))).json();
+ const id=imported.chapters[0].id;const before=state.db!.prepare("SELECT * FROM paragraphs WHERE chapter_id=? ORDER BY order_index").all(id) as {id:string;text:string;text_hash:string;order_index:number}[];
+ const oldBody=before.slice(1);const heading=before[0];
+ state.db!.prepare('DELETE FROM paragraphs WHERE id=?').run(heading.id);state.db!.exec('DELETE FROM reading_block_metadata;DELETE FROM epub_block_versions');
+ oldBody.forEach((row,index)=>state.db!.prepare('UPDATE paragraphs SET order_index=? WHERE id=?').run(index,row.id));
+ state.db!.prepare('INSERT INTO annotations (id,paragraph_id,start_offset,end_offset,text_hash,thread_id,summary,concepts,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run('kept-mark',oldBody[0].id,0,5,oldBody[0].text_hash,'legacy-thread','旧标注','[]','2026-10-02');
+ const get=()=>book(new Request('http://local/api/books/'+imported.id),{params:Promise.resolve({bookId:imported.id})});
+ const response=await get();expect(response.status).toBe(200);const result=await response.json();
+ expect(result.chapters[0].paragraphs.map((p:{text:string})=>p.text)).toEqual(['First chapter',...oldBody.map(p=>p.text)]);
+ expect(result.chapters[0].paragraphs.slice(1).map((p:{id:string})=>p.id)).toEqual(oldBody.map(p=>p.id));
+ expect(state.db!.prepare("SELECT text_hash FROM paragraphs WHERE id=?").get(oldBody[0].id)).toEqual({text_hash:oldBody[0].text_hash});
+ expect(state.db!.prepare("SELECT paragraph_id,start_offset,end_offset FROM annotations WHERE id='kept-mark'").get()).toEqual({paragraph_id:oldBody[0].id,start_offset:0,end_offset:5});
+ expect((await (await get()).json()).chapters).toEqual(result.chapters);
+ expect(Buffer.from(await (await getOriginal(imported.id,imported.editionId)).arrayBuffer())).toEqual(makeEpub());
+});

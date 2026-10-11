@@ -42,3 +42,26 @@ describe('EPUB package gate and sanitized resources', () => {
     safe.destroy(); vi.unstubAllGlobals();
   });
 });
+
+
+describe('lazy EPUB decompression still enforces security',()=>{
+  const withImage=()=>archive(packageXml().replace('</manifest>','<item id="image" href="figure.jpg" media-type="image/jpeg"/></manifest>'),{'EPUB/figure.jpg':'image bytes'});
+  it('does not read unused images until background prefetch; concurrent requests share one read',async()=>{
+    const source=withImage(),image=source.entries.find(entry=>entry.filename==='EPUB/figure.jpg')!;
+    const read=vi.spyOn(image,'read');const safe=await prepareEpubResources(source,sanitizeCss,{lazy:true});
+    expect(read).not.toHaveBeenCalled();expect(await safe.loadText('EPUB/ch.xhtml')).toContain('Content-Security-Policy');expect(read).not.toHaveBeenCalled();
+    await Promise.all([safe.prefetch(),safe.loadBlob('EPUB/figure.jpg'),safe.loadBlob('EPUB/figure.jpg')]);
+    expect(read).toHaveBeenCalledOnce();safe.destroy();await safe.drained();
+  });
+  it('rejects actual size mismatches in deferred resources and on-demand reads',async()=>{
+    const source=withImage(),image=source.entries.find(entry=>entry.filename==='EPUB/figure.jpg')!;
+    image.read=async()=>new Uint8Array([1]);const safe=await prepareEpubResources(source,sanitizeCss,{lazy:true});
+    await expect(safe.prefetch()).rejects.toThrow('实际大小');await expect(safe.loadBlob('EPUB/figure.jpg')).rejects.toThrow('实际大小');safe.destroy();await safe.drained();
+  });
+  it('keeps manifest validation eager and never exposes raw delayed chapters',async()=>{
+    await expect(prepareEpubResources(archive(packageXml('https://evil.test/x')),sanitizeCss,{lazy:true})).rejects.toThrow('manifest');
+    const source=archive(packageXml(),{'EPUB/ch.xhtml':'<html xmlns="http://www.w3.org/1999/xhtml"><head/><body><script>evil()</script><p onclick="evil()">safe</p></body></html>'});
+    const safe=await prepareEpubResources(source,sanitizeCss,{lazy:true});const output=await safe.loadText('EPUB/ch.xhtml');
+    expect(output).toContain('Content-Security-Policy');expect(output).not.toMatch(/<script|onclick|evil/);safe.destroy();
+  });
+});

@@ -1,22 +1,25 @@
-import { UriAwareEpub } from "./epub-chapter-uri";
+import { parseWithFoliate, type ParsedNavigationItem } from "./foliate-import";
+import { epubFragmentOrdinals } from "./epub-fragment-ordinals";
+import { epubResourceKey } from "./book-navigation";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {validateEpubImport} from "./epub-import-security";
+import type { ParsedSourceBlock } from "./source-block";
+import { projectEpubContent, type EpubContentProjection } from "./epub-content-projection";
 
-export type ParsedChapter = { title: string; paragraphs: string[]; sourceHref: string };
-export type ParsedEpub = { title: string; author: string; chapters: ParsedChapter[] };
+export type ParsedChapter = { title: string; paragraphs: string[]; sourceHref: string; blocks: ParsedSourceBlock[]; legacyBlocks?: ParsedSourceBlock[]; legacySourceOrdinals?: (number|null)[]; fragmentOrdinals?: Record<string,number> };
+export type ParsedEpub = { title: string; author: string; chapters: ParsedChapter[]; navigation?: ParsedNavigationItem[] };
 type FlowItem = { id: string; title?: string; href?: string };
-type EpubBook = { metadata: { title?: string; creator?: string }; flow: FlowItem[]; parse: () => Promise<void>; getChapter: (id: string) => Promise<string> };
 const NON_READING_IDS = /^(cover|toc|front_matter|titlepage|copyright|colophon|nav)$/i;
 const NAVIGATION_LABELS = new Set(["tableofcontents", "contents", "目录", "目錄", "frontmatter", "版权信息", "书名页"]);
 const NAVIGATION_CLASSES = new Set(["toc", "contents", "table-of-contents", "table_of_contents"]);
 
 function decodeEntities(value: string): string { return value.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, "> ").replace(/&quot;/gi, '"').replace(/&apos;/gi, "'").replace(/&ldquo;/gi, "“").replace(/&rdquo;/gi, "”").replace(/&lsquo;/gi, "‘").replace(/&rsquo;/gi, "’").replace(/&hellip;/gi, "…").replace(/&mdash;/gi, "—").replace(/&ndash;/gi, "–").replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code))).replace(/&#x([\da-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16))); }
 function cleanText(value: string): string { return decodeEntities(value.replace(/<br\s*\/?>(?=.)/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").replace(/\s+([\uFF0C\u3002\uFF01\uFF1F\uFF1B\uFF1A\u3001\uFF09\u3011\u300B])/g, "$1").trim()); }
-export function htmlToBlocks(html: string): { headings: string[]; paragraphs: string[] } {
-  const withoutNoise = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style|svg|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
-  const blocks: Array<{ kind: "heading" | "paragraph"; text: string }> = [];
-  const pattern = /<(h[1-6]|p|blockquote|li)\b[^>]*>([\s\S]*?)<\/\1>/gi;
-  for (const match of withoutNoise.matchAll(pattern)) { const text = cleanText(match[2]); if (text) blocks.push({ kind: /^h[1-6]$/i.test(match[1]) ? "heading" : "paragraph", text }); }
-  if (!blocks.length) { const text = cleanText(withoutNoise); return { headings: [], paragraphs: text ? [text] : [] }; }
-  return { headings: blocks.filter((item) => item.kind === "heading").map((item) => item.text), paragraphs: blocks.filter((item) => item.kind === "paragraph").map((item) => item.text) };
+export function htmlToBlocks(html: string): EpubContentProjection & {headings:string[];paragraphs:string[]} {
+  const projection=projectEpubContent(html,cleanText);
+  return {...projection,headings:projection.legacyBlocks.filter(block=>block.kind==='heading').map(block=>block.text),paragraphs:projection.legacyBlocks.filter(block=>block.kind==='paragraph').map(block=>block.text)};
 }
 export function splitParagraphs(text: string): string[] { return text.replace(/\r/g, "").split(/\n\s*\n|(?<=[\u3002\uFF01\uFF1F])\s+(?=[\u4e00-\u9fff])/).map(cleanText).filter((value) => value.length >= 2); }
 function normalizedLabel(value: string): string {
@@ -53,19 +56,39 @@ export function shouldSkipEpubSection(item: FlowItem, headings: string[], paragr
     || (paragraphs.length === 0 && headings.length === 0);
 }
 export async function parseEpubFile(filePath: string): Promise<ParsedEpub> {
-  const book = new UriAwareEpub(filePath) as unknown as EpubBook;
-  await book.parse();
+  const bytes = await fs.readFile(filePath);
+  await validateEpubImport(bytes);
+  const book = await parseWithFoliate(bytes);
+  const labels = new Map<string,string>();
+  const collect = (items: ParsedNavigationItem[]) => items.forEach(item => {
+    if(item.href && !item.href.includes('#') && item.label.trim())labels.set(epubResourceKey(item.href),item.label);
+    collect(item.children);
+  });
+  collect(book.navigation);
   const chapters: ParsedChapter[] = [];
-  for (const item of book.flow) {
-    const html = await book.getChapter(item.id);
+  for (const section of book.sections) {
+    const item: FlowItem = {id:section.id,href:section.sourceHref,title:labels.get(epubResourceKey(section.sourceHref))};
+    const html = section.html;
     const blocks = htmlToBlocks(html);
     if (shouldSkipEpubSection(item, blocks.headings, blocks.paragraphs, html)) continue;
     // WHY：缺失书内标题时明确标为未命名，不能给献词、题辞等内容虚构“第几章”的原书语义。
     const sourceTitle = item.title?.trim() || blocks.headings[0];
     const title = (sourceTitle || `未命名章节 ${chapters.length + 1}`).replace(/\s+/g, " ");
     const paragraphs = sourceTitle ? blocks.paragraphs.filter(paragraph => paragraph !== title) : blocks.paragraphs;
-    if (paragraphs.length) chapters.push({ title, paragraphs, sourceHref: item.href ?? item.id });
+    // WHY：旧 paragraphs 投影保持不变用于无损补建；新 blocks 保留所有真实标题与正文的原书次序，不猜标题。
+    if (blocks.blocks.length) chapters.push({ title, paragraphs, blocks: blocks.blocks, legacyBlocks:blocks.legacyBlocks, legacySourceOrdinals:blocks.legacySourceOrdinals, sourceHref: item.href ?? item.id, fragmentOrdinals:epubFragmentOrdinals(html) });
   }
   if (!chapters.length) throw new Error("EPUB 中没有提取到可阅读正文");
-  return { title: book.metadata.title?.trim() || "未命名书籍", author: book.metadata.creator?.trim() || "未知作者", chapters };
+  return { title: book.title.trim() || "未命名书籍", author: book.author.trim() || "未知作者", chapters, navigation:book.navigation };
+}
+
+export async function parseEpubSourceBytes(bytes:Buffer):Promise<ParsedEpub>{
+ await validateEpubImport(bytes);
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'judu-heading-'));
+ try {const file=path.join(directory,'source.epub');await fs.writeFile(file,bytes);return await parseEpubFile(file);}
+ finally {
+    // WHY：递归清理仅作用于本次 mkdtemp 返回的系统临时目录，绝不能使用书库或任意计算路径。
+    if(path.dirname(directory)!==path.resolve(os.tmpdir())||!path.basename(directory).startsWith("judu-heading-"))throw new Error("标题解析临时目录边界异常");
+    await fs.rm(directory,{recursive:true,force:true});
+  }
 }

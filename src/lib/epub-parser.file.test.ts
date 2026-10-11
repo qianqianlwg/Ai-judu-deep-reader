@@ -39,15 +39,15 @@ describe("EPUB 真实依赖提取回归", () => {
       { html: '<h1>第一章　观察</h1><p>正文中文 <em>强调</em> 😀。</p><p>第二段。</p>' },
     ]);
     expect(result.title).toBe("合成回归书");
-    expect(result.chapters).toEqual([
-      { title: "未命名章节 1", sourceHref: "OPS/s2.xhtml", paragraphs: ["献给每一位读者"] },
-      { title: "未命名章节 2", sourceHref: "OPS/s3.xhtml", paragraphs: ["先观察，再判断。", "——测试作者"] },
-      { title: "第一章 观察", sourceHref: "OPS/s4.xhtml", paragraphs: ["正文中文 强调 😀。", "第二段。"] },
+    expect(result.chapters).toMatchObject([
+      { title: "未命名章节 1", sourceHref: "OPS/s2.xhtml", paragraphs: ["献给每一位读者"], blocks: [{kind:"paragraph",text:"献给每一位读者",sourceOrdinal:0}] },
+      { title: "未命名章节 2", sourceHref: "OPS/s3.xhtml", paragraphs: ["先观察，再判断。", "——测试作者"], blocks: [{kind:"paragraph",text:"先观察，再判断。",sourceOrdinal:0},{kind:"paragraph",text:"——测试作者",sourceOrdinal:1}] },
+      { title: "第一章 观察", sourceHref: "OPS/s4.xhtml", paragraphs: ["正文中文 强调 😀。", "第二段。"], blocks: [{kind:"heading",headingLevel:1,text:"第一章 观察",sourceOrdinal:0},{kind:"paragraph",text:"正文中文 强调 😀。",sourceOrdinal:1},{kind:"paragraph",text:"第二段。",sourceOrdinal:2}] },
     ]);
   });
   it("优先保留原书 NCX 标题，不把真的数字章名改成未命名", async () => {
     const result = await parseSections([{ label: "第1章", html: "<p>没有 h1 的正常正文。</p>" }]);
-    expect(result.chapters[0]).toEqual({ title: "第1章", sourceHref: "OPS/s0.xhtml", paragraphs: ["没有 h1 的正常正文。"] });
+    expect(result.chapters[0]).toMatchObject({ title: "第1章", sourceHref: "OPS/s0.xhtml", paragraphs: ["没有 h1 的正常正文。"], blocks: [{kind:"paragraph",text:"没有 h1 的正常正文。",sourceOrdinal:0}] });
   });
   it("未命名提示不是书内标题，正文偶然同文时也不能删除", async () => {
     const result = await parseSections([{ html: "<p>未命名章节 1</p><p>这一段属于正文。</p>" }]);

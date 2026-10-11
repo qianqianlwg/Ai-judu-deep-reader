@@ -32,7 +32,7 @@ export function paintEpubAnnotations(doc: Document, maps: readonly EpubParagraph
   }
   // WHY：重点提示使用独立非侵入图层，不改原文节点；关闭仅清除提示，不删除用户标注。
   if (appearance?.sourceTerms || appearance?.sourceSentences) for (const map of maps) {
-    if (map.element.matches('h1,h2,h3,h4,h5,h6')) continue;
+    if (map.element.matches('h1,h2,h3,h4,h5,h6') && map.paragraph.kind !== 'heading') continue;
     for (const mark of sourceEmphasisRanges(map.paragraph.text,map.paragraph.id,sourceMarks)) {
       if (!(mark.kind === 'term' ? appearance.sourceTerms : appearance.sourceSentences)) continue;
       const range = rangeForEpubAnchor(maps, map.paragraph.id, mark.start, mark.end);

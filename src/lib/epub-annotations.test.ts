@@ -92,3 +92,19 @@ it('原文增强两层可独立开关，原书节点及手动标记不受影响'
  }
  vi.unstubAllGlobals();
 });
+
+it('已核验标题可显示手动标亮与Agent提交的重点，仍不改原书标题节点', async () => {
+  const {DEFAULT_READING_APPEARANCE}=await import('./reading-appearance');
+  document.body.innerHTML='<h2>信息与权力</h2><p>后文</p>';
+  const heading=document.querySelector('h2')!,node=heading.firstChild;
+  const registry=new Map<string,Range[]>();
+  vi.stubGlobal('CSS',{highlights:registry});
+  vi.stubGlobal('Highlight',class extends Array<Range>{constructor(...ranges:Range[]){super(...ranges);}});
+  const maps=mapEpubDocument(document,{id:'c',title:'章',paragraphs:[{id:'h',text:'信息与权力',kind:'heading',headingLevel:2,sourceOrdinal:0},{id:'p',text:'后文',kind:'paragraph',sourceOrdinal:1}]});
+  const cleanup=paintEpubAnnotations(document,maps,[{id:'a',paragraphId:'h',startOffset:0,endOffset:2,textHash:'hash',threadId:'t',summary:'',concepts:[],createdAt:'now',kind:'highlight',markColor:'green'}],[],undefined,undefined,{...DEFAULT_READING_APPEARANCE,sourceTerms:true},[{paragraphId:'h',startOffset:3,endOffset:5,quote:'权力',kind:'term'}]);
+  try {
+    expect(registry.get('judu-green')?.map(r=>r.toString())).toEqual(['信息']);
+    expect(registry.get('judu-enhance-term')?.map(r=>r.toString())).toEqual(['权力']);
+    expect(heading.firstChild).toBe(node);expect(heading.textContent).toBe('信息与权力');
+  } finally {cleanup();vi.unstubAllGlobals();}
+});

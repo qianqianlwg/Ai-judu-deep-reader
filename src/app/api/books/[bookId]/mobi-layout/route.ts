@@ -36,6 +36,6 @@ export async function GET(request:Request,context:{params:Promise<{bookId:string
  }catch(cause:unknown){
   console.error("MOBI原版准备失败",cause);
   if(cause instanceof OriginalFileError)return fail(cause.code==="MISSING_FILE"?404:409,cause.code,cause.message);
-  return fail(422,"MOBI_LAYOUT_FAILED","MOBI原版准备失败：文件可能损坏、包含加密或超出支持范围；可切回精读，原文件与标注未改动。");
+  return fail(422,"MOBI_LAYOUT_FAILED","MOBI原版准备失败：文件可能损坏、包含加密或超出支持范围；请重试或返回书架，原文件与标注未改动。");
  }
 }

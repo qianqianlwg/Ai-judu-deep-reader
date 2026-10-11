@@ -1,10 +1,12 @@
+import type { ParsedNavigationItem } from './foliate-import';
+import type { ParsedSourceBlock } from "./source-block";
 import { createRequire } from "node:module";
 import { parseEpubFile, splitParagraphs } from "./epub-parser";
 import {pdfPageText,PDF_PAGE_PREFIX,MAX_PDF_PAGES,MAX_PDF_INDEX_CHARACTERS} from "./pdf-text";
 import { parseMobiFile } from "./mobi-parser";
 export type SupportedDocumentExtension = ".epub" | ".pdf" | ".mobi" | ".txt" | ".md" | ".fb2" | ".fbz" | ".cbz";
-export type DocumentChapter = { title: string; paragraphs: string[]; sourceHref?: string };
-export type ExtractedDocument = { title: string; author: string; chapters: DocumentChapter[] };
+export type DocumentChapter = { title: string; paragraphs: string[]; sourceHref?: string; blocks?: ParsedSourceBlock[]; fragmentOrdinals?: Record<string,number> };
+export type ExtractedDocument = { title: string; author: string; chapters: DocumentChapter[]; navigation?: ParsedNavigationItem[] };
 export type DocumentInput = { fileName: string; extension: SupportedDocumentExtension; buffer: Buffer; tempPath: string };
 export interface DocumentAdapter {
   readonly extension: SupportedDocumentExtension;

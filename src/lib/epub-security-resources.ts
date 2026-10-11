@@ -1,6 +1,7 @@
 import type { EpubArchive, EpubResourceLoader, FoliateBridge } from './foliate-types';
 import { EPUB_LIMITS, assertPackagePath, resolvePackageReference } from './epub-security-zip';
 import { parseEpubXml, sanitizeDocument, type ResourceKind } from './epub-security-document';
+import { createEpubResourceQueue } from './epub-resource-queue';
 
 const OPF = 'http://www.idpf.org/2007/opf';
 const CONTAINER = 'urn:oasis:names:tc:opendocument:xmlns:container';
@@ -11,27 +12,28 @@ const fonts = new Set(['font/otf', 'font/ttf', 'font/woff', 'font/woff2', 'appli
 const media = new Set(['audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'video/mp4', 'video/webm', 'video/ogg']);
 const NCX = 'application/x-dtbncx+xml';
 const allowed = new Set([...docs, ...images, ...fonts, ...media, CSS, NCX]);
-export interface SafeEpubResources extends EpubResourceLoader { destroy(): void }
+export interface SafeEpubResources extends EpubResourceLoader {
+  prefetch(): Promise<void>;
+  drained(): Promise<void>;
+  destroy(): void;
+}
 
-export async function prepareEpubResources(archive: EpubArchive, css: FoliateBridge['sanitizeCss']): Promise<SafeEpubResources> {
+export async function prepareEpubResources(archive: EpubArchive, css: FoliateBridge['sanitizeCss'], options: { lazy?: boolean } = {}): Promise<SafeEpubResources> {
   const entries = new Map(archive.entries.filter(entry => !entry.directory).map(entry => [entry.filename, entry]));
-  const bytes = new Map<string, Promise<Uint8Array<ArrayBuffer>>>();
+  const reads = createEpubResourceQueue<Uint8Array<ArrayBuffer>>();
   let total = 0, destroyed = false;
-  const read = (path: string) => {
+  const read = (path: string, background = false) => {
     if (destroyed) throw new Error('EPUB 已销毁');
     const entry = entries.get(path);
-    if (!entry) throw new Error(`EPUB 缺少包内资源：${path}`);
-    let pending = bytes.get(path);
-    if (!pending) {
-      pending = entry.read(EPUB_LIMITS.entry).then(data => {
-        total += data.byteLength;
-        if (total > EPUB_LIMITS.total || data.byteLength !== entry.uncompressedSize)
-          throw new Error('EPUB 解压实际大小超过限制');
-        return data;
-      });
-      bytes.set(path, pending);
-    }
-    return pending;
+    if (!entry) throw new Error('EPUB 缺少包内资源：' + path);
+    return reads.run(path, async () => {
+      const data = await entry.read(EPUB_LIMITS.entry);
+      if (destroyed) throw new Error('EPUB 已销毁');
+      total += data.byteLength;
+      if (total > EPUB_LIMITS.total || data.byteLength !== entry.uncompressedSize)
+        throw new Error('EPUB 解压实际大小超过限制');
+      return data;
+    }, background);
   };
   const text = async (path: string) => {
     if ((entries.get(path)?.uncompressedSize ?? Infinity) > EPUB_LIMITS.text) throw new Error('EPUB 文本资源超过 2 MiB 限制');
@@ -110,6 +112,8 @@ export async function prepareEpubResources(archive: EpubArchive, css: FoliateBri
     const content = type === CSS || type === SVG
       ? await renderText(ref.path, [...parents, ref.path]) : await read(ref.path);
     if (destroyed) throw new Error('EPUB 已销毁');
+    const concurrent = urls.get(ref.path);
+    if (concurrent) return concurrent + ref.fragment;
     const url = URL.createObjectURL(new Blob([content], { type }));
     owned.add(url); urls.set(ref.path, url);
     return url + ref.fragment;
@@ -135,11 +139,15 @@ export async function prepareEpubResources(archive: EpubArchive, css: FoliateBri
       }
       result = serialize(ncx);
     } else throw new Error(`EPUB 禁止读取未知文本资源：${path}`);
+    if (destroyed) throw new Error('EPUB 已销毁');
     texts.set(path, result);
     return result;
   };
-  for (const path of types.keys()) await read(path);
+  // WHY：渐进模式只推迟解压，不推迟包结构/路径/总量声明校验；资源实际解压校验仍在返回字节之前。
+  if (!options.lazy) for (const path of types.keys()) await read(path);
   return {
+    async prefetch() { await Promise.all([...types.keys()].map(path => read(path, true))); },
+    drained: () => reads.drained(),
     async loadText(path) {
       if (destroyed) throw new Error('EPUB 已销毁');
       if (texts.has(path)) return texts.get(path)!;
@@ -151,9 +159,10 @@ export async function prepareEpubResources(archive: EpubArchive, css: FoliateBri
       const type = types.get(path);
       if (!type) return null;
       const content = docs.has(type) || type === CSS || type === NCX ? await renderText(path, [path]) : await read(path);
+      if (destroyed) throw new Error('EPUB 已销毁');
       return new Blob([content], { type: svgSpines.has(path) ? XHTML : type });
     },
     getSize: path => entries.get(path)?.uncompressedSize ?? 0,
-    destroy() { destroyed = true; for (const url of owned) URL.revokeObjectURL(url); owned.clear(); urls.clear(); texts.clear(); bytes.clear(); },
+    destroy() { destroyed = true; reads.stop(); for (const url of owned) URL.revokeObjectURL(url); owned.clear(); urls.clear(); texts.clear(); },
   };
 }

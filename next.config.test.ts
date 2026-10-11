@@ -15,7 +15,8 @@ it("原文件响应覆盖全局 CSP，禁止直接激活或嵌入", async () => 
 });
 
 it("导入路由显式跟踪私有解析产物而不通过public发布", () => {
-  expect(config.outputFileTracingIncludes).toEqual({ "/api/import": ["./runtime/mobi/**/*", "./runtime/umd/**/*"], "/api/books/*/mobi-layout": ["./runtime/mobi/**/*"] });
+  const foliate = ["./scripts/epub/**/*", "./public/vendor/foliate/epub.js", "./public/vendor/foliate/epubcfi.js", "./public/vendor/foliate/package.json"];
+  expect(config.outputFileTracingIncludes).toEqual({ "/api/import": ["./runtime/mobi/**/*", "./runtime/umd/**/*", ...foliate], "/api/books/*": foliate, "/api/books/*/mobi-layout": ["./runtime/mobi/**/*"] });
 });
 
 it("派生转换版同样只能以严格隔离的附件下载", async () => {

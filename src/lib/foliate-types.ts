@@ -20,6 +20,8 @@ export interface FoliateNavigation {
   anchor: (doc: Document) => Range | Element | number;
 }
 export interface FoliateBook {
+  /** 开始后台解压/净化；失败必须由当前阅读会话明确呈现，销毁会停止任务。 */
+  preparation?: { start(): Promise<void> };
   /** Derived DOM identity binds CFI to the exact preparation version, not just the original container. */
   positionIdentity?: string;
   sections: FoliateSection[];
@@ -36,7 +38,11 @@ export interface FoliateBook {
 }
 export interface FoliateRenderer extends HTMLElement {
   getContents(): { doc: Document; index: number }[];
-  goTo(target: { index: number; anchor: (doc: Document) => Range | Element }): Promise<void>;
+  /** 当前屏幕分页；前后各一个空白哨兵页不属于正文。 */
+  readonly page?: number;
+  readonly pages?: number;
+  readonly scrolled?: boolean;
+  goTo(target: { index: number; anchor: (doc: Document) => Range | Element | number }): Promise<void>;
   /** Trusted app-owned CSS only; never pass original book/user CSS here. */
   setStyles(css: string): void;
 }

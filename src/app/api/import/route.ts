@@ -1,3 +1,7 @@
+import { bookNavigation } from '@/lib/book-navigation';
+import { EPUB_NAVIGATION_SCHEMA, saveBookNavigation } from '@/lib/epub-navigation-store';
+import {readSourceBlockMetadata} from "@/lib/source-block";
+import { saveBlockMetadata, recordEpubBlockVersion } from "@/lib/epub-block-store";
 import {MAX_IMPORT_FILE_BYTES,IMPORT_TOO_LARGE} from "@/lib/import-limits";
 import {readImportForm,ImportFormError} from "@/lib/import-form";
 import { NextRequest, NextResponse } from "next/server";
@@ -64,20 +68,22 @@ export async function POST(request: NextRequest) {
     // WHY：原文映射只携带 EPUB flow 返回的精确 href，不能为对齐阅读器而修改旧段落归一化或生成算法。
     // WHY：新客户端无需正文的 base64 副本；显式协商精简响应，旧客户端仍保留原契约。
     const compact = request.headers.get("X-Judu-Import-Response") === "compact";
-    const chapters = extracted.chapters.filter(chapter => chapter.paragraphs.length || [".pdf",".fb2",".fbz",".cbz"].includes(adapter.extension)).map((chapter, chapterIndex) => ({
+    const chapters = extracted.chapters.filter(chapter => (chapter.blocks?.length || chapter.paragraphs.length) || [".pdf",".fb2",".fbz",".cbz"].includes(adapter.extension)).map((chapter, chapterIndex) => ({
       id: randomUUID(), title: chapter.title || `第${chapterIndex + 1}章`,
       ...(chapter.sourceHref !== undefined ? { sourceHref: chapter.sourceHref } : {}),
-      paragraphs: chapter.paragraphs.map(text => ({ id: randomUUID(), text, ...(compact ? {} : { textHash: Buffer.from(text).toString("base64url") }) })),
+      paragraphs: (chapter.blocks ?? chapter.paragraphs.map(text=>({text}))).map(block => ({ id: randomUUID(), ...block, ...(compact ? {} : { textHash: Buffer.from(block.text).toString("base64url") }) })),
     }));
     if (!chapters.length || (![".pdf",".fb2",".fbz",".cbz"].includes(adapter.extension) && !chapters.some(chapter => chapter.paragraphs.some(paragraph => paragraph.text.trim().length)))) throw new ImportError(422, "文件中没有可阅读正文，未导入任何内容");
+    const navigation = extracted.navigation === undefined ? undefined : bookNavigation(extracted.navigation, chapters, extracted.chapters.filter((chapter): chapter is typeof chapter & { sourceHref:string } => typeof chapter.sourceHref === "string"));
     const db = getDb();
+    if(navigation)db.exec(EPUB_NAVIGATION_SCHEMA);
     const bookId = randomUUID(), editionId = randomUUID(), now = new Date().toISOString();
     const dataDir = getJuduDataDir();
     const stored = await storeOriginalFile({ dataDir, editionId, extension: adapter.extension, buffer });
     original = { dataDir, relativePath: stored.relativePath };
     const metadata = { hasOriginalFile: true, fileSize: stored.size, originalHash: stored.originalHash, readerMode: "text" as const };
     const edition = { id: editionId, fileName: file.name, fileType: adapter.extension, createdAt: now, ...metadata };
-    const response = NextResponse.json({ id: bookId, editionId, title: extracted.title, author: extracted.author, fileName: file.name, createdAt: now, ...metadata, edition, editions: [edition], chapters }, { headers });
+    const response = NextResponse.json({ id: bookId, editionId, title: extracted.title, author: extracted.author, fileName: file.name, createdAt: now, ...metadata, edition, editions: [edition], chapters, ...(navigation ? { navigation } : {}) }, { headers });
     const insertBook = db.prepare("INSERT INTO books (id, title, author, created_at) VALUES (?, ?, ?, ?)");
     const insertEdition = db.prepare("INSERT INTO editions (id, book_id, file_name, file_type, file_hash, original_file_path, original_file_size, original_hash, reader_mode, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     const insertChapter = db.prepare("INSERT INTO chapters (id, edition_id, title, order_index, source_href) VALUES (?, ?, ?, ?, ?)");
@@ -90,8 +96,16 @@ export async function POST(request: NextRequest) {
       insertEdition.run(editionId, bookId, file.name, adapter.extension, hashText(buffer.toString("base64")), stored.relativePath, stored.size, stored.originalHash, "text", now);
       chapters.forEach((chapter, chapterIndex) => {
         insertChapter.run(chapter.id, editionId, chapter.title, chapterIndex, chapter.sourceHref ?? null);
-        chapter.paragraphs.forEach((paragraph, paragraphIndex) => insertParagraph.run(paragraph.id, chapter.id, paragraph.text, hashText(paragraph.text), paragraphIndex));
+        chapter.paragraphs.forEach((paragraph, paragraphIndex) => {
+          insertParagraph.run(paragraph.id, chapter.id, paragraph.text, hashText(paragraph.text), paragraphIndex);
+          if ("kind" in paragraph) {
+            const metadata=readSourceBlockMetadata(paragraph);
+            if(metadata.kind&&metadata.sourceOrdinal!==undefined)saveBlockMetadata(db,paragraph.id,{...metadata,text:paragraph.text,kind:metadata.kind,sourceOrdinal:metadata.sourceOrdinal});
+          }
+        });
       });
+      if(adapter.extension===".epub")recordEpubBlockVersion(db,editionId,stored.originalHash);
+      if(navigation)saveBookNavigation(db,editionId,stored.originalHash,navigation);
       db.exec("COMMIT"); committed = true;
     } catch (error: unknown) {
       try { db.exec("ROLLBACK"); }

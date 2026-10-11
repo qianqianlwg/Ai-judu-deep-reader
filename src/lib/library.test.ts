@@ -163,3 +163,9 @@ describe("UMD转换版公开身份", () => {
     expect(privateConversion).toHaveProperty("file_path", "PRIVATE_PATH");
   });
 });
+
+it('书籍API保留标题类型、层级及来源次序，拒绝无效层级',()=>{
+ const payload={id:'b',title:'书',author:'作者',chapters:[{id:'c',title:'章',paragraphs:[{id:'h',text:'标题',kind:'heading',headingLevel:2,sourceOrdinal:1}]}]};
+ expect(readBookResponse(payload,'b').chapters[0].paragraphs[0]).toEqual({id:'h',text:'标题',kind:'heading',headingLevel:2,sourceOrdinal:1});
+ expect(()=>readBookResponse({...payload,chapters:[{...payload.chapters[0],paragraphs:[{...payload.chapters[0].paragraphs[0],headingLevel:0}]}]},'b')).toThrow();
+});

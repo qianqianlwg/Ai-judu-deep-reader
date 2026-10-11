@@ -119,3 +119,49 @@ describe('browser-only shared initialization', () => {
   });
 });
 
+
+
+async function progressiveFixture(brokenLast = false) {
+  const zip=new JSZip();zip.file('mimetype','application/epub+zip',{compression:'STORE'});
+  zip.file('META-INF/container.xml','<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+  const manifest=Array.from({length:20},(_,i)=>'<item id="s'+i+'" href="ch'+i+'.xhtml" media-type="application/xhtml+xml"/>').join('');
+  const spine=Array.from({length:20},(_,i)=>'<itemref idref="s'+i+'"/>').join('');
+  zip.file('OPS/book.opf','<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">test</dc:identifier><dc:title>test</dc:title><dc:language>zh</dc:language></metadata><manifest>'+manifest+'<item id="image" href="unused.jpg" media-type="image/jpeg"/></manifest><spine>'+spine+'</spine></package>');
+  for(let i=0;i<20;i++)zip.file('OPS/ch'+i+'.xhtml',brokenLast&&i===19?'broken xml':'<html xmlns="http://www.w3.org/1999/xhtml"><head/><body><p>Chapter '+i+'</p></body></html>');
+  zip.file('OPS/unused.jpg','unused image');return new Blob([new Uint8Array(await zip.generateAsync({type:'nodebuffer',compression:'DEFLATE'}))]);
+}
+async function trackedProgressiveLoader() {
+  vi.resetModules();const actualWindow=window;const reads:string[]=[],close=vi.fn();
+  const tracked={...bridge,openArchive:async(blob:Blob)=>{
+    const source=await bridge.openArchive(blob);return {...source,entries:source.entries.map(entry=>({...entry,read:async(limit:number)=>{reads.push(entry.filename);return entry.read(limit);}})),close:async()=>{close();await source.close();}};
+  }};
+  vi.stubGlobal('window',{__juduFoliate:tracked});
+  const loader=await import('./epub-loader');
+  try { await loader.initializeFoliate(); } finally { vi.stubGlobal('window',actualWindow); }
+  return {loader,reads,close};
+}
+describe('progressive EPUB uses the actual pinned ZIP and sanitizer',()=>{
+  it('prepares ten nearby chapters without reading distant images and keeps ZIP alive until background completion',async()=>{
+    const {loader,reads,close}=await trackedProgressiveLoader();const book=await loader.loadEpub(await progressiveFixture(),{progressive:true,initialHref:'OPS/ch16.xhtml'});
+    expect(reads).toContain('OPS/ch16.xhtml');expect(reads).not.toContain('OPS/ch0.xhtml');expect(reads).not.toContain('OPS/unused.jpg');expect(close).not.toHaveBeenCalled();
+    // WHY：后台尚未启动时的目录跳转也必须经过同一安全入口，不依赖预热命中。
+    const output=await book.sections[0].createDocument();expect(output.querySelector('meta[http-equiv="Content-Security-Policy"]')).not.toBeNull();
+    const first=book.preparation!.start();expect(book.preparation!.start()).toBe(first);await first;
+    expect(reads).toContain('OPS/unused.jpg');expect(close).toHaveBeenCalledOnce();expect(new Set(reads).size).toBe(reads.length);
+    expect((await book.sections[19].createDocument()).body.textContent).toContain('Chapter 19');book.destroy?.();
+  });
+  it('surfaces an invalid distant chapter during background preparation and releases the archive',async()=>{
+    const {loader,close}=await trackedProgressiveLoader();const book=await loader.loadEpub(await progressiveFixture(true),{progressive:true});
+    await expect(book.preparation!.start()).rejects.toThrow('XML');expect(close).toHaveBeenCalledOnce();
+    await expect(book.sections[0].createDocument()).rejects.toThrow('已销毁');
+  });
+  it('closes an unstarted background archive on destroy and rejects subsequent startup',async()=>{
+    const {loader,close}=await trackedProgressiveLoader();const book=await loader.loadEpub(await progressiveFixture(),{progressive:true});
+    book.destroy?.();await vi.waitFor(()=>expect(close).toHaveBeenCalledOnce());await expect(book.preparation!.start()).rejects.toThrow();
+  });
+  it('aborting a loaded book cancels background work and releases the archive',async()=>{
+    const {loader,close}=await trackedProgressiveLoader(),controller=new AbortController();
+    const book=await loader.loadEpub(await progressiveFixture(),{progressive:true,signal:controller.signal});
+    controller.abort();await vi.waitFor(()=>expect(close).toHaveBeenCalledOnce());await expect(book.sections[0].createDocument()).rejects.toThrow('已销毁');
+  });
+});
