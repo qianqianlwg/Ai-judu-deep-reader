@@ -1,12 +1,15 @@
 "use client";
 
+import { HISTORY_JUMP_EVENT } from "./reader-history-navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const BOTTOM_EPSILON = 1;
-
-export function useChatFollow(generating: boolean, contentVersion: unknown, conversationKey?: string | null, historyLoading = false) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+type ChatScrollRefs = { viewportRef: { current: HTMLDivElement | null }; contentRef: { current: HTMLDivElement | null } };
+export function useChatFollow(generating: boolean, contentVersion: unknown, conversationKey?: string | null, historyLoading = false, refs?: ChatScrollRefs) {
+  const ownViewportRef = useRef<HTMLDivElement>(null);
+  const ownContentRef = useRef<HTMLDivElement>(null);
+  const viewportRef = refs?.viewportRef ?? ownViewportRef;
+  const contentRef = refs?.contentRef ?? ownContentRef;
   const following = useRef(true);
   const interacting = useRef(false);
   const initialized = useRef(false);
@@ -19,12 +22,15 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
   const atBottom = useCallback(() => {
     const element = viewportRef.current;
     return !element || element.scrollHeight - element.clientHeight - element.scrollTop <= BOTTOM_EPSILON;
+  // WHY：此 hook 的外部 refs 在组件生命周期内稳定，避免把 DOM current 误作响应式依赖。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const refresh = useCallback(() => {
     const element = viewportRef.current;
     if (!element) return;
     element.dataset.followLatest = String(following.current);
     setShowLatest(!atBottom());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atBottom]);
   const cancelFrame = useCallback(() => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -42,6 +48,7 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
     element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
     lastTop.current = element.scrollTop;
     refresh();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
   const scheduleBottom = useCallback((oneShot = false) => {
     cancelFrame();
@@ -118,6 +125,7 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
       if (following.current && !interacting.current) scheduleBottom(true);
       else refresh();
     };
+    element.addEventListener(HISTORY_JUMP_EVENT, pauseFollowing);
     element.addEventListener("scroll", onScroll, { passive: true });
     element.addEventListener("wheel", onWheel, { passive: true });
     element.addEventListener("keydown", onKeyDown);
@@ -133,6 +141,7 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
     return () => {
       cancelFrame();
       observer?.disconnect();
+      element.removeEventListener(HISTORY_JUMP_EVENT, pauseFollowing);
       element.removeEventListener("scroll", onScroll);
       element.removeEventListener("wheel", onWheel);
       element.removeEventListener("keydown", onKeyDown);
@@ -143,6 +152,7 @@ export function useChatFollow(generating: boolean, contentVersion: unknown, conv
       window.removeEventListener("pointercancel", onPointerUp);
       window.removeEventListener("resize", onResize);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationKey, atBottom, cancelFrame, pauseFollowing, refresh, scheduleBottom]);
 
   return { viewportRef, contentRef, showLatest, jumpToLatest, pauseFollowing };

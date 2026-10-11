@@ -1,0 +1,18 @@
+/* WHY：全局书架不使用书内三栏布局，目录、导读与聊天只能在选定书籍后出现。 */
+.bookshelf-home{height:100dvh;display:flex;flex-direction:column;min-width:0;overflow:hidden;background:var(--reading-paper,#fff);color:var(--reading-text,#292d32);}
+.bookshelf-home-topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 36px;border-bottom:1px solid color-mix(in srgb,var(--reading-text) 10%,transparent);gap:20px;}
+.bookshelf-home-brand{display:flex;align-items:center;gap:12px;color:inherit;text-decoration:none;}
+.bookshelf-home-brand>span{display:grid;place-items:center;width:36px;height:36px;background:var(--reading-text);color:var(--reading-paper);border-radius:10px;font-size:22px;}
+.bookshelf-home-brand strong{font-size:17px;font-weight:600;}
+.bookshelf-home-brand small{display:block;margin-top:3px;color:var(--reading-muted);font-size:11px;font-weight:400;}
+.bookshelf-home-settings{padding:8px 14px;border:1px solid color-mix(in srgb,var(--reading-text) 15%,transparent);border-radius:8px;color:inherit;text-decoration:none;font-size:13px;}
+.bookshelf-home-intro{display:flex;align-items:center;gap:16px;padding:20px 36px 0;flex-wrap:wrap;}
+.bookshelf-home-intro p{margin:0;font-size:12px;color:var(--reading-muted);}
+.bookshelf-home-intro span{font-size:12px;color:var(--reading-muted);}
+.bookshelf-home>.bookshelf-workspace{flex:1;min-height:0;}
+/* WHY：书架根固定在视口，滚动由内部书籍列表承担；工具栏不能把滚动区挤出页面。 */
+.bookshelf-home>:not(.bookshelf-workspace){flex-shrink:0;}
+.bookshelf-home-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 32px 0;padding:12px 16px;background:color-mix(in srgb,var(--reading-text) 5%,transparent);border:1px solid color-mix(in srgb,var(--reading-text) 15%,transparent);border-radius:8px;font-size:13px;}
+.bookshelf-home-notice button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:18px;}
+.bookshelf-home a:focus-visible,.bookshelf-home button:focus-visible{outline:2px solid var(--reading-text);outline-offset:3px;}
+@media(max-width:680px){.bookshelf-home-topbar{padding:16px 20px;}.bookshelf-home-intro{padding:16px 20px 0;gap:6px;}.bookshelf-home-notice{margin:12px 20px 0;}}

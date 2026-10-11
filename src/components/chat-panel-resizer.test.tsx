@@ -293,3 +293,9 @@ it("拖动命中区域透明，不将主题强调色绘成整条分隔带",async
  expect(css).toContain('background: transparent');expect(css).toContain('width: 1px');
  expect(global).not.toMatch(/\.workspace-chat-resizer\s*\{[^}]*background:\s*var\(--reading-accent/);
 });
+
+it("拖动标准指针捕获跨iframe有效，结束和卸载释放捕获，不遗留拖动状态",async()=>{
+ await render();const set=vi.fn(),release=vi.fn();Object.assign(handle(),{setPointerCapture:set,hasPointerCapture:()=>true,releasePointerCapture:release});
+ await pointer("pointerdown",600,handle());expect(set).toHaveBeenCalledWith(1);await pointer("pointermove",550);await pointer("pointerup",550);expect(release).toHaveBeenCalledWith(1);
+ await pointer("pointerdown",600,handle(),2);await act(()=>root.render(<div/>));expect(release).toHaveBeenCalledWith(2);
+});

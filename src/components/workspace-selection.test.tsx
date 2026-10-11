@@ -67,3 +67,9 @@ it("点击句读按钮仍保留选文，不被空白取消逻辑误伤",()=>{
  act(()=>host.querySelector('button')!.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,button:0})));
  expect(cleared).not.toHaveBeenCalled();expect(document.getSelection()!.toString()).not.toBe('');
 });
+
+it("精读未标识文字也可仅分析，且不会混入外部聊天",()=>{
+ const loose=vi.fn();function LooseView(){const ref=useRef<HTMLDivElement>(null);useWorkspaceSelection(ref,received,true,undefined,cleared,started,loose);return <div ref={ref}><h4>未标识标题</h4><span>文字材料</span></div>;}
+ act(()=>root.render(<LooseView/>));act(()=>{const range=document.createRange();range.selectNodeContents(host.firstChild!);document.getSelection()!.removeAllRanges();document.getSelection()!.addRange(range);document.dispatchEvent(new Event("selectionchange"));});flush();
+ expect(received).not.toHaveBeenCalled();expect(cleared).not.toHaveBeenCalled();expect(loose).toHaveBeenCalledWith({sourceMode:"analysis-only",text:"未标识标题\n文字材料"});
+});

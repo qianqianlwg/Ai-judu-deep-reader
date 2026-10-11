@@ -1,0 +1,22 @@
+.root { margin: 10px 0 0; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--reading-text, #292d32); font-size: 12px; }
+.header strong { font-size: 12px; font-weight: 650; }
+.header span { color: var(--reading-muted, #626870); font-size: 11px; }
+.list { display: grid; gap: 7px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 32px 44px; align-items: center; gap: 10px; min-height: 46px; padding: 5px 9px 5px 12px; border: 1px solid var(--reading-border, #d9dce0); border-radius: 9px; background: var(--reading-surface, #fff); }
+.name { min-width: 0; width: 100%; height: 33px; padding: 4px 2px; border: 0; outline: 0; color: var(--reading-text, #292d32); background: transparent; }
+.name::placeholder { color: var(--reading-muted, #7b8188); }
+.remove { display: grid; place-items: center; width: 30px; height: 30px; padding: 6px; border: 0; border-radius: 7px; color: var(--reading-muted, #626870); background: transparent; cursor: pointer; }
+.remove:hover { color: #a63b3b; background: color-mix(in srgb, #b94343 9%, transparent); }
+.remove svg { width: 16px; height: 16px; }
+.toggle { position: relative; display: inline-flex; justify-self: end; align-items: center; width: 38px; height: 22px; cursor: pointer; }
+.toggle input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.switch { position: relative; width: 38px; height: 22px; border-radius: 999px; background: var(--reading-border, #c8cdd2); transition: background-color 140ms ease; }
+.switch::after { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 18%); content: ""; transition: transform 140ms ease; }
+.toggle input:checked + .switch { background: var(--reading-accent, #496b69); }
+.toggle input:checked + .switch::after { transform: translateX(16px); }
+.toggle input:focus-visible + .switch { outline: 2px solid var(--reading-accent, #496b69); outline-offset: 2px; }
+.add { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; margin-top: 9px; padding: 5px 10px; border: 1px solid var(--reading-border, #d9dce0); border-radius: 8px; color: var(--reading-accent, #496b69); background: transparent; cursor: pointer; }
+.add:hover { background: color-mix(in srgb, var(--reading-accent, #496b69) 7%, transparent); }
+.empty { margin: 8px 0; color: var(--reading-muted, #626870); font-size: 11px; }
+.root :is(button, input):disabled { cursor: not-allowed; opacity: .58; }

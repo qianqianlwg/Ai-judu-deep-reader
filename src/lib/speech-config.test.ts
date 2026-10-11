@@ -17,6 +17,9 @@ it("保存、空密钥保留、替换密钥和重读保持一致", async () => {
   await store.save({ ...DEFAULT_SPEECH_PREFERENCES, voice: "苏打" }, "saved-unit-key");
   await store.save({ ...DEFAULT_SPEECH_PREFERENCES, voice: "白桦" }, "  ");
   expect(await store.read()).toMatchObject({ apiKey: "saved-unit-key", preferences: { voice: "白桦" } });
+  // WHY：创建新 store 实例模拟进程重启，只能从持久文件恢复音色与密钥。
+  const restartedStore = createSpeechConfigStore(directory, () => "env-unit-key");
+  expect(await restartedStore.read()).toMatchObject({ apiKey: "saved-unit-key", preferences: { voice: "白桦" } });
   await store.save(DEFAULT_SPEECH_PREFERENCES, "replacement-unit-key");
   expect((await store.read()).apiKey).toBe("replacement-unit-key");
   expect(await fs.readdir(directory)).toEqual(["speech-settings.json"]);

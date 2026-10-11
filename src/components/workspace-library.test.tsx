@@ -26,5 +26,8 @@ describe("useWorkspaceLibrary", () => {
   });
 });
 
-it("独立书架所点书籍和版本优先于最近一本，消耗链接意图但保留其他参数",async()=>{localStorage.setItem('judu:active-book','b');localStorage.setItem('judu:edition:a','new');window.history.replaceState(null,'','/?bookId=a&editionId=old&view=reader#part');await act(async()=>root.render(<View/>));expect(restore).toHaveBeenCalledWith('a','old',true);expect(window.location.search).toBe('?view=reader');expect(window.location.hash).toBe('#part');expect(localStorage.getItem('judu:edition:a')).toBe('new');});
+it("独立书架所点书籍和版本优先于最近一本，保留选书身份和其他参数",async()=>{localStorage.setItem('judu:active-book','b');localStorage.setItem('judu:edition:a','new');window.history.replaceState(null,'','/?bookId=a&editionId=old&view=reader#part');await act(async()=>root.render(<View/>));expect(restore).toHaveBeenCalledWith('a','old',true);expect(window.location.search).toBe('?bookId=a&editionId=old&view=reader');expect(window.location.hash).toBe('#part');expect(localStorage.getItem('judu:edition:a')).toBe('new');});
 it("链接不能把其他书的版本套到所选书，回退该书自己的版本",async()=>{localStorage.setItem('judu:edition:a','old');window.history.replaceState(null,'','/?bookId=a&editionId=not-owned');await act(async()=>root.render(<View/>));expect(restore).toHaveBeenCalledWith('a','old',true);});
+
+it("外层书架不恢复最近书籍或获取正文",async()=>{localStorage.setItem("judu:active-book","a");function Shelf(){useWorkspaceLibrary(restore,empty,fetcher,"shelf");return <span>书架</span>;}await act(async()=>root.render(<Shelf/>));expect(restore).not.toHaveBeenCalled();expect(empty).not.toHaveBeenCalled();});
+it("已下架或不存在的选书链接明确报错，不能悄悄打开另一书",async()=>{vi.spyOn(console,"error").mockImplementation(()=>undefined);window.history.replaceState(null,"","/?bookId=missing");await act(async()=>root.render(<View/>));expect(restore).not.toHaveBeenCalled();expect(host.textContent).toContain("这本书不在书架中");});

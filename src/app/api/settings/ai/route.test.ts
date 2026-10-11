@@ -37,7 +37,7 @@ describe("AI settings · 保存与公开配置", () => {
     const response = await GET();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ provider: "openai", baseUrl: "https://api.openai.com/v1",
-      model: "gpt-4o-mini", models:["gpt-4o-mini"], hasApiKey: false, maskedApiKey: "" });
+      model: "gpt-4o-mini", models:["gpt-4o-mini"], modelEntries:[{model:"gpt-4o-mini",enabled:true}], hasApiKey: false, maskedApiKey: "" });
     expect(fetcher).not.toHaveBeenCalled();
   });
   it("GET 仅返回掩码和公开字段，不返回完整 Key", async () => {
@@ -89,7 +89,7 @@ describe("AI settings · 保存与公开配置", () => {
   });
   it("损坏 JSON 返回可恢复错误且不覆盖旧配置", async () => {
     seed();
-    const response = await PUT(new NextRequest("http://localhost/api/settings/ai", { method: "PUT", body: "{" }));
+    const response = await PUT(new NextRequest("http://localhost/api/settings/ai", { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{" }));
     expect(response.status).toBe(400);
     expect(stored()).toMatchObject({ api_key: TEST_KEY, model: "stored-model" });
     expect(console.error).toHaveBeenCalled();
@@ -159,4 +159,5 @@ describe("AI settings · mock 连接测试与密钥保护", () => {
   });
 });
 
-it("多模型列表保存和读取，旧客户端保存时不丢弃列表",async()=>{seed();const response=await PUT(request('PUT',{model:'stored-model',models:['stored-model','second-model']}));expect(await response.json()).toMatchObject({models:['stored-model','second-model']});await PUT(request('PUT',{model:'stored-model'}));expect(await (await GET()).json()).toMatchObject({models:['stored-model','second-model']});});
+it("persists enabled model rows and retains disabled rows",async()=>{seed();const entries=[{model:"stored-model",enabled:true},{model:"second-model",enabled:false}];const response=await PUT(request("PUT",{model:"stored-model",models:entries}));expect(await response.json()).toMatchObject({models:["stored-model"],modelEntries:entries});await PUT(request("PUT",{model:"stored-model"}));expect(await (await GET()).json()).toMatchObject({models:["stored-model"],modelEntries:entries});});
+it("rejects a disabled default model",async()=>{seed();const response=await PUT(request("PUT",{model:"stored-model",models:[{model:"stored-model",enabled:false},{model:"second-model",enabled:true}]}));expect(response.status).toBe(400);});

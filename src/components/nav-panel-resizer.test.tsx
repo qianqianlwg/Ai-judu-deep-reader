@@ -1,0 +1,13 @@
+// @vitest-environment jsdom
+import {act,createRef} from 'react';
+import {createRoot,type Root} from 'react-dom/client';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {NavPanelResizer} from './nav-panel-resizer';
+let root:Root,host:HTMLDivElement;const change=vi.fn();
+beforeEach(()=>{vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})));localStorage.clear();change.mockClear();host=document.createElement('div');host.getBoundingClientRect=()=>({width:1200,height:800,left:0,right:1200,top:0,bottom:800,x:0,y:0,toJSON:()=>({})});document.body.append(host);root=createRoot(host);});
+afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreAllMocks();vi.unstubAllGlobals();});
+async function mount(){const ref=createRef<HTMLElement>();ref.current=host;await act(async()=>root.render(<NavPanelResizer containerRef={ref} onWidthChange={change}/>));return host.querySelector<HTMLElement>('[role="separator"]')!;}
+function pointer(type:string,x:number){const event=new MouseEvent(type,{clientX:x,button:0,bubbles:true});Object.defineProperties(event,{pointerId:{value:7},isPrimary:{value:true}});return event;}
+it('目录向右拖宽、向左缩窄，并保存独立偏好；键盘和复位方向正确',async()=>{const handle=await mount();expect(handle.getAttribute('aria-label')).toBe('调整目录宽度');expect(handle.getAttribute('aria-controls')).toBe('workspace-navigation');await act(async()=>{handle.dispatchEvent(pointer('pointerdown',220));window.dispatchEvent(pointer('pointermove',380));window.dispatchEvent(pointer('pointerup',380));});expect(change).toHaveBeenLastCalledWith(380);expect(localStorage.getItem('judu:nav-panel-width')).toBe('380');expect(localStorage.getItem('reader-chat-panel-width')).toBeNull();await act(async()=>handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})));expect(change).toHaveBeenLastCalledWith(390);await act(async()=>handle.dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true})));expect(change).toHaveBeenLastCalledWith(160);await act(async()=>handle.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})));expect(change).toHaveBeenLastCalledWith(220);});
+it('恢复保存宽度，但不能越过正文和聊天的安全边界',async()=>{localStorage.setItem('judu:nav-panel-width','900');const handle=await mount();expect(change).toHaveBeenLastCalledWith(520);expect(handle.getAttribute('aria-valuemax')).toBe('520');expect(localStorage.getItem('judu:nav-panel-width')).toBe('900');});
+it('窄屏不显示桌面目录分隔器',async()=>{vi.stubGlobal('matchMedia',vi.fn(()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()})));const handle=await mount();expect(handle.hidden).toBe(true);expect(handle.tabIndex).toBe(-1);});

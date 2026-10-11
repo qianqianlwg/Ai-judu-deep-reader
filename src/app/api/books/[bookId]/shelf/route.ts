@@ -1,6 +1,6 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {getDb} from '@/lib/db';
-import {setBookArchived} from '@/lib/book-shelf';
+import {setBookArchived,BookShelfDeletionPendingError} from '@/lib/book-shelf';
 export const runtime='nodejs';
 export async function PATCH(request:NextRequest,{params}:{params:Promise<{bookId:string}>}){
  const {bookId}=await params;
@@ -11,5 +11,5 @@ export async function PATCH(request:NextRequest,{params}:{params:Promise<{bookId
  try{
   if(!setBookArchived(getDb(),bookId,body.archived))return NextResponse.json({error:'书籍不存在，请刷新书架'},{status:404});
   return NextResponse.json({bookId,archived:body.archived},{headers:{'Cache-Control':'no-store'}});
- }catch(error:unknown){console.error('更新书架状态失败',error);return NextResponse.json({error:'书架状态更新失败，请重试；书籍内容未删除'},{status:500});}
+ }catch(error:unknown){console.error('更新书架状态失败',error);return NextResponse.json({error:error instanceof BookShelfDeletionPendingError?error.message:'书架状态更新失败，请重试；书籍内容未删除'},{status:error instanceof BookShelfDeletionPendingError?409:500});}
 }

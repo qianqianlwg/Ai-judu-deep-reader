@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { DEFAULT_SPEECH_PREFERENCES, SPEECH_VOICES, speechPreferencesSchema, type SpeechPreferences } from "@/lib/speech";
 import { SpeechPlaybackBar, useSpeech } from "./speech-controls";
 import styles from "@/app/settings/settings.module.css";
@@ -21,25 +21,26 @@ export function SpeechSettings() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const savedPreferences = useRef<SpeechPreferences>(DEFAULT_SPEECH_PREFERENCES);
   const speech = useSpeech(), previewSourceId = useId();
   useEffect(() => {
     const controller = new AbortController();
     void fetch("/api/settings/speech", { signal: controller.signal, cache: "no-store" }).then(async response => {
       const config = readPublicConfig(await response.json() as unknown);
       if (!response.ok) throw new Error("读取语音配置失败。");
-      if (!controller.signal.aborted) { setPreferences(config.preferences); setHasApiKey(config.hasApiKey); setReady(true); }
+      if (!controller.signal.aborted) { savedPreferences.current = config.preferences; setPreferences(config.preferences); setHasApiKey(config.hasApiKey); setReady(true); }
     }).catch((cause: unknown) => {
       if (!controller.signal.aborted) { console.error("读取语音配置失败"); setError(cause instanceof Error ? cause.message : "读取语音配置失败，请刷新重试。"); }
     });
     return () => controller.abort();
   }, []);
-  async function save(preview = false) {
+  async function save(preview = false, nextPreferences: SpeechPreferences = preferences, includeApiKey = true, updateDraft = true) {
     setBusy(true); setError(""); setNotice("");
     try {
-      const response = await fetch("/api/settings/speech", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...preferences, apiKey: apiKey || undefined }) });
+      const response = await fetch("/api/settings/speech", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(includeApiKey ? { ...nextPreferences, apiKey: apiKey || undefined } : nextPreferences) });
       const config = readPublicConfig(await response.json() as unknown);
       if (!response.ok) throw new Error("保存语音配置失败。");
-      setPreferences(config.preferences); setHasApiKey(config.hasApiKey); setApiKey(""); setNotice("语音配置已保存，新朗读会使用此配置。");
+      savedPreferences.current = config.preferences; if (updateDraft) setPreferences(config.preferences); setHasApiKey(config.hasApiKey); if (includeApiKey) setApiKey(""); setNotice(includeApiKey ? "语音配置已保存，新朗读会使用此配置。" : "\u97f3\u8272\u5df2\u81ea\u52a8\u4fdd\u5b58\uff0c\u9879\u76ee\u91cd\u542f\u540e\u4ecd\u4f1a\u4fdd\u7559\u3002");
       if (preview) speech?.speak("你好，欢迎使用句读。让我们一起聆听文字，慢慢理解书中的思想。", "音色试听", previewSourceId);
     } catch (cause: unknown) { console.error("保存语音配置失败"); setError(cause instanceof Error ? cause.message : "保存失败，请检查服务后重试。"); }
     finally { setBusy(false); }
@@ -48,9 +49,10 @@ export function SpeechSettings() {
   return <section className={styles.card} aria-label="语音朗读设置" aria-busy={!ready || busy}>
     <h2>语音朗读 · MiMo</h2>
     <p className={styles.hint}>正文选句和 AI 句读共用此配置。模型固定为 mimo-v2.5-tts；仅在点击朗读后，将该文本发送至 MiMo 合成语音。</p>
+    <p className={styles.hint}>{"\u97f3\u8272\u9009\u62e9\u540e\u4f1a\u81ea\u52a8\u4fdd\u5b58；\u64ad\u653e\u8bed\u901f\u3001\u97f3\u91cf\u548c\u98ce\u683c\u53ef\u901a\u8fc7\u4fdd\u5b58\u6309\u94ae\u4fdd\u5b58\u3002"}</p>
     <fieldset disabled={!ready || busy} style={{ border: 0, padding: 0, margin: 0 }}>
       <div className="speech-settings-fields">
-        <label>音色<select aria-label="朗读音色" value={preferences.voice} onChange={event => { const voice = SPEECH_VOICES.find(value => value === event.target.value); if (voice) change("voice", voice); }}>{SPEECH_VOICES.map(voice => <option key={voice} value={voice}>{voice === "mimo_default" ? "MiMo 默认" : voice}</option>)}</select></label>
+        <label>音色<select aria-label="朗读音色" value={preferences.voice} onChange={event => { const voice = SPEECH_VOICES.find(value => value === event.target.value); if (voice) { const next = { ...savedPreferences.current, voice }; change("voice", voice); void save(false, next, false, false); } }}>{SPEECH_VOICES.map(voice => <option key={voice} value={voice}>{voice === "mimo_default" ? "MiMo 默认" : voice}</option>)}</select></label>
         <label>播放语速<select aria-label="朗读语速" value={preferences.playbackRate} onChange={event => change("playbackRate", Number(event.target.value))}>{[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(rate => <option key={rate} value={rate}>{rate}×{rate === 1 ? "（正常）" : ""}</option>)}</select></label>
         <label>音量<input type="range" aria-label="朗读音量" min={0} max={1} step={0.05} value={preferences.volume} onChange={event => change("volume", Number(event.target.value))}/><output>{Math.round(preferences.volume * 100)}%</output></label>
         <label>朗读风格<textarea aria-label="朗读风格" rows={3} maxLength={500} value={preferences.style} onChange={event => change("style", event.target.value)} placeholder="例如：温柔沉稳，普通话，语速稍慢，句尾适当停顿。"/></label>

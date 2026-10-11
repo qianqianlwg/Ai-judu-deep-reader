@@ -62,7 +62,13 @@
 .workspace-shell .upload-toast button { padding: 0 3px; font-size: 18px; border: 0; color: inherit; background: transparent; cursor: pointer; }
 @media (max-width: 680px) { .workspace-shell .reader-layout > .analysis-panel .close-button { display: grid; } }
 
-.workspace-shell .chat-message[data-history-target="true"] { outline: 1px solid #a8c5b1; outline-offset: 4px; border-radius: 5px; }
+/* WHY：语义子块与整条消息都要有可见定位反馈；强调约 2.4 秒后淡出，不锁定位置、不改变排版。 */
+.workspace-shell .reader-layout > .analysis-panel [data-history-target="true"] { outline: 2px solid transparent; outline-offset: 4px; border-radius: 5px; animation: reader-history-target 2.4s ease-out both; }
+@keyframes reader-history-target {
+  0%, 25% { outline-color: var(--reading-accent, #4f8b88); background-color: color-mix(in srgb, var(--reading-accent, #4f8b88) 14%, transparent); box-shadow: inset 3px 0 var(--reading-accent, #4f8b88); }
+  100% { outline-color: transparent; background-color: transparent; box-shadow: inset 3px 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .workspace-shell .reader-layout > .analysis-panel [data-history-target="true"] { animation-timing-function: linear; } }
 
 .shelf-editions { margin: 0 5px 9px 16px; border-left: 1px solid #dbe4de; padding-left: 7px; }
 .shelf-editions > summary { cursor: pointer; color: #8b998f; font: 10px/1.6 system-ui; padding: 3px 0; }
@@ -73,10 +79,10 @@
 
 /* WHY：调整只影响桌面第三列；小屏保持原有全屏聊天，避免挤压正文。 */
 @media (min-width: 901px) {
-  .workspace-shell .reader-layout { position: relative; grid-template-columns: 220px minmax(0, 1fr) var(--chat-panel-width,390px) !important; }
+  .workspace-shell .reader-layout { position: relative; grid-template-columns: var(--nav-panel-width,220px) minmax(0, 1fr) var(--chat-panel-width,390px) !important; }
   .workspace-shell .reader-layout > .workspace-chat-resizer { left: auto; right: calc(var(--chat-panel-width,390px) - 8px); z-index: 20; }
 }
-@media (min-width: 961px) and (max-width: 1180px) { .workspace-shell .reader-layout { grid-template-columns: 190px minmax(0,1fr) var(--chat-panel-width,390px) !important; } }
+@media (min-width: 961px) and (max-width: 1180px) { .workspace-shell .reader-layout { grid-template-columns:var(--nav-panel-width,190px) minmax(0,1fr) var(--chat-panel-width,390px) !important; } }
 @media (min-width: 681px) and (max-width: 960px) { .workspace-shell .reader-layout { grid-template-columns: minmax(0,1fr) var(--chat-panel-width,390px) !important; } }
 @media (max-width: 680px) { .workspace-shell .reader-layout { grid-template-columns: minmax(0,1fr) !important; } }
 
@@ -100,10 +106,10 @@
 .workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"] > .analysis-panel,
 .workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"] > .workspace-chat-resizer { display:none; }
 @media(min-width:961px){
- .workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"] {grid-template-columns:220px minmax(0,1fr)!important;}
+ .workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"] {grid-template-columns:var(--nav-panel-width,220px) minmax(0,1fr)!important;}
  .workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"][data-nav-collapsed="true"] {grid-template-columns:44px minmax(0,1fr)!important;}
 }
-@media(min-width:961px) and (max-width:1180px){.workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"]:not([data-nav-collapsed="true"]){grid-template-columns:190px minmax(0,1fr)!important;}}
+@media(min-width:961px) and (max-width:1180px){.workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"]:not([data-nav-collapsed="true"]){grid-template-columns:var(--nav-panel-width,190px) minmax(0,1fr)!important;}}
 @media(max-width:960px){.workspace-shell .reader-layout[data-bookshelf-assistant-hidden="true"]{grid-template-columns:minmax(0,1fr)!important;}}
 
 /* WHY：搜索是日常入口，索引授权与技术进度只放在按需展开的选项中。 */
@@ -161,3 +167,30 @@
 .app-shell.workspace-shell .workspace-nav [aria-label="本书目录"] .toc-item.active { color: var(--reading-text); font-weight: 600; }
 .app-shell.workspace-shell .workspace-nav [aria-label="本书目录"] .toc-item small { font-size: 10px; font-weight: 400; color: var(--reading-muted); }
 .app-shell.workspace-shell .workspace-nav .workspace-section-title button { font-size: max(14px, calc(var(--ui-text-size, 13px) + 1px)); font-weight: 600; color: var(--reading-muted); }
+
+/* WHY：书库入口与书内功能分层；收起导航时保留返回按钮，避免失去离开当前书籍的路径。 */
+.workspace-shelf-back{display:block;margin:2px 0 14px;padding:9px;color:var(--reading-muted,#64766a);text-decoration:none;font-size:12px;border-bottom:1px solid color-mix(in srgb,var(--reading-text) 12%,transparent);}
+.workspace-shelf-back[aria-disabled="true"]{opacity:.5;cursor:not-allowed;}
+.workspace-book-context{display:flex;flex-direction:column;gap:6px;padding:0 9px 14px;min-width:0;}
+.workspace-book-context small{font-size:10px;color:var(--reading-muted,#64766a);}
+.workspace-book-context strong{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--reading-text);}
+.workspace-shell .reader-layout[data-nav-collapsed="true"] .workspace-book-context{display:none;}
+.workspace-shell .reader-layout[data-nav-collapsed="true"] .workspace-shelf-back{font-size:0;padding:8px 0;text-align:center;}
+.workspace-shell .reader-layout[data-nav-collapsed="true"] .workspace-shelf-back::before{content:"←";font-size:18px;}
+
+/* WHY：书内目录层级来自NCX/nav，不能用spine分片数量伪造章节列表。 */
+.book-toc-tree{list-style:none;padding:0;margin:0;}
+.book-toc-tree .book-toc-tree{padding-inline-start:8px;border-inline-start:1px solid var(--ui-divider,#dce3df);margin-inline-start:0;}
+.book-toc-tree .toc-item{width:100%;text-align:start;}
+.book-toc-tree .toc-item:disabled{opacity:.75;cursor:default;}
+
+/* WHY：目录标题逐字保留并允许换行；深层树只压缩视觉缩进，不改变真实层级或导航目标。 */
+.book-toc-tree .toc-item span{flex:1;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;line-height:1.5;}
+.book-toc-tree[data-depth="5"] .book-toc-tree{padding-inline-start:0;border-inline-start:0;}
+@media(min-width:961px){
+ .workspace-shell .reader-layout>.workspace-nav-resizer{inset:0 auto 0 calc(var(--nav-panel-width,220px) - 8px);z-index:21;}
+ .workspace-nav-resizer::after{background:var(--ui-divider,#dce3df);}
+ .workspace-nav-resizer::before{content:"";position:absolute;left:6px;top:calc(50% - 15px);width:4px;height:30px;border-radius:3px;background:color-mix(in srgb,var(--reading-muted) 40%,transparent);}
+ .workspace-shell .reader-layout[data-nav-collapsed="true"]>.workspace-nav-resizer{display:none;}
+}
+@media(max-width:960px){.workspace-shell .reader-layout>.workspace-nav-resizer{display:none;}}

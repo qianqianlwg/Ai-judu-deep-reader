@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CONTEXT_INPUT_TOKEN_OPTIONS, DEFAULT_CONTEXT_SETTINGS, normalizeContextInputTokens } from "@/lib/context-compaction";
+import { CONTEXT_INPUT_TOKEN_OPTIONS, CONTEXT_OUTPUT_TOKEN_OPTIONS, DEFAULT_CONTEXT_SETTINGS, normalizeContextInputTokens, normalizeContextOutputTokens } from "@/lib/context-compaction";
 import {
   DEFAULT_READING_APPEARANCE, READING_APPEARANCE_STORAGE_KEYS, applyReadingAppearanceToRoot, readReadingAppearance, writeReadingAppearance,
   type ReadingAppearancePreferences,
 } from "@/lib/reading-appearance";
 import { EmbeddingSettings } from "@/components/embedding-settings";
+import { ModelChoiceList } from "@/components/model-choice-list";
+import type { ModelChoice } from "@/lib/model-choices";
 import { UiTypographySettings } from "@/components/ui-typography-settings";
 import { SpeechSettings } from "@/components/speech-settings";
 import { ReadingAppearanceSettings } from "@/components/reading-appearance-settings";
@@ -23,6 +25,16 @@ function readAiResponse(value: unknown): AiActionResponse {
     message: typeof value.message === "string" ? value.message : undefined,
     maskedApiKey: typeof value.maskedApiKey === "string" ? value.maskedApiKey : undefined,
   };
+}
+
+function readModelEntries(value: unknown, fallback: string): ModelChoice[] {
+  const source = isRecord(value) && Array.isArray(value.modelEntries) ? value.modelEntries : isRecord(value) && Array.isArray(value.models) ? value.models : isRecord(value) && typeof value.model === "string" ? [value.model] : [];
+  if (!source.length && fallback) return [{ model: fallback, enabled: true }];
+  return source.map(item => {
+    if (typeof item === "string") return { model: item, enabled: true };
+    if (isRecord(item) && typeof item.model === "string" && typeof item.enabled === "boolean") return { model: item.model, enabled: item.enabled };
+    throw new Error("Invalid model list response");
+  });
 }
 
 const SECTION_COPY: Record<SettingsSectionId, { title: string; description: string }> = {
@@ -51,7 +63,7 @@ function SettingsBlock({ id, children }: { id: SettingsSectionId; children: Reac
 
 export default function SettingsPage() {
   const [contextTokens, setContextTokens] = useState(String(DEFAULT_CONTEXT_SETTINGS.maxInputTokens));
-  const [outputTokens, setOutputTokens] = useState("4096");
+  const [outputTokens, setOutputTokens] = useState(String(DEFAULT_CONTEXT_SETTINGS.maxOutputTokens ?? "unlimited"));
   const [compression, setCompression] = useState("balanced");
   const [appearance, setAppearance] = useState<ReadingAppearancePreferences>(DEFAULT_READING_APPEARANCE);
   const [appearanceReady, setAppearanceReady] = useState(false);
@@ -59,7 +71,7 @@ export default function SettingsPage() {
   const [provider, setProvider] = useState("openai");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
-  const [models, setModels] = useState("");
+  const [modelChoices, setModelChoices] = useState<ModelChoice[]>([]);
   const [apiKey, setApiKey] = useState("");
   const [aiNotice, setAiNotice] = useState("");
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("appearance");
@@ -90,7 +102,7 @@ export default function SettingsPage() {
       }
       try {
         setContextTokens(String(normalizeContextInputTokens(localStorage.getItem("judu:maxInputTokens"))));
-        setOutputTokens(localStorage.getItem("judu:maxOutputTokens") ?? "4096");
+        setOutputTokens(String(normalizeContextOutputTokens(localStorage.getItem("judu:maxOutputTokens")) ?? "unlimited"));
         setCompression(localStorage.getItem("judu:compressionStrategy") ?? "balanced");
       } catch (error: unknown) {
         console.error("读取阅读运行设置失败", { name: error instanceof Error ? error.name : "UnknownError" });
@@ -105,7 +117,7 @@ export default function SettingsPage() {
     let active = true;
     void fetch("/api/settings/ai")
       .then((response) => response.json() as Promise<unknown>)
-      .then((value) => { if (active && isRecord(value)) { const data = readAiResponse(value); setProvider(typeof value.provider === "string" ? value.provider : "openai"); setBaseUrl(typeof value.baseUrl === "string" ? value.baseUrl : ""); setModel(typeof value.model === "string" ? value.model : ""); setModels(Array.isArray(value.models) ? value.models.filter((item): item is string => typeof item === "string").join("\n") : typeof value.model === "string" ? value.model : ""); if (data.error) setAiNotice(data.error); } })
+      .then((value) => { if (active && isRecord(value)) { const data = readAiResponse(value); setProvider(typeof value.provider === "string" ? value.provider : "openai"); setBaseUrl(typeof value.baseUrl === "string" ? value.baseUrl : ""); setModel(typeof value.model === "string" ? value.model : ""); setModelChoices(readModelEntries(value, typeof value.model === "string" ? value.model : "")); if (data.error) setAiNotice(data.error); } })
       .catch((error: unknown) => { console.error("读取 AI 配置失败", { name: error instanceof Error ? error.name : "UnknownError" }); if (active) setAiNotice("暂时无法读取 AI 配置。"); });
     return () => { active = false; };
   }, []);
@@ -145,10 +157,11 @@ export default function SettingsPage() {
   async function saveAi(): Promise<void> {
     setAiNotice("保存中…");
     try {
-      const response = await fetch("/api/settings/ai", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, baseUrl, model, models: models.split(/[\n,，;；]+/u).map(value => value.trim()).filter(Boolean), apiKey: apiKey || undefined }) });
-      const data = readAiResponse(await response.json() as unknown);
+      const response = await fetch("/api/settings/ai", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, baseUrl, model, models: modelChoices.map(choice => ({ model: choice.model.trim(), enabled: choice.enabled })), apiKey: apiKey || undefined }) });
+      const value: unknown = await response.json() as unknown;
+      const data = readAiResponse(value);
       setAiNotice(response.ok ? "已保存 " + (data.maskedApiKey ?? "") : data.error ?? "保存失败");
-      if (response.ok) { setApiKey(""); window.dispatchEvent(new Event("judu:settings-updated")); localStorage.setItem("judu:ai-settings", String(Date.now())); }
+      if (response.ok) { setApiKey(""); setModelChoices(readModelEntries(value, model)); window.dispatchEvent(new Event("judu:settings-updated")); localStorage.setItem("judu:ai-settings", String(Date.now())); }
     } catch (error: unknown) { console.error("保存 AI 配置失败", { name: error instanceof Error ? error.name : "UnknownError" }); setAiNotice("保存失败，请检查网络或服务状态。"); }
   }
   async function testAi(): Promise<void> {
@@ -160,10 +173,11 @@ export default function SettingsPage() {
     } catch (error: unknown) { console.error("测试 AI 配置失败", { name: error instanceof Error ? error.name : "UnknownError" }); setAiNotice("连接失败，请检查网络或服务状态。"); }
   }
 
-  const modelOptions = [...new Set(models.split(/[\n,，;；]+/u).map(value => value.trim()).filter(Boolean))];
+  const modelOptions = modelChoices.filter(choice => choice.enabled && choice.model.trim()).map(choice => choice.model.trim());
+  const validModelChoices = modelChoices.length > 0 && modelChoices.length <= 50 && modelChoices.every(choice => choice.model.trim().length > 0 && choice.model.trim().length <= 200 && !/[\r\n\x00-\x1f]/u.test(choice.model)) && new Set(modelChoices.map(choice => choice.model.trim())).size === modelChoices.length && modelOptions.length > 0 && modelOptions.includes(model);
   return <main className={styles.page} data-settings-page="true">
     <nav className={styles.rail} aria-label="应用导航">
-      <Link href="/" className={styles.railButton} aria-label="返回阅读器" title="返回阅读器"><RailIcon name="book" /></Link>
+      <Link href="/" className={styles.railButton} aria-label="返回书架" title="返回书架"><RailIcon name="book" /></Link>
       <span className={styles.railRule} aria-hidden="true" />
       <span className={styles.railButton + " " + styles.railButtonActive} aria-label="设置" title="设置"><RailIcon name="settings" /></span>
     </nav>
@@ -177,8 +191,8 @@ export default function SettingsPage() {
           </section>
           <SettingsBlock id="reading"><UiTypographySettings /></SettingsBlock>
           <SettingsBlock id="speech"><SpeechSettings /></SettingsBlock>
-          <SettingsBlock id="ai"><section className={styles.card}><h2>AI 句读</h2><label>协议<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="claude">Claude</option></select></label><label>API URL<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label><label>模型列表<textarea aria-label="模型列表" rows={4} value={models} onChange={event => { setModels(event.target.value); const first = event.target.value.split(/[\n,，;；]+/u).map(value => value.trim()).filter(Boolean); if (!first.includes(model)) setModel(first[0] ?? ""); }} placeholder="每行一个模型名称，也可用逗号分隔" /></label><label>默认模型<select aria-label="默认模型" value={model} onChange={event => setModel(event.target.value)}>{modelOptions.map(value => <option key={value} value={value}>{value}</option>)}</select></label><p className={styles.hint}>多个模型共用此 API 地址、协议和密钥；聊天框可以逐次选择，默认模型用于未指定模型的请求。</p><label>API Key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空则保留已保存 Key" /></label><div className={styles.actions}><button type="button" onClick={() => void testAi()}>测试连接</button><button type="button" onClick={() => void saveAi()}>保存</button></div>{aiNotice && <p className={styles.hint} role="status">{aiNotice}</p>}</section></SettingsBlock>
-          <SettingsBlock id="context"><section className={styles.card}><h2>上下文</h2><label>最大输入 Token<select aria-label="最大输入 Token" value={contextTokens} onChange={(event) => saveContext(event.target.value)}>{CONTEXT_INPUT_TOKEN_OPTIONS.map((value) => <option key={value} value={value}>{value === 1000000 ? "1M" : value / 1000 + "K"}</option>)}</select></label><label>最大输出 Token<select aria-label="最大输出 Token" value={outputTokens} onChange={(event) => saveOutput(event.target.value)}><option value="1024">1K</option><option value="2048">2K</option><option value="4096">4K</option><option value="8192">8K</option><option value="16384">16K</option></select></label><label>压缩触发<select value={compression} onChange={(event) => saveCompression(event.target.value)}><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">激进</option></select></label><p className={styles.hint}>解读方式与回复长度在回复框的加号菜单设置，按书保存，下次回复生效。</p><p className={styles.hint}>接近预算时将已有对话整理成阅读记忆，保留关键约定、概念和未解问题；不按最近条数截取。新消息追加在检查点之后。调整预算后，可在原消息上重试；选文和原问题不会改变。</p></section></SettingsBlock>
+          <SettingsBlock id="ai"><section className={styles.card}><h2>AI 句读</h2><label>协议<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="claude">Claude</option></select></label><label>API URL<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label><ModelChoiceList choices={modelChoices} onChange={next => { setModelChoices(next); const enabled = next.filter(choice => choice.enabled && choice.model.trim()); if (!enabled.some(choice => choice.model.trim() === model)) setModel(enabled[0]?.model.trim() ?? ""); }} /><label>默认模型<select aria-label="默认模型" value={model} onChange={event => setModel(event.target.value)}>{modelOptions.map(value => <option key={value} value={value}>{value}</option>)}</select></label><p className={styles.hint}>多个模型共用此 API 地址、协议和密钥；聊天框可以逐次选择，默认模型用于未指定模型的请求。</p><label>API Key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空则保留已保存 Key" /></label><div className={styles.actions}><button type="button" onClick={() => void testAi()}>测试连接</button><button type="button" disabled={!validModelChoices} onClick={() => void saveAi()}>保存</button></div>{aiNotice && <p className={styles.hint} role="status">{aiNotice}</p>}</section></SettingsBlock>
+          <SettingsBlock id="context"><section className={styles.card}><h2>上下文</h2><label>最大输入 Token<select aria-label="最大输入 Token" value={contextTokens} onChange={(event) => saveContext(event.target.value)}>{CONTEXT_INPUT_TOKEN_OPTIONS.map((value) => <option key={value} value={value}>{value === 1000000 ? "1M" : value / 1000 + "K"}</option>)}</select></label><label>最大输出 Token<select aria-label="最大输出 Token" value={outputTokens} onChange={(event) => saveOutput(event.target.value)}><option value="unlimited">不设应用级上限</option>{CONTEXT_OUTPUT_TOKEN_OPTIONS.map(value => <option key={value} value={value}>{value / 1024}K</option>)}</select></label><p className={styles.hint}>不设应用级输出上限；实际输出仍受所选模型和服务商能力、配额限制。阅读记忆整理使用独立的内部预算。</p><label>压缩触发<select value={compression} onChange={(event) => saveCompression(event.target.value)}><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">激进</option></select></label><p className={styles.hint}>解读方式与回复长度在回复框的加号菜单设置，按书保存，下次回复生效。</p><p className={styles.hint}>接近预算时将已有对话整理成阅读记忆，保留关键约定、概念和未解问题；不按最近条数截取。新消息追加在检查点之后。调整预算后，可在原消息上重试；选文和原问题不会改变。</p></section></SettingsBlock>
           <SettingsBlock id="search"><EmbeddingSettings /></SettingsBlock>
         </div>
       </div>

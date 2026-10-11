@@ -2,6 +2,7 @@
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { revealHistoryTarget } from "./reader-history-navigation";
 import { useChatFollow } from "./use-chat-follow";
 
 let container: HTMLDivElement;
@@ -213,4 +214,15 @@ describe("useChatFollow 真实 React 滚动意图", () => {
     window.dispatchEvent(new Event("resize"));
     expect(writes).toHaveLength(count);
   });
+});
+
+it('历史定位事件先暂停自动跟随，平滑滚动尚未开始时新内容也不拉回底部',async()=>{
+ await render();await event(viewport(),new Event('reader-history-jump'));const count=writes.length;
+ metrics.height=1500;await render(true,'定位时的新增内容');await resize();expect(writes).toHaveLength(count);expect(viewport().dataset.followLatest).toBe('false');
+});
+
+it('从触底位置平滑定位不会通过伪scroll重新开启自动跟随',async()=>{
+ await render();const node=viewport().firstElementChild as HTMLElement;Object.defineProperty(viewport(),'scrollTo',{configurable:true,value:vi.fn()});
+ await act(async()=>revealHistoryTarget(node,viewport()));expect(viewport().dataset.followLatest).toBe('false');const count=writes.length;
+ metrics.height=1400;await render(true,'平滑定位等待中');await resize();expect(writes).toHaveLength(count);
 });
