@@ -24,21 +24,22 @@ export function SpeechProvider({ children }: { children: ReactNode }) {
     resume: () => { void player.resume(); },
   }), [player]);
   useEffect(() => () => player.stop(), [player]);
-  // WHY：这里只装配共享播放器，不渲染全局浮窗；播放控制由页面底部的常规布局区承载，不覆盖正文、页码或输入框。
+  // WHY：这里只装配共享播放器，不渲染全局浮窗；阅读页通过固定预留槽承载控制栏，不因播放状态改变正文尺寸。
   return <SpeechContext.Provider value={{ state, ...actions }}>{children}</SpeechContext.Provider>;
 }
-export function SpeechPlaybackBar() {
+export function SpeechPlaybackBar({reserveSpace=false}:{reserveSpace?:boolean}={}) {
   const speech = useSpeech();
-  if (!speech || speech.state.phase === "idle") return null;
+  if (!speech) return null;
+  // WHY：预留槽从空闲到播放保持同一尺寸，防止控制栏挂载、停止或报错触发 EPUB 重新分页和位置位移。
+  if (speech.state.phase === "idle") return reserveSpace ? <section className="speech-footer" data-reserve-space="true" data-phase="idle" aria-hidden="true" data-reader-decoration=""/> : null;
   const { state } = speech;
-  return <section className="speech-footer" aria-label="语音朗读控制" data-reader-decoration="">
-    <div className="speech-footer-info"><strong>{state.label || "语音朗读"}</strong><span role="status">{state.phase === "loading" ? "正在连接流式语音…" : state.phase === "playing" ? "正在朗读" : state.phase === "paused" ? "已暂停" : "朗读失败"}{state.total > 1 ? ` · ${state.segment}/${state.total} 段` : ""}</span></div>
+  return <section className="speech-footer" aria-label="语音朗读控制" data-reserve-space={reserveSpace || undefined} data-phase={state.phase} data-reader-decoration="">
+    <div className="speech-footer-info"><strong>{state.label || "语音朗读"}</strong><span role="status" hidden={Boolean(state.error)}>{state.phase === "loading" ? "正在连接流式语音…" : state.phase === "playing" ? "正在朗读" : state.phase === "paused" ? "已暂停" : "朗读失败"}{state.total > 1 ? ` · ${state.segment}/${state.total} 段` : ""}</span>{state.error && <p className="speech-footer-error" role="alert">{state.error}</p>}</div>
     <div className="speech-footer-actions">
       {state.phase === "playing" && <button type="button" onClick={speech.pause}>暂停朗读</button>}
       {state.phase === "paused" && <button type="button" onClick={speech.resume}>继续朗读</button>}
       <button type="button" onClick={() => speech.stop()}>{state.phase === "error" ? "关闭朗读提示" : "停止朗读"}</button>
     </div>
-    {state.error && <p className="speech-footer-error" role="alert">{state.error}</p>}
   </section>;
 }
 export function SpeechButton({ text, label = "选中文本", disabled = false, children = "朗读" }: { text: string; label?: string; disabled?: boolean; children?: ReactNode }) {

@@ -12,3 +12,13 @@
 .speech-settings-fields label { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid var(--reading-border,#d7e2e0); font-size:13px; }
 .speech-settings-fields textarea { width:min(100%,500px); }
 @media(max-width:620px) { .speech-settings-fields label { flex-wrap:wrap; } .speech-footer { padding:9px 12px; gap:7px; } .speech-footer-info { gap:7px; } }
+
+/* WHY：朗读栏的高度由稳定槽决定，而不是加载、播放或报错内容的固有高度；始终保留正文、页码和输入框的布局。 */
+.workspace-shell .workspace-main:has(> .speech-footer[data-reserve-space="true"]) { grid-template-rows:minmax(0,1fr) 52px; }
+.speech-footer[data-reserve-space="true"] { display:grid; grid-template-columns:minmax(0,1fr) auto; height:52px; min-height:52px; max-height:52px; box-sizing:border-box; overflow:hidden; padding:7px 14px; gap:8px; }
+.speech-footer[data-reserve-space="true"][data-phase="idle"] { visibility:hidden; }
+.speech-footer[data-reserve-space="true"] .speech-footer-info { display:flex; flex-direction:column; align-items:flex-start; gap:0; max-height:36px; overflow:auto; }
+.speech-footer[data-reserve-space="true"] .speech-footer-info strong { width:100%; flex-shrink:0; }
+.speech-footer[data-reserve-space="true"] .speech-footer-info [role="status"] { max-width:100%; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+.speech-footer[data-reserve-space="true"] .speech-footer-error { flex-basis:auto; flex-shrink:0; overflow-wrap:anywhere; white-space:normal; }
+@media(max-width:620px) { .speech-footer[data-reserve-space="true"] { padding:7px 10px; gap:6px; } .speech-footer[data-reserve-space="true"] button { padding:5px 7px; } }
