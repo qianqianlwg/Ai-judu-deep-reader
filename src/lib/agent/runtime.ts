@@ -4,6 +4,7 @@ import type { ProviderConfig, ProviderMessage } from "../ai-provider";
 import { isRecord, type ChatEvent, type ToolActivity } from "../chat-stream";
 import { accumulateUsage, estimatedUsage, estimateTextTokens, type TokenUsage } from "../token-usage";
 import { createReadingModel } from "./model";
+import { createToolChoiceMiddleware } from "./tool-choice-middleware";
 import { readingToolSchemaText, searchBookSchema } from "./schemas";
 import { externalSearchSchema } from "./external-search";
 import type { createExternalReader } from "./external-reading";
@@ -118,7 +119,7 @@ export async function runReadingAgent(options: ReadingAgentOptions): Promise<{ t
       return result;
     },
   });
-  const agent = createAgent({ model: createReadingModel(options.config), tools, systemPrompt: options.systemPrompt, middleware: [middleware] });
+  const agent = createAgent({ model: createReadingModel(options.config), tools, systemPrompt: options.systemPrompt, middleware: [middleware, createToolChoiceMiddleware({ signal, onFallback: () => logAgentEvent("warn", "tool_choice_fallback", { messageId: options.tools.messageId, from: "required", to: "auto" }) })] });
   const finishes = new Map<string, string>();
   const stream = agent.streamEvents({ messages: options.messages }, { version: "v2", signal, recursionLimit: 24,
     callbacks: [{ handleLLMEnd(result, runId) {
