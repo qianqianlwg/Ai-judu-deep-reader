@@ -101,6 +101,15 @@
 .card textarea { width: 100%; min-height: 96px; resize: vertical; }
 .card input[type="checkbox"] { width: 17px; min-height: 17px; height: 17px; padding: 0; accent-color: var(--reading-accent, #496b69); }
 .card > label:has(input[type="checkbox"]) { justify-content: flex-start; }
+/* WHY：设置模块明确分隔各字段，避免标签在缩窄视口目中相互拥压。 */
+.embeddingFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 20px; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; }
+.embeddingField { display: flex; flex-direction: column; align-items: stretch; gap: 7px; min-width: 0; color: var(--reading-text, #292d32); font-size: 12px; }
+.embeddingField > input:not([type="checkbox"]) { width: 100%; min-width: 0; max-width: none; }
+.embeddingFieldHint { margin: -2px 0 0; color: var(--reading-muted, #626870); font-size: 10px; line-height: 1.5; }
+.embeddingToggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; min-width: 0; padding-top: 13px; border-top: 1px solid color-mix(in srgb, var(--reading-border, #d9dce0) 70%, transparent); color: var(--reading-text, #292d32); font-size: 12px; }
+.embeddingHint, .embeddingActions { grid-column: 1 / -1; }
+.embeddingHint { margin-top: -8px; }
+.embeddingActions { padding-top: 2px; }
 .hint { margin: 10px 0 0; color: var(--reading-muted, #626870); font-size: 11px; line-height: 1.75; }
 .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 15px; }
 .actions button { min-height: 35px; padding: 7px 13px; border: 1px solid var(--reading-border, #d9dce0); border-radius: 8px; color: var(--reading-text, #292d32); background: var(--reading-surface, #fff); cursor: pointer; }
@@ -128,6 +137,8 @@
   .sectionStack { gap: 32px; }
   .card > label { align-items: flex-start; flex-direction: column; gap: 7px; }
   .card select, .card input:not([type="checkbox"]):not([type="range"]) { width: 100%; }
+  .embeddingFields { grid-template-columns: minmax(0, 1fr); gap: 13px; }
+  .embeddingToggle, .embeddingHint, .embeddingActions { grid-column: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

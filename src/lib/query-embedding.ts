@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { EMBEDDING_PROFILE, embedTexts, type EmbeddingConfig } from "./embedding-provider";
+import { embeddingProfile, embedTexts, type EmbeddingConfig } from "./embedding-provider";
 import type { EmbedBatch } from "./vector-index";
 
 type Cached = { vector: number[]; expires: number };
@@ -14,7 +14,7 @@ export function createQueryEmbeddingSession(config: EmbeddingConfig, provider: t
       const embed: EmbedBatch = async (_config, texts, signal) => {
         signal?.throwIfAborted();
         if (texts.length !== 1) throw new Error("查询嵌入只接受一条查询");
-        const key = createHash("sha256").update(EMBEDDING_PROFILE + "|" + config.apiKey + "|" + texts[0]).digest("hex");
+        const key = createHash("sha256").update(embeddingProfile(config) + "|" + config.apiKey + "|" + texts[0]).digest("hex");
         const saved = cache.get(key);
         if (saved && saved.expires > Date.now()) { stats.cacheHit = true; return [[...saved.vector]]; }
         // WHY：同轮并行工具可能改写出相同查询；仅共享同一取消作用域的在途请求，避免重复付费和跨请求取消。

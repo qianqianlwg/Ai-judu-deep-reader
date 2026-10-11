@@ -20,7 +20,7 @@ export function createBookRetrieval({db,editionId,config,vector=searchVectors,em
     const paragraphs = indexParagraphs(db,editionId).filter(p=>!input.chapterId||p.chapterId===input.chapterId);
     const candidateLimit = Math.max(input.limit*3,30);
     const wantVector = mode !== "keyword", wantKeyword = mode !== "semantic";
-    const unavailable = wantVector ? !semanticEnabled ? "已关闭 AI 自动语义检索" : !config.apiKey.trim() ? "未配置向量服务" : !vectorIndexStatus(db,editionId).vectorIndexed ? "本书索引未完成" : undefined : undefined;
+    const unavailable = wantVector ? !semanticEnabled ? "已关闭 AI 自动语义检索" : !config.apiKey.trim() ? "未配置向量服务" : !vectorIndexStatus(db,editionId,config).vectorIndexed ? "本书索引未完成" : undefined : undefined;
     const jobs: Promise<{branch:RetrievalBranch;matches:SearchMatch[]}>[] = [];
     // WHY：不同查询及不同策略同时发起；所有支路收敛后统一融合，不让某一路失败抹掉已成功的证据。
     for (const query of queries) {

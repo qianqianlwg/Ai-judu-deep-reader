@@ -1,4 +1,4 @@
-import {EMBEDDING_PROFILE,embedTexts,validateVector,type EmbeddingConfig} from './embedding-provider';
+import {embeddingDimensions,embeddingProfile,embedTexts,validateVector,type EmbeddingConfig} from './embedding-provider';
 import {type EmbeddingStore} from './embedding-store';
 import {indexParagraphs,splitVectorChunks,vectorIndexStatus,type EmbedBatch} from './vector-index';
 import {searchParagraphs,type SearchMatch} from './book-search';
@@ -8,15 +8,15 @@ export function cosineSimilarity(a:readonly number[],b:readonly number[]):number
  let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i];}return aa&&bb?dot/Math.sqrt(aa*bb):0;
 }
 export async function searchVectors(db:EmbeddingStore,config:EmbeddingConfig,input:{editionId:string;query:string;chapterId?:string;limit:number;hybrid:boolean;signal?:AbortSignal},embed:EmbedBatch=embedTexts):Promise<SearchMatch[]>{
- const {editionId,query,chapterId,limit}=input,status=vectorIndexStatus(db,editionId);
+ const {editionId,query,chapterId,limit}=input,status=vectorIndexStatus(db,editionId,config),profile=embeddingProfile(config),dimensions=embeddingDimensions(config);
  if(!status.vectorIndexed)throw new Error('本书向量索引未完成，请先建立索引');
  const paragraphs=indexParagraphs(db,editionId).filter(p=>!chapterId||p.chapterId===chapterId),byId=new Map(paragraphs.map(p=>[p.id,p]));
  const chunks=new Map(paragraphs.flatMap(splitVectorChunks).map(c=>[c.paragraphId+':'+c.start,c]));
  const [queryVector]=await embed(config,['Instruct: Retrieve relevant passages from a book based on the search query.\nQuery: '+query],input.signal);
- const rows=db.prepare('SELECT paragraph_id AS paragraphId,chunk_start AS start,text_hash AS hash,vector_json AS vector FROM paragraph_embeddings WHERE edition_id=? AND profile=?').all(editionId,EMBEDDING_PROFILE) as {paragraphId:string;start:number;hash:string;vector:string}[];
+ const rows=db.prepare('SELECT paragraph_id AS paragraphId,chunk_start AS start,text_hash AS hash,vector_json AS vector FROM paragraph_embeddings WHERE edition_id=? AND profile=?').all(editionId,profile) as {paragraphId:string;start:number;hash:string;vector:string}[];
  const best=new Map<string,{match:SearchMatch;score:number}>();
  for(const row of rows){const chunk=chunks.get(row.paragraphId+':'+row.start),p=byId.get(row.paragraphId);if(!chunk||!p||chunk.hash!==row.hash)continue;
-  const score=cosineSimilarity(queryVector,validateVector(JSON.parse(row.vector)));
+  const score=cosineSimilarity(queryVector,validateVector(JSON.parse(row.vector),dimensions));
   if(score<=0||(best.get(p.id)?.score??-1)>=score)continue;
   const text=Array.from(chunk.text).slice(0,180).join('');
   best.set(p.id,{score,match:{paragraphId:p.id,chapterId:p.chapterId,chapterTitle:p.chapterTitle,paragraphIndex:p.paragraphIndex,matchedText:text,startOffset:chunk.start,endOffset:chunk.start+text.length,excerpt:text,context:{before:[],after:[]},sourceId:sourceIdForParagraph(editionId,p.id)}});

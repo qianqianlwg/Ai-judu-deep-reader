@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
+
 export const EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-8B";
-export const EMBEDDING_URL = "https://api.siliconflow.cn/v1/embeddings";
+export const EMBEDDING_BASE_URL = "https://api.siliconflow.cn/v1";
+export const EMBEDDING_URL = `${EMBEDDING_BASE_URL}/embeddings`;
 export const EMBEDDING_DIMENSIONS = 1024;
 export const EMBEDDING_REQUEST_TIMEOUT_MS = 60_000;
 export const EMBEDDING_RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
@@ -8,7 +11,7 @@ export const EMBEDDING_BATCH_LEASE_MS = 300_000;
 // WHY：模型、维度、切块协议一起标识向量空间，绝不把不同模型的向量混合比较。
 export const EMBEDDING_PROFILE = `${EMBEDDING_URL}|${EMBEDDING_MODEL}|${EMBEDDING_DIMENSIONS}|chunks-v1`;
 
-export type EmbeddingConfig = { apiKey: string };
+export type EmbeddingConfig = { apiKey: string; baseUrl?: string; model?: string; dimensions?: number | null };
 export type RetryWait = (milliseconds: number, signal?: AbortSignal) => Promise<void>;
 
 export class EmbeddingError extends Error {
@@ -22,8 +25,49 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
-export function validateVector(value: unknown, dimensions = EMBEDDING_DIMENSIONS): number[] {
-  if (!Array.isArray(value) || value.length !== dimensions || value.some(n => typeof n !== "number" || !Number.isFinite(n)) || !value.some(n => n !== 0)) {
+export function normalizeEmbeddingBaseUrl(value: string): string {
+  if (!value.trim() || value.trim().length > 2_048) throw new EmbeddingError("请输入有效的 Embeddings API 地址");
+  let url: URL;
+  try { url = new URL(value.trim()); }
+  catch { throw new EmbeddingError("Embeddings API 地址必须是有效的 HTTP(S) 地址"); }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new EmbeddingError("Embeddings API 地址不可包含账号、查询参数或片段");
+  }
+  let pathname = url.pathname.replace(/\/+$/u, "");
+  // WHY：兼容用户填写 OpenAI 风格 base URL 或完整 /embeddings 地址，避免重复拼接端点。
+  pathname = pathname.replace(/\/embeddings$/u, "");
+  return url.origin + pathname;
+}
+
+export function embeddingEndpoint(config: EmbeddingConfig): string {
+  return `${normalizeEmbeddingBaseUrl(config.baseUrl ?? EMBEDDING_BASE_URL)}/embeddings`;
+}
+
+export function embeddingModel(config: EmbeddingConfig): string {
+  const model = config.model?.trim() || EMBEDDING_MODEL;
+  if (model.length > 200 || /[\r\n\x00-\x1f]/u.test(model)) throw new EmbeddingError("Embedding 模型名称无效");
+  return model;
+}
+
+export function embeddingDimensions(config: EmbeddingConfig): number | null {
+  const dimensions = config.dimensions === undefined ? EMBEDDING_DIMENSIONS : config.dimensions;
+  if (dimensions !== null && (!Number.isSafeInteger(dimensions) || dimensions < 1 || dimensions > 16_384)) {
+    throw new EmbeddingError("向量维度必须是 1–16384 的整数，或留空由模型决定");
+  }
+  return dimensions;
+}
+
+export function embeddingProfile(config: EmbeddingConfig): string {
+  const endpoint = embeddingEndpoint(config);
+  const model = embeddingModel(config);
+  const dimensions = embeddingDimensions(config);
+  if (endpoint === EMBEDDING_URL && model === EMBEDDING_MODEL && dimensions === EMBEDDING_DIMENSIONS) return EMBEDDING_PROFILE;
+  // WHY：模型、API、维度变更必须落入不同索引空间，防止把旧向量误当成新模型结果。
+  const identity = `${endpoint}|${model}|${dimensions ?? "auto"}|chunks-v1`;
+  return `embedding-v1:${createHash("sha256").update(identity).digest("hex")}`;
+}
+export function validateVector(value: unknown, dimensions: number | null = EMBEDDING_DIMENSIONS): number[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 16_384 || (dimensions !== null && value.length !== dimensions) || value.some(n => typeof n !== "number" || !Number.isFinite(n)) || !value.some(n => n !== 0)) {
     throw new EmbeddingError("向量服务返回了无效的维度或数值");
   }
   return value as number[];
@@ -120,6 +164,9 @@ export async function embedTexts(
   wait: RetryWait = waitBeforeRetry,
 ): Promise<number[][]> {
   if (!config.apiKey.trim()) throw new EmbeddingError("请先在设置中保存向量模型 API Key");
+  const endpoint = embeddingEndpoint(config);
+  const model = embeddingModel(config);
+  const dimensions = embeddingDimensions(config);
   if (!texts.length || texts.length > 32 || texts.some(text => !text.trim() || Array.from(text).length > 6000)) {
     throw new EmbeddingError("向量输入长度或批量数量不合法");
   }
@@ -130,10 +177,10 @@ export async function embedTexts(
     const attemptSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     let response: Response;
     try {
-      response = await fetcher(EMBEDDING_URL, {
+      response = await fetcher(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
-        body: JSON.stringify({ model: EMBEDDING_MODEL, input: texts, encoding_format: "float", dimensions: EMBEDDING_DIMENSIONS }),
+        body: JSON.stringify({ model, input: texts, encoding_format: "float", ...(dimensions === null ? {} : { dimensions }) }),
         signal: attemptSignal,
       });
     } catch (cause: unknown) {
@@ -175,11 +222,13 @@ export async function embedTexts(
       if (!record(item) || !Number.isInteger(item.index) || Number(item.index) < 0 || Number(item.index) >= texts.length || result.has(Number(item.index))) {
         throw new EmbeddingError("向量服务返回了无效序号");
       }
-      result.set(Number(item.index), validateVector(item.embedding));
+      result.set(Number(item.index), validateVector(item.embedding, dimensions));
     }
+    const vectors = texts.map((_, index) => result.get(index)!);
+    if (vectors.some(vector => vector.length !== vectors[0].length)) throw new EmbeddingError("同一批次的向量维度不一致，无法安全建立索引");
     if (record(body.usage) && typeof body.usage.prompt_tokens === "number" && Number.isInteger(body.usage.prompt_tokens) && body.usage.prompt_tokens >= 0) {
       onUsage?.({ promptTokens: body.usage.prompt_tokens });
     }
-    return texts.map((_, index) => result.get(index)!);
+    return vectors;
   }
 }

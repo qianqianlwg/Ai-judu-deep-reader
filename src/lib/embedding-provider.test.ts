@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { embedTexts, validateVector, EMBEDDING_URL } from "./embedding-provider";
+import { embedTexts, validateVector, EMBEDDING_URL, embeddingProfile, EMBEDDING_PROFILE } from "./embedding-provider";
 
 const vector = (value: number) => Array.from({ length: 1024 }, () => value);
 const success = () => Response.json({ data: [{ index: 0, embedding: vector(1) }] });
@@ -71,4 +71,16 @@ describe("SiliconFlow embedding", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
     expect(delays).toEqual([1_000, 2_000, 4_000]);
   });
+});
+
+it("uses the configured OpenAI-compatible model and dimensions, including automatic dimension detection",async()=>{const fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json({data:[{index:0,embedding:[0.2,0.3,0.5]}]}));const config={apiKey:"fake",baseUrl:"https://vectors.example/v1/embeddings",model:"custom-embed",dimensions:null};const result=await embedTexts(config,["query"],undefined,fetcher);expect(result[0]).toEqual([0.2,0.3,0.5]);expect(fetcher.mock.calls[0][0]).toBe("https://vectors.example/v1/embeddings");const body=JSON.parse(String(fetcher.mock.calls[0][1]?.body));expect(body).toMatchObject({model:"custom-embed",input:["query"]});expect(body).not.toHaveProperty("dimensions");expect(validateVector([1,2,3],null)).toEqual([1,2,3]);expect(embeddingProfile({apiKey:"x"})).toBe(EMBEDDING_PROFILE);expect(embeddingProfile(config)).not.toBe(EMBEDDING_PROFILE);});
+
+
+it("reports a clear error when one embedding batch mixes vector dimensions", async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data: [
+    { index: 0, embedding: [0.1, 0.2] },
+    { index: 1, embedding: [0.1, 0.2, 0.3] },
+  ] }));
+  await expect(embedTexts({ apiKey: "fake", dimensions: null }, ["first", "second"], undefined, fetcher))
+    .rejects.toThrow("同一批次的向量维度不一致，无法安全建立索引");
 });

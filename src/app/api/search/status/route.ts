@@ -7,6 +7,6 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
  const editionId=request.nextUrl.searchParams.get("editionId")?.trim();
  if(!editionId)return NextResponse.json({error:"缺少 editionId"},{status:400});
- try {const db=getDb();return NextResponse.json({...vectorIndexStatus(db,editionId),configured:Boolean(readEmbeddingConfig(db).apiKey),job:createVectorIndexJobs().status(db,editionId)});}
+ try {const db=getDb(),config=readEmbeddingConfig(db);return NextResponse.json({...vectorIndexStatus(db,editionId,config),configured:Boolean(config.apiKey),job:createVectorIndexJobs().status(db,editionId)});}
  catch(error:unknown){console.error("读取索引状态失败",{name:error instanceof Error?error.name:"UnknownError"});return NextResponse.json({error:"读取索引状态失败，请重试"},{status:503});}
 }

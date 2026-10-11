@@ -32,7 +32,7 @@ export function createVectorIndexJobs(build: Build = buildVectorBatch) {
   function start(db: EmbeddingStore, editionId: string, config: EmbeddingConfig): IndexJobStatus {
     if (!db.prepare("SELECT id FROM editions WHERE id=?").get(editionId)) throw new Error("书籍版本不存在");
     if (!config.apiKey.trim()) throw new Error("请先在设置中保存向量模型 API Key");
-    if (vectorIndexStatus(db, editionId).vectorIndexed) return { state: "completed", error: "" };
+    if (vectorIndexStatus(db, editionId, config).vectorIndexed) return { state: "completed", error: "" };
     const token = randomUUID(), now = Date.now();
     // WHY：任务状态通过 SQLite 原子竞争，不依赖 API 路由是否共享进程；浏览器离开时不取消已授权的网络请求。
     const claimed = db.prepare("INSERT INTO embedding_index_jobs(edition_id,token,status,error,updated_at) VALUES(? ,?,'running','',?) ON CONFLICT(edition_id) DO UPDATE SET token=excluded.token,status='running',error='',updated_at=excluded.updated_at WHERE embedding_index_jobs.status NOT IN ('running','pausing') OR embedding_index_jobs.updated_at<? RETURNING edition_id")

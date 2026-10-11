@@ -16,8 +16,9 @@ export async function POST(request: NextRequest) {
     if (!id || !body || typeof body !== "object" || !("consent" in body) || body.consent !== true)
       return NextResponse.json({ error: "缺少版本或尚未确认将本书文字发送至 SiliconFlow" }, { status: 400 });
     const db = getDb();
-    const job = jobs.start(db, id, readEmbeddingConfig(db));
-    return NextResponse.json({ ...vectorIndexStatus(db, id), configured: true, job });
+    const config = readEmbeddingConfig(db);
+    const job = jobs.start(db, id, config);
+    return NextResponse.json({ ...vectorIndexStatus(db, id, config), configured: Boolean(config.apiKey), job });
   } catch (cause: unknown) {
     console.error("启动向量索引失败", { name: cause instanceof Error ? cause.name : "UnknownError" });
     return NextResponse.json({ error: cause instanceof Error ? cause.message : "索引任务启动失败" }, { status: 400 });
@@ -29,7 +30,8 @@ export async function DELETE(request: NextRequest) {
     const id = editionId(body);
     if (!id) return NextResponse.json({ error: "缺少书籍版本" }, { status: 400 });
     const db = getDb();
-    return NextResponse.json({ ...vectorIndexStatus(db, id), configured: Boolean(readEmbeddingConfig(db).apiKey), job: jobs.pause(db, id) });
+    const config = readEmbeddingConfig(db);
+    return NextResponse.json({ ...vectorIndexStatus(db, id, config), configured: Boolean(config.apiKey), job: jobs.pause(db, id) });
   } catch (cause: unknown) {
     console.error("暂停向量索引失败", { name: cause instanceof Error ? cause.name : "UnknownError" });
     return NextResponse.json({ error: "暂停失败，请重试" }, { status: 503 });
