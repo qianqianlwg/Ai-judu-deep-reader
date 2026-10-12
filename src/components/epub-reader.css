@@ -27,3 +27,5 @@
 
 .epub-navigation .epub-book-progress { display:flex; align-items:center; white-space:nowrap; font-size:11px; font-variant-numeric:tabular-nums; }
 .epub-book-progress::before { content:"·"; margin:0 8px 0 2px; opacity:.5; }
+
+.epub-turn-label { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

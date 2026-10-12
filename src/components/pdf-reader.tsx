@@ -1,4 +1,5 @@
-"use client";import { ReaderPageJump } from "./reader-page-jump";
+"use client";
+import { SpeechPlaybackBar } from "./speech-controls";import { ReaderPageJump } from "./reader-page-jump";
 import {readAnalysisOnlySelection} from "@/lib/analysis-only-selection";
 import {ANALYSIS_ONLY_NOTICE} from "@/lib/analysis-only-source";
 import {bindSettledSelection} from "@/lib/settled-selection";
@@ -139,6 +140,6 @@ export function PdfReader(props:EpubReaderProps){
   </div>
   {session&&<PdfInteractionLayer host={interactionHost} book={props.book} document={session.document} index={session.index} pages={interactionPages} annotations={props.annotations} concepts={props.concepts} disabled={props.disabled} historyReadingsByMessageId={props.historyReadingsByMessageId} onOpenAnnotation={props.onOpenAnnotation} onNotice={props.onNotice} onJump={goToPage}/>}
   </div>
-  <nav className="pdf-navigation" aria-label="底部页码跳转"><ReaderPageJump key={props.book.editionId} current={page} total={session?.document.numPages??0} disabled={!session||props.disabled} onJump={goToPage}/></nav>
+  <nav className="pdf-navigation" aria-label="底部页码跳转"><ReaderPageJump key={props.book.editionId} current={page} total={session?.document.numPages??0} disabled={!session||props.disabled} onJump={goToPage}/><SpeechPlaybackBar inline/></nav>
  </section>;
 }

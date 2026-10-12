@@ -27,18 +27,18 @@ export function SpeechProvider({ children }: { children: ReactNode }) {
   // WHY：这里只装配共享播放器，不渲染全局浮窗；阅读页通过固定预留槽承载控制栏，不因播放状态改变正文尺寸。
   return <SpeechContext.Provider value={{ state, ...actions }}>{children}</SpeechContext.Provider>;
 }
-export function SpeechPlaybackBar({reserveSpace=false}:{reserveSpace?:boolean}={}) {
+export function SpeechPlaybackBar({reserveSpace=false, inline=false}:{reserveSpace?:boolean; inline?:boolean}={}) {
   const speech = useSpeech();
   if (!speech) return null;
   // WHY：预留槽从空闲到播放保持同一尺寸，防止控制栏挂载、停止或报错触发 EPUB 重新分页和位置位移。
-  if (speech.state.phase === "idle") return reserveSpace ? <section className="speech-footer" data-reserve-space="true" data-phase="idle" aria-hidden="true" data-reader-decoration=""/> : null;
+  if (speech.state.phase === "idle") return reserveSpace || inline ? <section className={inline ? "speech-footer speech-footer-inline" : "speech-footer"} data-reserve-space={reserveSpace || undefined} data-inline={inline || undefined} data-phase="idle" aria-hidden="true" data-reader-decoration=""/> : null;
   const { state } = speech;
-  return <section className="speech-footer" aria-label="语音朗读控制" data-reserve-space={reserveSpace || undefined} data-phase={state.phase} data-reader-decoration="">
-    <div className="speech-footer-info"><strong>{state.label || "语音朗读"}</strong><span role="status" hidden={Boolean(state.error)}>{state.phase === "loading" ? "正在连接流式语音…" : state.phase === "playing" ? "正在朗读" : state.phase === "paused" ? "已暂停" : "朗读失败"}{state.total > 1 ? ` · ${state.segment}/${state.total} 段` : ""}</span>{state.error && <p className="speech-footer-error" role="alert">{state.error}</p>}</div>
+  return <section className={inline ? "speech-footer speech-footer-inline" : "speech-footer"} data-inline={inline || undefined} aria-label="语音朗读控制" data-reserve-space={reserveSpace || undefined} data-phase={state.phase} data-reader-decoration="">
+    <div className="speech-footer-info" title={state.error || state.label}><strong>{state.label || "语音朗读"}</strong><span role="status" hidden={Boolean(state.error)}>{state.phase === "loading" ? "正在连接流式语音…" : state.phase === "playing" ? "正在朗读" : state.phase === "paused" ? "已暂停" : "朗读失败"}{state.total > 1 ? ` · ${state.segment}/${state.total} 段` : ""}</span>{state.error && <p className="speech-footer-error" role="alert">{state.error}</p>}</div>
     <div className="speech-footer-actions">
-      {state.phase === "playing" && <button type="button" onClick={speech.pause}>暂停朗读</button>}
-      {state.phase === "paused" && <button type="button" onClick={speech.resume}>继续朗读</button>}
-      <button type="button" onClick={() => speech.stop()}>{state.phase === "error" ? "关闭朗读提示" : "停止朗读"}</button>
+      {state.phase === "playing" && <button type="button" aria-label="暂停朗读" onClick={speech.pause}>{inline ? "暂停" : "暂停朗读"}</button>}
+      {state.phase === "paused" && <button type="button" aria-label="继续朗读" onClick={speech.resume}>{inline ? "播放" : "继续朗读"}</button>}
+      <button type="button" aria-label={state.phase === "error" ? "关闭朗读提示" : "停止朗读"} onClick={() => speech.stop()}>{inline ? state.phase === "error" ? "关闭" : "停止" : state.phase === "error" ? "关闭朗读提示" : "停止朗读"}</button>
     </div>
   </section>;
 }

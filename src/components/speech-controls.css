@@ -22,3 +22,25 @@
 .speech-footer[data-reserve-space="true"] .speech-footer-info [role="status"] { max-width:100%; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
 .speech-footer[data-reserve-space="true"] .speech-footer-error { flex-basis:auto; flex-shrink:0; overflow-wrap:anywhere; white-space:normal; }
 @media(max-width:620px) { .speech-footer[data-reserve-space="true"] { padding:7px 10px; gap:6px; } .speech-footer[data-reserve-space="true"] button { padding:5px 7px; } }
+
+/* WHY：朗读与页码共享固定40px底栏；状态、错误和长标签不能换行或改变正文可用高度。 */
+.speech-footer.speech-footer-inline { flex:0 1 auto; display:flex; flex-wrap:nowrap; align-items:center; gap:8px; height:32px; min-height:32px; max-height:32px; max-width:260px; padding:0; border:0; background:transparent; overflow:hidden; }
+.speech-footer-inline[data-phase="idle"] { display:none; }
+.speech-footer-inline .speech-footer-info { flex:1 1 auto; overflow:hidden; min-width:0; }
+.speech-footer-inline .speech-footer-info strong { display:none; }
+.speech-footer-inline .speech-footer-info [role="status"], .speech-footer-inline .speech-footer-error { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:0; }
+.speech-footer-inline .speech-footer-actions { gap:4px; }
+.speech-footer-inline button { height:28px; padding:3px 7px; white-space:nowrap; }
+.workspace-shell .reading-pane :is(.page-nav,.epub-navigation,.pdf-navigation[aria-label="底部页码跳转"],.cbz-navigation[aria-label="底部页码跳转"]) { height:40px; min-height:40px; max-height:40px; flex:0 0 40px; box-sizing:border-box; display:flex; flex-wrap:nowrap; align-items:center; justify-content:center; gap:8px; padding:0 10px; }
+.workspace-shell .epub-navigation .epub-reading-progress { gap:8px; }
+@media(max-width:620px) { .speech-footer-inline .speech-footer-info { display:none; } .speech-footer.speech-footer-inline { flex-shrink:0; } .workspace-shell .reading-pane :is(.page-nav,.epub-navigation) { gap:4px; padding:0 4px; } .workspace-shell .epub-navigation .epub-reading-progress { gap:4px; } }
+
+/* WHY：翻页固定在两端，中心区只承载进度与朗读，避免文本链接挤成一串且保证状态切换不影响导航位置。 */
+.app-shell.workspace-shell .reading-pane .epub-navigation { display:grid; grid-template-columns:32px minmax(0,1fr) 32px; column-gap:12px; padding:0 14px; }
+.workspace-shell .epub-navigation .epub-reading-progress { justify-content:center; gap:10px; overflow:hidden; font:12px/1.4 system-ui,sans-serif; }
+.workspace-shell .reading-pane .epub-navigation .epub-turn-page { display:flex; align-items:center; justify-content:center; width:30px; height:30px; min-height:30px; padding:0; border:0; border-radius:7px; background:transparent; color:var(--reading-muted); }
+.workspace-shell .epub-navigation .epub-book-progress { border-left:1px solid var(--reading-border); padding-left:12px; color:var(--reading-muted); font:11px/1.4 system-ui,sans-serif; }
+.workspace-shell .epub-book-progress::before { content:none; }
+.workspace-shell .epub-navigation button[aria-label="选择页码跳转"] { font:12px/1.4 system-ui,sans-serif; padding:5px 6px; min-height:28px; color:var(--reading-muted); }
+.workspace-shell .epub-navigation .speech-footer-inline { border-left:1px solid var(--reading-border); padding-left:10px; }
+@media(max-width:620px) { .app-shell.workspace-shell .reading-pane .epub-navigation { column-gap:4px; padding:0 6px; } .workspace-shell .epub-navigation .epub-reading-progress { gap:5px; } .workspace-shell .epub-navigation .epub-book-progress { padding-left:6px; } .workspace-shell .epub-navigation .speech-footer-inline { padding-left:5px; } }
