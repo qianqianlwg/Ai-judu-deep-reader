@@ -67,3 +67,7 @@ it("翻页文字具备明确按钮边界与键盘焦点",async()=>{
 it("朗读时四区等宽且各自居中，空闲页码跨中间两区",async()=>{
  const css=await readFile("src/components/speech-controls.css","utf8");expect(css).toContain('grid-template-columns:repeat(4,minmax(0,1fr))');expect(css).toContain('grid-column:2; justify-content:center');expect(css).toContain('grid-column:3; grid-row:1; justify-self:center');expect(css).not.toContain('column-gap:clamp');
 });
+
+it("上一页靠左边下一页靠右边，不改变中间分区",async()=>{
+ const css=await readFile("src/components/speech-controls.css","utf8");expect(css).toContain('first-child { grid-column:1; grid-row:1; justify-self:start; }');expect(css).toContain('last-child { grid-column:4; grid-row:1; justify-self:end; }');expect(css).toContain('grid-template-columns:repeat(4,minmax(0,1fr))');
+});

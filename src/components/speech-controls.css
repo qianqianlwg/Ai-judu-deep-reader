@@ -47,8 +47,8 @@
 @media(max-width:620px) { .app-shell.workspace-shell .reading-pane .epub-navigation { column-gap:0; padding:0 6px; } .workspace-shell .epub-navigation .epub-reading-progress { gap:5px; } .workspace-shell .epub-navigation .epub-book-progress { padding-left:6px; } }
 
 /* WHY：空闲时保留居中页码；仅朗读激活时左右分布，不为播放状态新增布局行。 */
-.workspace-shell .epub-navigation > .epub-turn-page:first-child { grid-column:1; grid-row:1; justify-self:center; }
-.workspace-shell .epub-navigation > .epub-turn-page:last-child { grid-column:4; grid-row:1; justify-self:center; }
+.workspace-shell .epub-navigation > .epub-turn-page:first-child { grid-column:1; grid-row:1; justify-self:start; }
+.workspace-shell .epub-navigation > .epub-turn-page:last-child { grid-column:4; grid-row:1; justify-self:end; }
 .workspace-shell .epub-navigation .epub-reading-progress { grid-column:2 / 4; grid-row:1; }
 .workspace-shell .epub-navigation:has(.speech-footer-inline:not([data-phase="idle"])) .epub-reading-progress { grid-column:2; justify-content:center; }
 .workspace-shell .reading-pane :is(.page-nav,.pdf-navigation,.cbz-navigation):has(.speech-footer-inline:not([data-phase="idle"])) { justify-content:flex-start; }
