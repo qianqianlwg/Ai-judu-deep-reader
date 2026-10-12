@@ -54,8 +54,16 @@ it("各格式阅读器共用同高底栏，长提示和窄窗口不能换行",as
  const page=await readFile("src/app/page.tsx","utf8");expect(page).toContain("<SpeechPlaybackBar inline/>");expect(page).not.toContain("<SpeechPlaybackBar reserveSpace/>");
 });
 
-it("原版翻页使用两端箭头，中心页码与朗读保持轻量层级",async()=>{
+it("原版文字翻页与页码靠左，朗读操作靠右",async()=>{
  const source=await readFile("src/components/epub-reader.tsx","utf8");const css=await readFile("src/components/speech-controls.css","utf8");
- expect(source).toContain('aria-label={modeLabel+"上一页"}');expect(source).toContain('aria-label={modeLabel+"下一页"}');expect(source).toContain('className="epub-turn-label"');
- expect(css).toContain('grid-template-columns:32px minmax(0,1fr) 32px');expect(css).toContain('.workspace-shell .epub-book-progress::before { content:none; }');
+ expect(source).toContain('aria-label={modeLabel+"上一页"}');expect(source).toContain('aria-label={modeLabel+"下一页"}');expect(source).toContain('>上一页</button>');expect(source).toContain('>下一页</button>');expect(source).not.toContain('className="epub-turn-label"');
+ expect(css).toContain('grid-template-columns:70px minmax(0,1fr) 70px');expect(css).toContain('grid-template-columns:70px minmax(0,1fr) auto 70px');expect(css).toContain('.workspace-shell .epub-book-progress::before { content:none; }');
+});
+
+it("翻页文字具备明确按钮边界与键盘焦点",async()=>{
+ const css=await readFile("src/components/speech-controls.css","utf8");expect(css).toContain('border:1px solid var(--reading-border,#e1e3e5)');expect(css).toContain('.epub-turn-page:focus-visible');expect(css).toContain('.epub-turn-page:active:not(:disabled)');
+});
+
+it("翻页与进度朗读之间使用有上下限的比例间距",async()=>{
+ const css=await readFile("src/components/speech-controls.css","utf8");expect(css).toContain('column-gap:clamp(16px,4%,48px)');expect(css).toContain('column-gap:clamp(8px,2%,16px)');
 });

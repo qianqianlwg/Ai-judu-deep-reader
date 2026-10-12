@@ -49,7 +49,7 @@ it("按版本拉取原件，保留 DOM，移除目录但保留进度与翻页",a
  await render();expect(fetch).toHaveBeenCalledWith("/api/books/b/original?editionId=e",expect.objectContaining({cache:"no-store"}));
  expect(host.textContent).toContain("章节 1 / 1");expect(host.querySelector('select[aria-label="原书目录"]')).toBeNull();
  expect(view.open).toHaveBeenCalledWith(original);expect(doc.querySelector("p")?.textContent).toBe("世界😀原版文字");
- const next=Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="原版下一页")!;
+ const next=Array.from(host.querySelectorAll("button")).find(button=>button.getAttribute("aria-label")==="原版下一页")!;
  await act(async()=>next.click());expect(view.next).toHaveBeenCalledOnce();
 });
 it("原版选区转换为既有 UTF-16 锚点，保留 emoji",async()=>{
@@ -62,7 +62,7 @@ it("原版选区转换为既有 UTF-16 锚点，保留 emoji",async()=>{
  expect(JSON.parse(localStorage.getItem(originalPositionKey("e"))!).anchor.offset).toBe(2);
 });
 it("翻页定位段内字符，使用上游 section.current，不以段首覆盖",async()=>{
- await render();const next=Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="原版下一页")!;
+ await render();const next=Array.from(host.querySelectorAll("button")).find(button=>button.getAttribute("aria-label")==="原版下一页")!;
  const range=doc.createRange();range.setStart(doc.querySelector("p")!.firstChild!,4);range.setEnd(doc.querySelector("p")!.firstChild!,8);
  await act(async()=>{next.click();view.dispatchEvent(new CustomEvent("relocate",{detail:{section:{current:0},range,cfi:"epubcfi(/6/2!/4:4)"}}));});
  expect(props.onPosition).toHaveBeenCalledWith({paragraphId:"p",offset:4});
@@ -230,7 +230,7 @@ it("UMD只读取转换EPUB并校验字节，原件下载单独保留且界面不
  expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/books/b/converted?editionId=e",expect.objectContaining({cache:"no-store"}));
  expect(loader.loadEpub).toHaveBeenCalledWith(expect.any(Blob),expect.objectContaining({progressive:true}));expect(fb2loader.loadFb2).not.toHaveBeenCalled();
  expect(host.querySelector('section')?.getAttribute('aria-label')).toBe('UMD 转换版阅读器');expect(view.getAttribute('aria-label')).toBe('UMD 转换版内容');
- expect(host.textContent).toContain('转换版下一页');expect(host.textContent).toContain('不代表原文件版式');
+ expect(host.querySelector('[aria-label="转换版下一页"]')?.textContent).toBe('下一页');expect(host.textContent).toContain('不代表原文件版式');
  expect(host.querySelector('a[download]')?.getAttribute('href')).toBe('/api/books/b/original?editionId=e');
 });
 it("UMD选文写入独立双hash位置，精读来源回跳仍逐字定位",async()=>{
@@ -425,7 +425,7 @@ it("恢复CFI超时不能当作位置失效再次初始化同一view",async()=>{
 it("翻页串行，前一导航失败超时后取消所有排队导航",async()=>{
  vi.spyOn(console,"error").mockImplementation(()=>{});vi.useFakeTimers();await render();
  vi.mocked(view.next).mockImplementationOnce(()=>new Promise(()=>{}));
- const next=[...host.querySelectorAll('button')].find(button=>button.textContent==="原版下一页")!;
+ const next=[...host.querySelectorAll('button')].find(button=>button.getAttribute("aria-label")==="原版下一页")!;
  await act(async()=>{next.click();next.click();});
  expect(view.next).toHaveBeenCalledOnce();
  await act(async()=>{await vi.advanceTimersByTimeAsync(20000);});expect(view.next).toHaveBeenCalledOnce();
@@ -433,7 +433,7 @@ it("翻页串行，前一导航失败超时后取消所有排队导航",async()=
 });
 it("正常导航连续点击时依次完成，不丢失用户翻页",async()=>{
  await render();const navigation=deferred<void>();vi.mocked(view.next).mockReturnValueOnce(navigation.promise);
- const next=[...host.querySelectorAll('button')].find(button=>button.textContent==="原版下一页")!;
+ const next=[...host.querySelectorAll('button')].find(button=>button.getAttribute("aria-label")==="原版下一页")!;
  await act(async()=>{next.click();next.click();});
  expect(view.next).toHaveBeenCalledOnce();await act(async()=>navigation.resolve());expect(view.next).toHaveBeenCalledTimes(2);
 });
