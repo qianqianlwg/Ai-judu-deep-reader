@@ -19,12 +19,15 @@
         "@langchain/anthropic": "^1.5.10",
         "@langchain/core": "^1.2.11",
         "@langchain/openai": "^1.5.13",
+        "@noble/hashes": "2.0.1",
         "entities": "8.1.0",
         "epub": "^2.1.1",
         "fast-xml-parser": "5.11.1",
+        "jsdom": "^30.0.1",
         "jszip": "3.10.2",
         "langchain": "^1.5.11",
         "next": "16.3.5",
+        "parse5": "8.0.1",
         "pdf-parse": "^2.4.5",
         "pdfjs-dist": "5.4.296",
         "react": "19.2.8",
@@ -36,9 +39,7 @@
         "simple-mind-map": "0.14.0-fix.3",
         "unified": "^11.0.5",
         "unist-util-visit": "^5.1.0",
-        "zod": "^4.6.5",
-        "parse5": "8.0.1",
-        "jsdom": "^30.0.1"
+        "zod": "^4.6.5"
     },
     "devDependencies": {
         "@lingo-reader/mobi-parser": "0.4.6",

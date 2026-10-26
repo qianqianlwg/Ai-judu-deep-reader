@@ -7,7 +7,7 @@ import { DEFAULT_READING_APPEARANCE, READING_APPEARANCE_STORAGE_KEYS, READING_TH
 const pagination = vi.hoisted(() => ({ pages: [], pageIndex: 0, currentPage: undefined, setPageIndex: vi.fn(), setAnchor: vi.fn(), anchor: null, busy: false, error: "", renderedScale: 1 }));
 // WHY：只替换 jsdom 不具备的排版测量；使用真实页面、外观控件、存储事件和工作区切换。
 vi.mock("@/hooks/use-reader-pages", () => ({ useReaderPages: () => pagination }));
-import { BookWorkspace as Home } from "./page";
+import { BookWorkspace as Home } from "./book-workspace";
 let host: HTMLDivElement;
 let root: Root;
 

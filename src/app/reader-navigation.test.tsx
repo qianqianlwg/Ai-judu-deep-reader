@@ -19,7 +19,7 @@ vi.mock("@/hooks/use-reader-pages", () => ({
 vi.mock("@/components/knowledge-workspace", () => ({
   KnowledgeWorkspace: (props: KnowledgeWorkspaceProps) => <><button type="button" onClick={() => props.onOpenConversation?.(boundary.invalidThread, "old-assistant")}>打开旧卡片来源</button><button type="button" onClick={() => props.onOpenMaterial?.({id:"passage:b",kind:"passage",origin:"original",title:"乙章",body:result.excerpt??"",quote:result.matchedText??result.excerpt??"",createdAt:"2026-09-26",source:{bookId:"book",editionId:"edition",bookTitle:"导航验收书",author:"测试作者",fileName:"test.txt",fileType:".txt",createdAt:"2026-09-26",paragraphCount:2},chapterTitle:result.chapterTitle,anchor:{editionId:"edition",chapterId:result.chapterId,paragraphId:result.paragraphId,startOffset:result.startOffset??0,endOffset:(result.startOffset??0)+(result.matchedText??result.excerpt??"").length,selectedText:result.matchedText??result.excerpt??""},locationReason:null,concepts:[],conversation:null})}>打开知识命中</button></>,
 }));
-import { BookWorkspace as Home } from "./page";
+import { BookWorkspace as Home } from "./book-workspace";
 
 let host: HTMLDivElement; let root: Root;
 let frames: Map<number, FrameRequestCallback>; let frameId: number;

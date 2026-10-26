@@ -35,7 +35,7 @@ describe("同一UMD版本的原件和派生EPUB API闭环", () => {
     for (const response of [original, converted]) { expect(response.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'; frame-ancestors 'none'"); expect(response.headers.get("cache-control")).toContain("no-store"); expect(response.headers.get("x-content-type-options")).toBe("nosniff"); }
   });
   it("所有书库读取入口保留转换信息和精读正文，但不泄露存储路径或私有映射", async () => {
-    const library = await (await libraryGet()).json(), books = await (await booksGet()).json();
+    const library = await (await libraryGet(new Request("http://localhost/api/library"))).json(), books = await (await booksGet()).json();
     const response = await bookGet(new Request("http://localhost/api/books/x?editionId=" + book.editionId), { params: Promise.resolve({ bookId: book.id }) });
     const json = await response.json(), parsed = readBookResponse(json, book.id, book.editionId);
     expect(readLibraryResponse(library)[0].editions?.[0].conversion).toEqual(book.edition.conversion);

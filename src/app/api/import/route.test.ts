@@ -72,7 +72,7 @@ describe("import and original retrieval integration", () => {
     const validated = readBookResponse(content, result.id, result.editionId);
     expect(validated.chapters[0].paragraphs[0].id).toBe(result.chapters[0].paragraphs[0].id);
     if (name.endsWith(".epub")) expect(validated.chapters[0].sourceHref).toBe(EPUB_HREF);
-    const shelf = await (await library()).json(); const legacy = await (await books()).json();
+    const shelf = await (await library(new Request("http://localhost/api/library"))).json(); const legacy = await (await books()).json();
     expect(shelf[0].editions[0]).toEqual(result.edition); expect(legacy[0].edition).toEqual(result.edition);
     expect(legacy[0].chapters).toEqual(content.chapters);
     expect(JSON.stringify([shelf, legacy, content])).not.toContain(row.original_file_path);
