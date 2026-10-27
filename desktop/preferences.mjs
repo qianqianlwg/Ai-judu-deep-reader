@@ -40,3 +40,9 @@ export async function readDesktopPort(profile){
  }catch(error){if(!(error instanceof Error&&'code'in error&&error.code==='ENOENT'))throw error;}
  return undefined;
 }
+/** @param {string} profile @param {boolean} fresh */
+export async function defaultLibraryDirectory(profile,fresh){
+ const directory=path.join(profile,'library');
+ if(fresh){try{await lstat(directory);return path.join(profile,'library-'+randomUUID());}catch(error){if(!(error instanceof Error&&'code'in error&&error.code==='ENOENT'))throw error;}}
+ return directory;
+}

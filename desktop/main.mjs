@@ -53,7 +53,7 @@ async function switchLibrary(existing=false){
   const server=await serverStart;if(server&&Number(await server.busy())!==0)throw new Error('请先等待当前后台任务完成，再切换书库');
   const base=desktopLocations(locationOptions());let directory;
   if(existing){const result=await dialog.showOpenDialog({title:'选择已有客户端书库（包含 desktop-library.json 和凭据文件）',properties:['openDirectory']});directory=result.filePaths[0];if(directory)await lstat(path.join(directory,'desktop-library.json'));}
-  else directory=await chooseNewLibrary({nodePath:base.nodePath,profile:app.getPath('userData'),encrypt:value=>safeStorage.encryptStringAsync(value),validate:directory=>{desktopLocations({...locationOptions(),dataDir:directory});}});
+  else directory=await chooseNewLibrary({nodePath:base.nodePath,profile:app.getPath('userData'),fresh:true,encrypt:value=>safeStorage.encryptStringAsync(value),validate:directory=>{desktopLocations({...locationOptions(),dataDir:directory});}});
   if(!directory)return;
   const locations=desktopLocations({...locationOptions(),dataDir:directory});await prepareDesktopLocations(locations);
   const unlock=await lockLibrary(directory);
