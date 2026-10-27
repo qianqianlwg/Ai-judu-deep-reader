@@ -1,6 +1,7 @@
 import type { ParsedNavigationItem } from './foliate-import';
 import type { ParsedSourceBlock } from "./source-block";
-import { createRequire } from "node:module";
+import nodeModule from "node:module";
+import path from "node:path";
 import { parseEpubFile, splitParagraphs } from "./epub-parser";
 import {pdfPageText,PDF_PAGE_PREFIX,MAX_PDF_PAGES,MAX_PDF_INDEX_CHARACTERS} from "./pdf-text";
 import { parseMobiFile } from "./mobi-parser";
@@ -12,7 +13,11 @@ export interface DocumentAdapter {
   readonly extension: SupportedDocumentExtension;
   extract(input: DocumentInput): Promise<ExtractedDocument>;
 }
-const nodeRequire = createRequire(import.meta.url);
+// WHY：PDF.js 动态入口必须交给 Node；Webpack 会把直接 createRequire 调用改写成不含这些入口的动态模块表。
+const createNativeRequire: unknown = Reflect.get(nodeModule, "createRequire");
+if (typeof createNativeRequire !== "function") throw new Error("Node 原生模块解析器不可用");
+const nodeRequire: unknown = Reflect.apply(createNativeRequire, undefined, [path.join(process.cwd(), "package.json")]);
+if (typeof nodeRequire !== "function") throw new Error("Node 原生模块加载器不可用");
 const loadNodeModule = (specifier: string): unknown => Reflect.apply(nodeRequire, undefined, [specifier]);
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 type PdfJsWorkerGlobal = { WorkerMessageHandler: unknown };

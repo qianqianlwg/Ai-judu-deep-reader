@@ -51,6 +51,29 @@ async function settle() {
 }
 async function click(element: HTMLElement) { await act(async () => { if (element.matches(".workspace-shelf-back") && element.getAttribute("aria-disabled") !== "true") window.history.pushState(null, "", "/"); else element.click(); root!.render(createElement(Home)); }); await settle(); }
 async function mount() { root = createRoot(host); await act(async () => root!.render(createElement(Home))); await settle(); }
+async function locateHistorySource() {
+  const source = host.querySelector<HTMLElement>('[data-message-id="message-review"] [data-testid="message-source"]');
+  const details = source?.querySelector<HTMLDetailsElement>("details");
+  const summary = details?.querySelector<HTMLElement>("summary");
+  const locate = source?.querySelector<HTMLButtonElement>('button[aria-label="定位句读原文"]');
+  if (!details || !summary || !locate) throw new Error("缺少历史消息完整来源的显式定位入口");
+  if (!details.open) await click(summary);
+  await click(locate);
+}
+async function expectPreparedSource(expected: ReturnType<typeof fullSelection> | null) {
+  const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="继续追问"]');
+  const send = host.querySelector<HTMLButtonElement>('button[aria-label="发送追问"]');
+  if (!input || !send) throw new Error("缺少真实追问输入与提交入口");
+  const before = requests.length;
+  input.value = "请核对本次保存的来源。";
+  // WHY：底部选文字数栏已按产品要求移除；实际提交的逐字选文和全部锚点比旧 DOM 提示更能证明来源恢复/清除。
+  await click(send);
+  expect(requests).toHaveLength(before + 1);
+  const request = requests[before];
+  expect(request.mode).toBe("chat");
+  expect(request.selectedText).toBe(expected?.text ?? "");
+  expect(request.selectionAnchors ?? []).toEqual(expected ? selectionAnchors(expected) : []);
+}
 function paragraph(index: number): HTMLElement {
   const element = host.querySelector<HTMLElement>('p[data-paragraph-id="A-p' + index + '"]');
   if (!element) throw new Error("正文段落未加载"); return element;
@@ -98,7 +121,7 @@ beforeEach(() => {
       ] });
     }
     if (endpoint.pathname === "/api/annotations") return Response.json({ annotations: savedAnnotations });
-    if (endpoint.pathname === "/api/reading-marks") return Response.json({ marks: [] });
+    if (endpoint.pathname === "/api/reading-marks" || endpoint.pathname === "/api/reading-emphasis") return Response.json({ marks: [] });
     if (endpoint.pathname === "/api/knowledge") return Response.json({ editionId: endpoint.searchParams.get("editionId"), records: [], concepts: [] });
     if (endpoint.pathname === "/api/search/status") return Response.json({ backend: "sqlite", editionId: endpoint.searchParams.get("editionId"), paragraphCount: 2, indexedCount: 0, vectorIndexed: false, note: "模拟" });
     if (endpoint.pathname === "/api/analyze/stream" && init?.method === "POST") {
@@ -191,14 +214,22 @@ describe("P0 独立验收：页面事件与发送", () => {
     expect(requests, "无效新选区后仍发送了之前的选文").toHaveLength(0);
     expect(host.querySelector('[aria-label="选中文本操作"]')).toBeNull();
   });
-  it("[阻断] 点击多段句读第二段标注后应恢复整个选区并导航首段", async () => {
+  it("只查看完整句读不改写当前用户选文，显式来源定位是独立动作", async () => {
+    savedAnnotations = paragraphs.map(p => createAnnotation({ paragraphId: p.id, startOffset: 0, endOffset: p.text.length, threadId: "thread-review", messageId: "message-review", summary: "历史句读", concepts: [], createdAt: "2026-09-18T00:00:00Z" }, p.text));
+    await mount(); await selectParagraph(0);
+    const mark = paragraph(1).querySelector<HTMLElement>(".judu-history-marker");
+    if (!mark) throw new Error("缺少历史标记");
+    await click(mark); await click(button("查看完整句读", document));
+    await expectPreparedSource(selectionFromParts([{ paragraphId: "A-p0", startOffset: 0, endOffset: texts[0].length, text: texts[0] }]));
+  });
+  it("[阻断] 从第二段历史进入结果后，显式定位消息完整来源再恢复全部选区", async () => {
     savedAnnotations = paragraphs.map(p => createAnnotation({ paragraphId: p.id, startOffset: 0, endOffset: p.text.length, threadId: "thread-review", messageId: "message-review", summary: "合成样本句读", concepts: [], createdAt: "2026-09-18T00:00:00Z" }, p.text));
     await mount();
     const mark = paragraph(1).querySelector<HTMLElement>('.judu-history-marker');
     if (!mark) throw new Error("未渲染测试标注");
     await click(mark); await click(button("查看完整句读", document));
-    const selectionText = host.querySelector(".selection-bar")?.textContent;
-    expect(selectionText).toContain("已选 " + countReadingCharacters(fullSelection().text) + " / 3000 字符");
+    await locateHistorySource();
+    await expectPreparedSource(fullSelection());
     expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p0", offset: 0 });
   });
 });
@@ -239,9 +270,10 @@ describe("P0 独立验收：选择边界与多段保存", () => {
     await click(shelfNav);
     const shelfButtons = host.querySelectorAll<HTMLButtonElement>(".bookshelf-open");
     expect(shelfButtons).toHaveLength(2); await click(shelfButtons[1]);
-    expect(host.querySelector(".selection-bar")?.textContent).not.toContain("已选");
+    expect(host.querySelector(".selection-bar")).toBeNull();
     expect(host.querySelector('[aria-label="选中文本操作"]')).toBeNull();
     expect(requests).toHaveLength(0);
+    await expectPreparedSource(null);
   });
   it("知识卡片保留完整多段；任一片段失配时不能退化为首段已验证", () => {
     const parts = selectionAnchors(fullSelection()), anchor = makeReadingAnchor(parts);
@@ -365,7 +397,8 @@ describe("P0 独立验收：消息来源完整性优先于残缺标注", () => {
     const sources = host.querySelectorAll('[data-message-id="message-review"] [data-testid="message-source"] blockquote');
     expect(sources).toHaveLength(2);
     expect([...sources].map(source=>source.textContent).join("\n\n")).toBe(fullSelection().text);
-    expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + countReadingCharacters(fullSelection().text) + " / 3000 字符");
+    await locateHistorySource();
+    await expectPreparedSource(fullSelection());
     expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p0", offset: 0 });
   });
 });
@@ -378,22 +411,25 @@ describe("P0 独立验收：旧消息缺来源与损坏来源的区别", () => {
     await mount(); const marker = paragraph(1).querySelector<HTMLElement>(".judu-history-marker");
     expect(marker).not.toBeNull(); await click(marker!); await click(button("查看完整句读", document));
   }
-  it("真正没有保存 anchor 的旧消息保留已核验的单段标注来源", async () => {
+  it("没有保存 anchor 的旧消息不根据单段标注伪造完整来源", async () => {
     await openPartialAnnotation({ ...analysis });
-    expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + texts[1].length + " / 3000 字符");
-    expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p1", offset: 0 });
+    // WHY：查看完整句读现在只定位结果卡；缺少权威来源的旧消息不能把局部标注伪造成完整消息选文。
+    expect(host.querySelector('[data-message-id="message-review"] [data-testid="message-source"]')).toBeNull();
+    await expectPreparedSource(null);
   });
   it("完整 anchor 中后一段与当前版文字不符时，清除临时局部选文", async () => {
     const anchor = makeReadingAnchor(selectionAnchors(fullSelection())); anchor.fragments![1].selectedText = "错".repeat(texts[1].length);
     await openPartialAnnotation({ ...analysis, anchor });
-    expect(host.querySelector(".selection-bar")?.textContent).not.toContain("已选");
-    expect(host.textContent).toContain("未保留局部选文");
+    await locateHistorySource();
+    expect(host.querySelector(".selection-bar")).toBeNull();
+    expect(host.textContent).toContain("无法在当前版本验证");
+    await expectPreparedSource(null);
   });
   it("[回归] 明确保存了 version2 但 fragments 结构损坏，不能降级成旧消息缺 anchor", async () => {
     const anchor = makeReadingAnchor(selectionAnchors(fullSelection())); anchor.fragments![1].endOffset += 1;
     await openPartialAnnotation({ ...analysis, anchor });
-    expect(host.querySelector(".selection-bar")?.textContent).not.toContain("已选");
-    expect(host.textContent).toContain("未保留局部选文");
+    expect(host.querySelector('[data-message-id="message-review"] [data-testid="message-source"]')).toBeNull();
+    await expectPreparedSource(null);
   });
 });
 
@@ -413,6 +449,7 @@ it("[回归] 中间段 annotation 缺失时，不能在请求权威消息来源�
   await mount(); const marker = paragraph(2).querySelector<HTMLElement>(".judu-history-marker");
   expect(marker).not.toBeNull(); await click(marker!); await click(button("查看完整句读", document));
   expect(fetcher.mock.calls.filter(([input]) => url(input).pathname === "/api/threads/thread-review"), "不能因残缺标注不连续而放弃读取更完整的消息来源").toHaveLength(1);
-  expect(host.querySelector(".selection-bar")?.textContent).toContain("已选 " + countReadingCharacters(selection.text) + " / 3000 字符");
+  await locateHistorySource();
+  await expectPreparedSource(selection);
   expect(navigation.setAnchor).toHaveBeenLastCalledWith({ paragraphId: "A-p0", offset: 0 });
 });

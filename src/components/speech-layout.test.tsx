@@ -51,7 +51,7 @@ it("各格式阅读器共用同高底栏，长提示和窄窗口不能换行",as
  expect(css).toContain('speech-footer-inline[data-phase="idle"] { display:none; }');
  expect(css).toMatch(/speech-footer\.speech-footer-inline\s*\{[^}]*flex-wrap:nowrap[^}]*align-items:center/u);
  for(const name of ["epub-reader","pdf-reader","cbz-reader"]){expect(await readFile(`src/components/${name}.tsx`,"utf8")).toContain("<SpeechPlaybackBar inline/>");}
- const page=await readFile("src/app/page.tsx","utf8");expect(page).toContain("<SpeechPlaybackBar inline/>");expect(page).not.toContain("<SpeechPlaybackBar reserveSpace/>");
+ const page=await readFile("src/app/book-workspace.tsx","utf8");expect(page).toContain("<SpeechPlaybackBar inline/>");expect(page).not.toContain("<SpeechPlaybackBar reserveSpace/>");
 });
 
 it("原版文字翻页与页码靠左，朗读操作靠右",async()=>{

@@ -37,7 +37,7 @@ describe("PDF bootstrap isolation", () => {
   it("does not load any PDF module at evaluation or adapter selection, and retries failures only for PDF", async () => {
     const { vi } = await import("vitest");
     const loader = vi.fn(() => { throw new Error("PDF unavailable"); });
-    vi.resetModules(); vi.doMock("node:module", () => ({ createRequire: () => loader }));
+    vi.resetModules(); vi.doMock("node:module", () => ({ default: { createRequire: () => loader } }));
     try {
       const adapters = await import("./document-adapter");
       adapters.documentAdapterFor(".pdf"); adapters.documentAdapterFor(".epub"); expect(loader).not.toHaveBeenCalled();
@@ -51,7 +51,7 @@ describe("PDF bootstrap isolation", () => {
     const cleanup = vi.fn(), destroy = vi.fn();
     const document = { numPages: 2, getPage: vi.fn(async (page: number) => ({ getTextContent: async () => ({ items: [{ str: "Page" }, { type: "marked-content" }, { str: String(page) }] }), cleanup })) };
     const getDocument = vi.fn(() => ({ promise: Promise.resolve(document), destroy }));
-    vi.resetModules(); vi.doMock("node:module", () => ({ createRequire: () => (specifier: string) => specifier.includes("worker") ? { WorkerMessageHandler: {} } : { getDocument } }));
+    vi.resetModules(); vi.doMock("node:module", () => ({ default: { createRequire: () => (specifier: string) => specifier.includes("worker") ? { WorkerMessageHandler: {} } : { getDocument } } }));
     const global = globalThis as typeof globalThis & { pdfjsWorker?: { WorkerMessageHandler: unknown } }; const previousWorker = global.pdfjsWorker;
     try {
       const adapters = await import("./document-adapter");

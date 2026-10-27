@@ -1,17 +1,27 @@
 ﻿import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { createRequire } from 'node:module';
+import nodeModule from 'node:module';
 import { z } from 'zod';
 export type ParsedNavigationItem = { label: string; href: string | null; children: ParsedNavigationItem[] };
 const navigationSchema: z.ZodType<ParsedNavigationItem> = z.lazy(() => z.object({ label: z.string(), href: z.string().nullable(), children: z.array(navigationSchema) }));
 const resultSchema = z.object({ title: z.string(), author: z.string(), sections: z.array(z.object({ id: z.string(), sourceHref: z.string(), html: z.string() })), navigation: z.array(navigationSchema) });
 export type FoliateImportResult = z.infer<typeof resultSchema>;
+export function resolveFoliateJsdomEntry(resolver?: { resolve(specifier: string): unknown }): string {
+  // WHY：Webpack 会同时改写 createRequire 与 resolve 的直接调用；保留原生解析函数，传给独立进程的只能是真实磁盘路径。
+  const createNativeRequire: unknown = Reflect.get(nodeModule, 'createRequire');
+  if (typeof createNativeRequire !== 'function') throw new Error('EPUB worker 原生解析器不可用');
+  const nativeResolver: unknown = resolver ?? Reflect.apply(createNativeRequire, undefined, [path.join(process.cwd(), 'package.json')]);
+  if (!nativeResolver || (typeof nativeResolver !== 'function' && typeof nativeResolver !== 'object')) throw new Error('EPUB worker 原生解析器不可用');
+  const nativeResolve: unknown = Reflect.get(nativeResolver, 'resolve');
+  if (typeof nativeResolve !== 'function') throw new Error('EPUB worker 原生解析器不可用');
+  const entry: unknown = Reflect.apply(nativeResolve, nativeResolver, ['jsdom']);
+  if (typeof entry !== 'string' || !path.isAbsolute(entry)) throw new Error('EPUB worker 的 jsdom 入口不是绝对文件路径');
+  return entry;
+}
 export async function parseWithFoliate(bytes: Buffer): Promise<FoliateImportResult> {
   return new Promise((resolve, reject) => {
-    // WHY：父进程仅定位依赖并显式传给worker，生产构建可跟踪jsdom依赖；DOM仍只在独立进程中创建。
-    require.resolve('jsdom');
-    // WHY：Turbopack的resolve结果可能是虚拟模块ID；worker必须接收Node原生解析的真实磁盘路径。
-    const jsdomEntry = createRequire(path.join(process.cwd(), 'package.json')).resolve('jsdom');
+    // WHY：父进程只传真实依赖入口；发布装配器显式携带 jsdom/jszip 闭包，DOM 仍只在隔离进程中创建。
+    const jsdomEntry = resolveFoliateJsdomEntry();
     const worker = spawn(process.execPath, ['--max-old-space-size=512', path.join(process.cwd(), 'scripts/epub/foliate-import-worker.mjs'), jsdomEntry], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     const chunks: Buffer[] = [];
     let outputSize = 0, diagnostics = '', settled = false;

@@ -54,7 +54,8 @@ it('stale anchor document failure must not put the new converted edition into an
 });
 it('stale next-page failure must not put the replacement hash session into an error state',async()=>{
  const a=variant('A'),b=variant('B'),next=deferred<void>();vi.mocked(a.view.next).mockReturnValueOnce(next.promise);queue(a);queue(b);await render({book:a.book});await ready(a);
- const button=[...host.querySelectorAll('button')].find(v=>v.textContent==='转换版下一页')!;await act(async()=>button.click());expect(a.view.next).toHaveBeenCalledOnce();
+ // WHY：使用当前可访问名称定位，仍实际触发翻页并校验过期会话错误隔离。
+ const button=host.querySelector<HTMLButtonElement>('button[aria-label="转换版下一页"]');if(!button)throw new Error('缺少转换版下一页按钮');await act(async()=>button.click());expect(a.view.next).toHaveBeenCalledOnce();
  await render({book:b.book});await ready(b);await act(async()=>next.reject(new Error('STALE A next rejected after B ready')));expect(host.querySelector('[role="alert"]')?.textContent??'').toBe('');
 });
 it('late successful old navigation must not overwrite the current converted position',async()=>{

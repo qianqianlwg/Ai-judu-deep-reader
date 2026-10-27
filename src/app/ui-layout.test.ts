@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 describe("工作台布局契约", () => {
   it("主区纯白、导航独立、右栏始终聊天，切视图不改变阅读测量尺寸", async () => {
     const css = await readFile(new URL("../components/workspace-nav.css", import.meta.url), "utf8");
-    const page = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    const page = await readFile(new URL("./book-workspace.tsx", import.meta.url), "utf8");
     expect(css).toContain("grid-template-columns: 220px minmax(0, 1fr) 390px");
     expect(css).toContain(".workspace-main"); expect(css).toContain("background: #fff");
     expect(css).toContain('[data-workspace-hidden="true"] { visibility: hidden; pointer-events: none; }');
@@ -12,14 +12,14 @@ describe("工作台布局契约", () => {
     expect(page).not.toContain("knowledgeOpen ?"); expect(page).not.toContain("top-actions");
   });
   it("移除底部字号与选文提示栏，顶部阅读选项保持可用", async () => {
-    const page = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    const page = await readFile(new URL("./book-workspace.tsx", import.meta.url), "utf8");
     expect(page).not.toContain('className="selection-bar"');
     expect(page).not.toContain("setReaderScale");
     expect(page).toContain("<ReaderOptions");
     expect(page).toContain("<SelectionActions");
   });
   it("全站 skip link 指向各路由可聚焦的主要内容区", async () => {
-    const home = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    const home = await readFile(new URL("./book-workspace.tsx", import.meta.url), "utf8");
     const settings = await readFile(new URL("./settings/page.tsx", import.meta.url), "utf8");
     const library = await readFile(new URL("./library/page.tsx", import.meta.url), "utf8");
     const global = await readFile(new URL("./globals.css", import.meta.url), "utf8");

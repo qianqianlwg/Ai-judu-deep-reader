@@ -70,7 +70,9 @@ it("霞鹜文楷只在原版选中时注入同源字库，并保留系统字体�
 it("生成锁定选区时仍能操作原版下一页",async()=>{
  await render();
  await render({disabled:true,navigationDisabled:false});
- const next=[...host.querySelectorAll('button')].find(button=>button.textContent==="原版下一页") as HTMLButtonElement;
+ // WHY：翻页文案已简化为“下一页”，格式身份仍由可访问名称明确表达；不能让旧文案选择器跳过交互验收。
+ const next=host.querySelector<HTMLButtonElement>('button[aria-label="原版下一页"]');
+ if(!next)throw new Error('缺少原版下一页按钮');
  expect(next.disabled).toBe(false);
  await act(async()=>{next.click();});
  expect(view.next).toHaveBeenCalledOnce();

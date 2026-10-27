@@ -2,7 +2,7 @@ import {readFile} from 'node:fs/promises';
 import {expect,it} from 'vitest';
 
 it('阅读组合根和原版渲染器不再装配本节句读入口', async () => {
- const page=await readFile('src/app/page.tsx','utf8');
+ const page=await readFile('src/app/book-workspace.tsx','utf8');
  const original=await readFile('src/components/epub-reader.tsx','utf8');
  expect(page).not.toMatch(/SectionReadingAction|onStartSection|onOpenSection|openSectionHistory/u);
  expect(original).not.toMatch(/EpubSectionActions|onStartSection|onOpenSection|sectionReadingDisabled/u);

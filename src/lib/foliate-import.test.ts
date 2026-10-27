@@ -1,5 +1,6 @@
 ﻿import { expect,it } from 'vitest';
-import { parseWithFoliate } from './foliate-import';
+import path from 'node:path';
+import { parseWithFoliate, resolveFoliateJsdomEntry } from './foliate-import';
 import { makeEpub,EPUB_HREF } from '../app/api/import/fixtures';
 import JSZip from 'jszip';
 it('实际执行固定上游引擎，NCX目录与spine分离，旧字面百分号资源可读',async()=>{
@@ -26,3 +27,11 @@ it('字面百分号和空格资源共存时优先精确寻址，不拒绝无关�
  const literal=await parseWithFoliate(await zip.generateAsync({type:'nodebuffer'}));
  expect(literal.sections[0].html).toContain('第二段');
 },10000);
+
+it('worker 入口必须是 Node 原生解析出的磁盘绝对路径，拒绝构建器虚拟模块ID', () => {
+ expect(path.isAbsolute(resolveFoliateJsdomEntry())).toBe(true);
+ expect(() => resolveFoliateJsdomEntry({ resolve: () => 32325 })).toThrow('绝对文件路径');
+ expect(() => resolveFoliateJsdomEntry({ resolve: () => 'jsdom' })).toThrow('绝对文件路径');
+ const entry = path.resolve('node_modules/jsdom/lib/api.js');
+ expect(resolveFoliateJsdomEntry({ resolve(specifier) { expect(specifier).toBe('jsdom'); return entry; } })).toBe(entry);
+});

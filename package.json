@@ -13,7 +13,11 @@
         "prebuild": "npm run build:mobi-worker && npm run build:umd-worker",
         "pretest": "npm run build:mobi-worker && npm run build:umd-worker",
         "test:epub-worker": "node --test scripts/epub/foliate-import-worker.test.mjs",
-        "build:umd-worker": "node scripts/build-umd-worker.mjs"
+        "build:umd-worker": "node scripts/build-umd-worker.mjs",
+        "build:release": "node scripts/build-release.mjs",
+        "package:release": "node scripts/package-release.mjs",
+        "verify:release": "node scripts/smoke-release.mjs",
+        "test:release": "node --test scripts/release-manifest.test.mjs scripts/release-traces.test.mjs scripts/package-release.test.mjs scripts/build-release.test.mjs scripts/smoke-release.test.mjs scripts/start-release.test.mjs"
     },
     "dependencies": {
         "@langchain/anthropic": "^1.5.10",
