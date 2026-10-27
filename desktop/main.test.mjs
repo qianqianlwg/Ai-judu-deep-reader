@@ -91,18 +91,21 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     const form=new FormData();form.set('file',new File(['桌面隔离验收\n\n这是专为桌面测试创建的文本，不含用户正式书籍。'],'desktop-smoke.txt',{type:'text/plain'}));
     const imported=await fetch(origin+'/api/import',{method:'POST',headers:{Origin:origin},body:form});assert.ok(imported.ok,await imported.clone().text());
     const book=await imported.json();
-    const selected=book.chapters[0].paragraphs[0];
+    const selected=book.chapters[0].paragraphs.find(paragraph=>Array.from(paragraph.text).length>=10);assert.ok(selected);
     let modelCalls=0;
     const fixture=createServer(async(req,res)=>{
       let raw='';for await(const chunk of req)raw+=chunk;
       const body=JSON.parse(raw);modelCalls++;
       assert.equal(req.headers.authorization,'Bearer desktop-fixture-not-a-real-secret');
       const reading=body.tools?.some(tool=>tool.function.name==='submit_reading_sentence');
-      const name=reading?'submit_reading_sentence':'mark_answer_emphasis';
-      const args=reading?{sourceStart:selected.text.slice(0,8),sourceEnd:selected.text.slice(-8),title:'隔离夹具释读',content:'固定测试释读，不是真实模型验收。',sourceAnnotations:{keywords:'none',keySentences:'none',concepts:'none'},answerEmphasis:{keywords:'none',keySentences:'none'}}:{answerEmphasis:{keywords:'none',keySentences:'none'}};
+      const guide=body.tools?.some(tool=>tool.function.name==='update_reading_guide');
+      const name=guide?'update_reading_guide':reading?'submit_reading_sentence':'mark_answer_emphasis';
+      const guideContext=guide?JSON.parse(body.messages.find(message=>message.role==='user').content):null;
+      const args=guide?{reason:'隔离夹具验证来源闭环',upserts:[{id:'new-fixture',parentId:null,title:'夹具导读',summary:'隔离模型夹具依据固定释读生成的主题，用于验证来源保存与回跳。',sourceIds:guideContext.analyses.map(item=>item.sourceId)}],removeIds:[]}:reading?{sourceStart:selected.text.slice(0,8),sourceEnd:selected.text.slice(-8),title:'隔离夹具释读',content:'固定测试释读，不是真实模型验收。',sourceAnnotations:{keywords:'none',keySentences:'none',concepts:'none'},answerEmphasis:{keywords:'none',keySentences:'none'}}:{answerEmphasis:{keywords:'none',keySentences:'none'}};
       res.writeHead(200,{'content-type':'text/event-stream'});
-      if(!reading)res.write('data: '+JSON.stringify({choices:[{index:0,delta:{role:'assistant',content:'隔离模型夹具回答。'},finish_reason:null}]})+'\n\n');
-      res.end('data: '+JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:'fixture-call',type:'function',function:{name,arguments:JSON.stringify(args)}}]},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n');
+      if(!reading&&!guide)res.write('data: '+JSON.stringify({id:'chat-fixture-'+modelCalls,object:'chat.completion.chunk',choices:[{index:0,delta:{role:'assistant',content:'隔离模型夹具回答。'},finish_reason:null}]})+'\n\n');
+      if(!body.tools?.length){res.end('data: '+JSON.stringify({id:'chat-fixture-'+modelCalls,object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');return;}
+      res.end('data: '+JSON.stringify({id:'chat-fixture-'+modelCalls,object:'chat.completion.chunk',choices:[{index:0,delta:{role:'assistant',tool_calls:[{index:0,id:'fixture-call-'+modelCalls,type:'function',function:{name,arguments:JSON.stringify(args)}}]},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n');
     });
     await new Promise(resolve=>fixture.listen(0,'127.0.0.1',resolve));t.after(()=>fixture.close());
     const fixturePort=fixture.address().port;ports.push(fixturePort);
@@ -113,6 +116,10 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     const stream=await fetch(origin+'/api/analyze/stream',{method:'POST',headers:{Origin:origin,'content-type':'application/json'},body:JSON.stringify({threadId,clientUserMessageId:crypto.randomUUID(),clientAssistantMessageId:assistantId,editionId:book.editionId,chapterId:book.chapters[0].id,paragraphId:selected.id,mode:'chat',question:'请解释这段文字',selectedText:selected.text,selectionStart:0,selectionEnd:selected.text.length})});
     const result=await stream.text();assert.equal(stream.status,200,result);assert.match(result,/event: done/);assert.ok(!result.includes('event: error'),result);assert.ok(modelCalls>0);
     const embedding=await fetch(origin+'/api/settings/embedding',{method:'PUT',headers:{Origin:origin,'content-type':'application/json'},body:JSON.stringify({apiKey:'desktop-fixture-embedding',baseUrl:'http://127.0.0.1:'+fixturePort+'/v1',model:'fixture-embedding',agentSemanticEnabled:false})});assert.equal(embedding.status,200,await embedding.clone().text());
+    const analysisId=crypto.randomUUID();
+    const analysisStream=await fetch(origin+'/api/analyze/stream',{method:'POST',headers:{Origin:origin,'content-type':'application/json'},body:JSON.stringify({threadId,clientUserMessageId:crypto.randomUUID(),clientAssistantMessageId:analysisId,editionId:book.editionId,bookId:book.id,chapterId:book.chapters[0].id,paragraphId:selected.id,mode:'analyze',question:'请释读这段原文',selectedText:selected.text,selectionStart:0,selectionEnd:selected.text.length})});
+    const analysisText=await analysisStream.text();assert.equal(analysisStream.status,200,analysisText);assert.match(analysisText,/event: done/);assert.ok(!analysisText.includes('event: error'),analysisText);
+    await waitFor(async()=>{const db=new DatabaseSync(path.join(directory,'library','judu.sqlite'),{readOnly:true});try{const jobs=db.prepare('SELECT status,error FROM guide_sources').all();if(jobs.some(job=>job.status==='failed'))throw new Error(JSON.stringify(jobs));return jobs.length>0&&jobs.every(job=>job.status==='completed');}finally{db.close();}},30000);
     const {hasApiKey:speechHasKey,model:speechModel,...speechPreferences}=await(await fetch(origin+'/api/settings/speech')).json();assert.equal(typeof speechHasKey,'boolean');assert.equal(typeof speechModel,'string');
     const speech=await fetch(origin+'/api/settings/speech',{method:'PUT',headers:{Origin:origin,'content-type':'application/json'},body:JSON.stringify({...speechPreferences,apiKey:'desktop-fixture-speech'})});assert.equal(speech.status,200,await speech.clone().text());
     const speechFile=await readFile(path.join(directory,'library','speech-settings.json'),'utf8');assert.ok(!speechFile.includes('desktop-fixture-speech'));assert.ok(speechFile.includes('judu-dpapi-v1:'));
@@ -120,6 +127,7 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     const saved=database.prepare('SELECT api_key FROM ai_provider_configs WHERE id=\'default\'').get().api_key;
     assert.ok(String(saved).startsWith('judu-dpapi-v1:'));assert.ok(!String(saved).includes('desktop-fixture-not-a-real-secret'));
     assert.equal(database.prepare('SELECT status FROM chat_messages WHERE id=?').get(assistantId).status,'completed');database.close();
+    const semanticDb=new DatabaseSync(path.join(directory,'library','judu.sqlite'),{readOnly:true});const semantic=JSON.parse(semanticDb.prepare('SELECT structured_output FROM chat_messages WHERE id=?').get(analysisId).structured_output);assert.ok(semantic.semantic.units.some(unit=>unit.status==='completed'));semanticDb.close();
     const vault=await readFile(path.join(directory,'library','desktop-vault.bin'));assert.ok(vault.length>32);
     const books=await(await fetch(origin+'/api/books')).json();const ids=books.map(book=>book.id);assert.ok(ids.length>=1);
     // WHY：安全策略必须在真实Electron窗口观察，不只断言配置常量。
@@ -135,7 +143,10 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     t.after(()=>{if(duplicate.exitCode===null)duplicate.kill();});
     const duplicateCode=await new Promise((resolve,reject)=>{duplicate.once('error',reject);duplicate.once('exit',resolve);});assert.equal(duplicateCode,0);assert.equal(active.exitCode,null);
     assert.equal((await fetch(origin+'/api/books')).status,200);
-    await close();origin=await launch();
+    await connection.send('Runtime.evaluate',{expression:"localStorage.setItem('judu:desktop-acceptance','reading-state')"});
+    const priorOrigin=origin;await close();origin=await launch();
+    const retainedState=(await connection.send('Runtime.evaluate',{expression:"localStorage.getItem('judu:desktop-acceptance')",returnByValue:true})).result.value;
+    const stableOrigin=origin===priorOrigin&&retainedState==='reading-state';if(process.env.JUDU_DESKTOP_E2E_STABLE_ORIGIN)assert.ok(stableOrigin,'阅读来源与localStorage必须跨重启保留');
     const unlocked=await(await fetch(origin+'/api/settings/ai')).json();assert.equal(unlocked.hasApiKey,true);assert.match(unlocked.maskedApiKey,/desk/);
     assert.equal((await(await fetch(origin+'/api/settings/embedding')).json()).hasApiKey,true);assert.equal((await(await fetch(origin+'/api/settings/speech')).json()).hasApiKey,true);
     const history=await(await fetch(origin+'/api/threads/'+threadId+'?editionId='+book.editionId)).json();assert.ok(JSON.stringify(history).includes(assistantId));
@@ -154,7 +165,7 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     if(artifacts){await mkdir(artifacts,{recursive:true});const screenshot=await connection.send('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'desktop-acceptance.png'),Buffer.from(screenshot.data,'base64'));}
     await close();
     for(const port of ports){const server=await import('node:net').then(({createServer})=>createServer());await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',()=>resolve(undefined));});await new Promise(resolve=>server.close(resolve));}
-    const report={systemNodeOnPath:!Boolean(process.env.JUDU_DESKTOP_E2E_PATH_ISOLATED),packaged:Boolean(process.env.JUDU_DESKTOP_E2E_EXECUTABLE),renderedFormats:rendered,formats:formats.importedFormats,dpapiVault:true,providerEncryptedAtRest:true,speechEncryptedAtRest:true,embeddingKeyRestored:true,fixtureModelCalls:modelCalls,realModelCalled:false,streamCompleted:true,threadPreserved:true,electron:require('electron/package.json').version,node:process.version,ports,homepage:200,books:200,healthWithoutToken:404,rendererNodeIntegration:false,externalNavigationBlocked:true,popupBlocked:true,singleInstanceConfirmed:true,importedFixture:true,restartPreservedBookIds:true,portsReleased:true};
+    const report={stableOrigin,localStorageRestored:stableOrigin,systemNodeOnPath:!Boolean(process.env.JUDU_DESKTOP_E2E_PATH_ISOLATED),packaged:Boolean(process.env.JUDU_DESKTOP_E2E_EXECUTABLE),renderedFormats:rendered,formats:formats.importedFormats,dpapiVault:true,providerEncryptedAtRest:true,speechEncryptedAtRest:true,embeddingKeyRestored:true,fixtureModelCalls:modelCalls,realModelCalled:false,streamCompleted:true,readingAnalysisCompleted:true,guideFixtureCompleted:true,threadPreserved:true,electron:require('electron/package.json').version,node:process.version,ports,homepage:200,books:200,healthWithoutToken:404,rendererNodeIntegration:false,externalNavigationBlocked:true,popupBlocked:true,singleInstanceConfirmed:true,importedFixture:true,restartPreservedBookIds:true,portsReleased:true};
     if(artifacts)await writeFile(path.join(artifacts,'desktop-acceptance.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify(report));
   }catch(error){

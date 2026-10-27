@@ -68,3 +68,5 @@ test('Windows 退出终止自有解析子进程树', {skip:process.platform!=='w
 });
 
 test("后台任务状态通过私有IPC返回，不暴露公有API",async t=>{const server=await startDesktopServer(await fixture(t));t.after(()=>server.stop());assert.equal(await server.busy(),2);await server.stop();});
+
+test('保留来源端口，冲突时失败而不是静默换来源',async t=>{const owner=createServer();await new Promise(resolve=>owner.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>owner.close(resolve)));const port=owner.address().port;await assert.rejects(startDesktopServer({...await fixture(t),port}),/端口/);});

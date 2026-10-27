@@ -24,3 +24,19 @@ export async function lockLibrary(directory){
   }
  }throw new Error('无法取得书库锁');
 }
+// WHY：localStorage按来源（含端口）隔离；每个profile首启选空闲端口，随后复用，不能每次重启丢失界面阅读状态。
+/** @param {string} profile */
+export async function readDesktopPort(profile){
+ const file=path.join(profile,'desktop-port.json');
+ try{
+  /** @type {unknown} */const value=JSON.parse(await readFile(file,'utf8'));
+  if(!value||typeof value!=='object'||!('port'in value)||typeof value.port!=='number'||!Number.isInteger(value.port)||value.port<1024||value.port>65535)throw new Error('阅读端口配置损坏，请保留profile并检查desktop-port.json');
+  return value.port;
+ }catch(error){if(!(error instanceof Error&&'code'in error&&error.code==='ENOENT'))throw error;}
+ // WHY：升级旧客户端时从本机受限事件日志取最后一次来源，尽量保留既有浏览器偏好；不存在日志才首次选址。
+ try{
+  const lines=(await readFile(path.join(profile,'desktop-events.log'),'utf8')).trim().split('\n').reverse();
+  for(const line of lines){/** @type {unknown} */const event=JSON.parse(line);if(event&&typeof event==='object'&&'event'in event&&event.event==='started'&&'port'in event&&typeof event.port==='number'&&Number.isInteger(event.port)&&event.port>=1024&&event.port<=65535)return event.port;}
+ }catch(error){if(!(error instanceof Error&&'code'in error&&error.code==='ENOENT'))throw error;}
+ return undefined;
+}

@@ -9,8 +9,9 @@ import { desktopWebPreferences, protectDesktopContents } from './policy.mjs';
 import { startDesktopServer } from './server.mjs';
 import { unlockLibraryKey } from './vault.mjs';
 import { runLibraryOperation } from './library-process.mjs';
-import { atomicJson, readLibraryChoice, lockLibrary } from './preferences.mjs';
+import { atomicJson, readLibraryChoice, readDesktopPort, lockLibrary } from './preferences.mjs';
 import { chooseNewLibrary } from './library-dialog.mjs';
+import {confirmDesktopExit}from'./exit-policy.mjs';
 import { logDesktopEvent } from './log.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -32,17 +33,15 @@ async function requestQuit(){
  if(closing||switching)return;closing=true;
  try{
   const server=await serverStart;
-  let count=0;
-  if(server)try{count=Number(await server.busy());}catch(error){console.error('退出任务检查失败',error);count=-1;}
-  if(count!==0){
-   const choice=await dialog.showMessageBox({type:'warning',title:'后台任务尚未完成',message:count<0?'无法确认后台状态':'仍有导入、解读或索引任务',detail:'强制退出可能中断结果；下次启动会标记中断，不会自动重新调用模型。',buttons:['等待任务完成再退出','取消退出','强制退出'],cancelId:1,defaultId:1});
-   if(choice.response===1)return;
-   if(choice.response===0){
-    if(!server)return;waiting=true;window?.setTitle('句读阅读器 — 等待任务完成（菜单可取消）');
-    while(waiting){await delay(500);if(Number(await server.busy())===0)break;}
-    if(!waiting)return;waiting=false;
-   }
-  }
+  const confirmed=await confirmDesktopExit({
+   busy:async()=>{if(!server)return 0;try{return Number(await server.busy());}catch(error){console.error('退出任务检查失败',error);return -1;}},
+   choose:async count=>{
+    const choice=await dialog.showMessageBox({type:'warning',title:'后台任务尚未完成',message:count<0?'无法确认后台状态':'仍有导入、解读或索引任务',detail:'强制退出可能中断结果；下次启动会标记中断，不会自动重新调用模型。',buttons:['等待任务完成再退出','取消退出','强制退出'],cancelId:1,defaultId:1});
+    return choice.response===0?'wait':choice.response===2?'force':'cancel';
+   },
+   waiting:()=>waiting,pause:()=>delay(500),onWaiting:value=>{waiting=value;window?.setTitle(value?'句读阅读器 — 等待任务完成（菜单可取消）':'句读阅读器');}
+  });
+  if(!confirmed)return;
   quitting=true;startup.abort();await server?.stop();await releaseLock?.();releaseLock=undefined;
   log('stopped');await logging;app.quit();
  }catch(error){quitting=false;console.error('退出失败',error);dialog.showErrorBox('退出未完成','后台清理未完成，请保留当前窗口并重试。');}
@@ -96,10 +95,10 @@ else{
    {label:'帮助',submenu:[{label:'诊断日志位置',click:()=>void shell.openPath(app.getPath('userData')).then(error=>{if(error)dialog.showErrorBox('无法打开日志目录',error);})},{label:'关于内测版',click:()=>void dialog.showMessageBox({message:'句读阅读器 Windows 内测版',detail:'未签名版本。书库与安装目录分离；卸载不删除书库。备份时请关闭客户端并完整复制当前书库（包含凭据文件），密钥仅原Windows账户可解锁。'})}]}
   ]));
   await window.loadFile(path.join(root,'startup.html'));
-  serverStart=startDesktopServer({...locations,secretKey:key,signal:startup.signal,onLog:text=>process.stdout.write(text),onExit:(code,signal)=>{
+  serverStart=startDesktopServer({...locations,port:await readDesktopPort(app.getPath('userData')),secretKey:key,signal:startup.signal,onLog:text=>process.stdout.write(text),onExit:(code,signal)=>{
    if(quitting)return;log('backend-exit',{code});dialog.showErrorBox('句读后台已停止',`后台意外退出（${code??signal}），书库保留，请重新打开。`);void requestQuit();
   }});
-  const server=await serverStart;origin=server.origin;log('started',{port:server.port,pid:server.pid});
+  const server=await serverStart;origin=server.origin;await atomicJson(path.join(app.getPath('userData'),'desktop-port.json'),{port:server.port});log('started',{port:server.port,pid:server.pid});
   if(!startup.signal.aborted&&!window.isDestroyed())await window.loadURL(origin);
   if(recovery&&typeof recovery==='object'&&'recovered'in recovery&&Number(recovery.recovered)>0)void dialog.showMessageBox({type:'info',message:'已标记上次中断的任务',detail:'原文与已保存内容保留。中断的解读/索引不会自动重试，请在界面明确重试。'});
  }).catch(async error=>{

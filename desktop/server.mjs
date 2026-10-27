@@ -15,11 +15,13 @@ export function backendEnvironment(parent, options) {
     JUDU_APP_ORIGIN: `http://127.0.0.1:${options.port}`, JUDU_DATA_DIR: options.dataDir,
     JUDU_DESKTOP_RELEASE_DIR: options.releaseDir, JUDU_DESKTOP_TOKEN: options.token };
 }
-export async function unusedLoopbackPort() {
+/** @param {number} [preferred] */
+export async function unusedLoopbackPort(preferred=0) {
+  if(!Number.isInteger(preferred)||preferred!==0&&(preferred<1024||preferred>65535))throw new Error("阅读端口无效");
   const server = createServer();
   await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve(undefined));
+    server.once('error', error=>reject(preferred?new Error('阅读端口 '+preferred+' 被占用或不可用，请释放该端口后重试；不会重置阅读状态',{cause:error}):error));
+    server.listen(preferred, '127.0.0.1', () => resolve(undefined));
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('无法分配桌面后台端口');
@@ -42,13 +44,13 @@ async function terminateOwnedTree(child) {
 }
 /**
  * @param {{ nodePath: string; releaseDir: string; dataDir: string; entryPath?: string;
- * secretKey?: Buffer; signal?: AbortSignal; timeoutMs?: number; shutdownMs?: number;
+ * port?: number; secretKey?: Buffer; signal?: AbortSignal; timeoutMs?: number; shutdownMs?: number;
  * onExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
  * onLog?: (text: string) => void }} options
  */
 export async function startDesktopServer(options) {
   options.signal?.throwIfAborted();
-  const port = await unusedLoopbackPort();
+  const port = await unusedLoopbackPort(options.port);
   options.signal?.throwIfAborted();
   const origin = `http://127.0.0.1:${port}`;
   const token = randomBytes(32).toString('hex');
