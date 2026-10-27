@@ -7,12 +7,12 @@ export function isWithin(root, candidate) {
   const relative = path.relative(root, candidate);
   return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
 }
-/** @param {{ packaged: boolean; resourcesPath: string; appPath: string; userData: string; env?: NodeJS.ProcessEnv }} options */
+/** @param {{ packaged: boolean; resourcesPath: string; appPath: string; userData: string; dataDir?: string; env?: NodeJS.ProcessEnv }} options */
 export function desktopLocations(options) {
   const env = options.env ?? {};
   const releaseDir = options.packaged ? path.join(options.resourcesPath, 'app-core') : env.JUDU_DESKTOP_RELEASE_DIR;
   const nodePath = options.packaged ? path.join(options.resourcesPath, 'node', 'node.exe') : env.JUDU_DESKTOP_NODE_PATH;
-  const dataDir = !options.packaged && env.JUDU_DESKTOP_DATA_DIR || path.join(options.userData, 'library');
+  const dataDir = options.dataDir || !options.packaged && env.JUDU_DESKTOP_DATA_DIR || path.join(options.userData, 'library');
   if (!releaseDir || !nodePath || ![releaseDir, nodePath, dataDir].every(path.isAbsolute)) {
     throw new Error('桌面运行核心、Node 和数据目录必须是显式的绝对路径');
   }
@@ -29,9 +29,20 @@ export async function prepareDesktopLocations(locations) {
     const stat = await lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('桌面运行资源缺失或不是普通文件');
   }
+  await validateDataDirectory(locations.dataDir);
+  await mkdir(locations.dataDir, { recursive: true });
+  const realData = await realpath(locations.dataDir);
+  const realRelease = await realpath(locations.releaseDir);
+  if (isWithin(realRelease, realData)) throw new Error('书库真实路径不能位于运行核心中');
+  if ((await lstat(locations.dataDir)).isSymbolicLink()) throw new Error('书库根目录不能是链接');
+  return locations;
+}
+
+/** @param {string} directory */
+export async function validateDataDirectory(directory){
   // WHY：父目录也检查真实路径，不能让已有 junction 把可写书库指向安装资源。
-  let current = path.parse(locations.dataDir).root;
-  for (const part of locations.dataDir.slice(current.length).split(path.sep).filter(Boolean)) {
+  let current = path.parse(directory).root;
+  for (const part of directory.slice(current.length).split(path.sep).filter(Boolean)) {
     current = path.join(current, part);
     try {
       const stat = await lstat(current);
@@ -41,10 +52,4 @@ export async function prepareDesktopLocations(locations) {
       throw error;
     }
   }
-  await mkdir(locations.dataDir, { recursive: true });
-  const realData = await realpath(locations.dataDir);
-  const realRelease = await realpath(locations.releaseDir);
-  if (isWithin(realRelease, realData)) throw new Error('书库真实路径不能位于运行核心中');
-  if ((await lstat(locations.dataDir)).isSymbolicLink()) throw new Error('书库根目录不能是链接');
-  return locations;
 }

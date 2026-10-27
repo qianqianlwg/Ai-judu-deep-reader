@@ -1,3 +1,4 @@
+import { openSecret, sealSecret } from "./secret-storage";
 ﻿import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -11,7 +12,7 @@ export function createSpeechConfigStore(directory: string, environmentKey: () =>
   async function read(): Promise<SpeechConfig> {
     try {
       const stored = storedSchema.parse(JSON.parse(await fs.readFile(filename, "utf8")) as unknown);
-      return { preferences: stored.preferences, apiKey: stored.apiKey || environmentKey()?.trim() || "" };
+      return { preferences: stored.preferences, apiKey: openSecret(stored.apiKey || "") || environmentKey()?.trim() || "" };
     } catch (error: unknown) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") {
         return { preferences: { ...DEFAULT_SPEECH_PREFERENCES }, apiKey: environmentKey()?.trim() || "" };
@@ -27,7 +28,7 @@ export function createSpeechConfigStore(directory: string, environmentKey: () =>
     const temporary = filename + "." + randomUUID() + ".tmp";
     try {
       // WHY：原子替换防止进程中断留下半份 JSON；文件位于私有 data，不进入 public 或浏览器存储。
-      await fs.writeFile(temporary, JSON.stringify(next), { encoding: "utf8", mode: 0o600 });
+      await fs.writeFile(temporary, JSON.stringify({ ...next, apiKey: sealSecret(next.apiKey) }), { encoding: "utf8", mode: 0o600 });
       await fs.rename(temporary, filename);
     } catch (error: unknown) {
       try { await fs.unlink(temporary); }

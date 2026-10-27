@@ -1,5 +1,6 @@
 // @ts-check
 import { spawn } from 'node:child_process';
+import { guardWindowsProcess } from './windows-job.mjs';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -41,7 +42,7 @@ async function terminateOwnedTree(child) {
 }
 /**
  * @param {{ nodePath: string; releaseDir: string; dataDir: string; entryPath?: string;
- * signal?: AbortSignal; timeoutMs?: number; shutdownMs?: number;
+ * secretKey?: Buffer; signal?: AbortSignal; timeoutMs?: number; shutdownMs?: number;
  * onExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
  * onLog?: (text: string) => void }} options
  */
@@ -56,11 +57,12 @@ export async function startDesktopServer(options) {
     env: backendEnvironment(process.env, { ...options, port, token }),
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
+  /** @type {Awaited<ReturnType<typeof guardWindowsProcess>> | undefined} */ let guard;
   /** @type {Error | undefined} */ let processError;
   /** @type {Promise<void> | undefined} */ let stopping;
   let stopRequested = false;
   const closed = new Promise(resolve => child.once('exit', (code, signal) => {
-    if (!stopRequested) options.onExit?.(code, signal);
+    if (!stopRequested) {void guard?.close().catch(error=>{processError=error;});options.onExit?.(code, signal);}
     resolve(undefined);
   }));
   child.on('error', error => { processError = error; });
@@ -69,19 +71,34 @@ export async function startDesktopServer(options) {
   async function stop() {
     stopRequested = true;
     stopping ??= (async () => {
-      if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
-      // WHY：Windows 先终止仍归属于自有父进程的整棵树，避免父进程先退出后遗留解析 worker。
-      if (process.platform === 'win32') { await terminateOwnedTree(child); await closed; return; }
+      if (!child.pid || child.exitCode !== null || child.signalCode !== null) {await guard?.close();return;}
+      // WHY：Job保证父进程先退出时解析worker仍会清理；日常先请求后台优雅退出。
+      if(!guard && process.platform==='win32'){await terminateOwnedTree(child);await closed;return;}
       if (child.connected) child.send({ type: 'shutdown' }, error => { if (error) processError = error; });
       const timeout = delay(options.shutdownMs ?? 3000).then(() => false);
       if (!await Promise.race([closed.then(() => true), timeout])) {
         await terminateOwnedTree(child);
         await Promise.race([closed, delay(3000).then(() => { throw new Error('后台进程终止后仍未退出'); })]);
       }
+      await guard?.close();
     })();
     return stopping;
   }
+  async function busy() {
+    const id=randomBytes(8).toString('hex');
+    return await new Promise((resolve,reject)=>{
+      /** @param {unknown} message */ const listener=message=>{
+        if(message&&typeof message==='object'&&'id'in message&&message.id===id&&'count'in message&&typeof message.count==='number'){
+          clearTimeout(timer);child.off('message',listener);if(message.count<0)reject(new Error('无法确认后台任务状态'));else resolve(message.count);
+        }
+      };
+      const timer=setTimeout(()=>{child.off('message',listener);reject(new Error('后台任务状态查询超时'));},3000);
+      child.on('message',listener);child.send({type:'busy',id},error=>{if(error){clearTimeout(timer);child.off('message',listener);reject(error);}});
+    });
+  }
   try {
+    if(process.platform==='win32')try{guard=await guardWindowsProcess(/** @type {number} */(child.pid));}catch(e){if(child.exitCode!==null||child.signalCode!==null)throw new Error('桌面后台提前退出（'+(child.exitCode??child.signalCode)+'）');throw e;}
+    if(options.secretKey)child.send({type:'bootstrap',key:options.secretKey.toString('base64')});
     const deadline = Date.now() + (options.timeoutMs ?? 60000);
     while (Date.now() < deadline) {
       options.signal?.throwIfAborted();
@@ -98,7 +115,7 @@ export async function startDesktopServer(options) {
           }
           options.signal?.throwIfAborted();
           if (child.exitCode !== null || child.signalCode !== null) throw new Error('桌面后台在就绪时退出');
-          return { origin, port, pid: child.pid, stop };
+          return { origin, port, pid: child.pid, stop, busy };
         }
       } catch (error) {
         // WHY：只有尚未监听的连接失败可重试；身份或协议不符必须失败，不能连接其他进程。

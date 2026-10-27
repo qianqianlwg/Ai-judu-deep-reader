@@ -1,0 +1,2 @@
+import test from'node:test';import assert from'node:assert/strict';import{mkdtemp,readFile,rm}from'node:fs/promises';import os from'node:os';import path from'node:path';import{logDesktopEvent}from'./log.mjs';
+test('诊断仅保留受控事件',async t=>{const dir=await mkdtemp(path.join(os.tmpdir(),'judu-log-'));t.after(()=>rm(dir,{recursive:true,force:true}));await logDesktopEvent(dir,'started',{port:1234});assert.match(await readFile(path.join(dir,'desktop-events.log'),'utf8'),/started/);});

@@ -1,3 +1,4 @@
+import { openSecret } from "@/lib/secret-storage";
 import { readSourceMode, analysisOnlyTextError, ANALYSIS_ONLY_NOTICE, ANALYSIS_ONLY_PROMPT } from "@/lib/analysis-only-source";
 import { enqueueGuideSource } from "@/lib/guide-sources";
 import { SemanticPlanError } from "@/lib/semantic-plan-input";
@@ -75,7 +76,7 @@ function requestId(value: unknown): string {
 }
 function readConfig(db: Db): ProviderConfig {
   const row = db.prepare("SELECT provider, base_url, api_key, model FROM ai_provider_configs WHERE id = ?").get("default") as { provider?: string; base_url?: string; api_key?: string; model?: string } | undefined;
-  return { provider: row?.provider === "claude" ? "claude" : "openai", baseUrl: row?.base_url || process.env.AI_BASE_URL || "https://api.openai.com/v1", apiKey: row?.api_key || process.env.AI_API_KEY || "", model: row?.model || process.env.AI_MODEL || "gpt-4o-mini" };
+  return { provider: row?.provider === "claude" ? "claude" : "openai", baseUrl: row?.base_url || process.env.AI_BASE_URL || "https://api.openai.com/v1", apiKey: openSecret(row?.api_key || "") || process.env.AI_API_KEY || "", model: row?.model || process.env.AI_MODEL || "gpt-4o-mini" };
 }
 function verifiedAnchor(db: Db, input: Input): ReadingAnchor | undefined {
   if (input.sourceMode === "analysis-only") return undefined;

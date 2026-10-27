@@ -1,3 +1,4 @@
+import { openSecret } from "@/lib/secret-storage";
 import { getDb } from "./db";
 import { DEFAULT_CONTEXT_SETTINGS } from "./context-compaction";
 import { isRecord } from "./chat-stream";
@@ -6,7 +7,7 @@ import { claimGuideJob, runGuideJob } from "./guide-worker";
 import type { ProviderConfig } from "./ai-provider";
 export function readGuideConfig(db: ReturnType<typeof getDb>): ProviderConfig {
   const row = db.prepare("SELECT provider,base_url,api_key,model FROM ai_provider_configs WHERE id='default'").get() as { provider?: string; base_url?: string; api_key?: string; model?: string } | undefined;
-  return { provider: row?.provider === "claude" ? "claude" : "openai", baseUrl: row?.base_url || process.env.AI_BASE_URL || "https://api.openai.com/v1", apiKey: row?.api_key || process.env.AI_API_KEY || "", model: row?.model || process.env.AI_MODEL || "gpt-4o-mini" };
+  return { provider: row?.provider === "claude" ? "claude" : "openai", baseUrl: row?.base_url || process.env.AI_BASE_URL || "https://api.openai.com/v1", apiKey: openSecret(row?.api_key || "") || process.env.AI_API_KEY || "", model: row?.model || process.env.AI_MODEL || "gpt-4o-mini" };
 }
 export function readGuideCapacity(db: ReturnType<typeof getDb>, bookId: string) {
   const row = db.prepare("SELECT m.structured_output FROM chat_messages m JOIN reading_threads t ON t.id=m.thread_id JOIN editions e ON e.id=t.edition_id WHERE e.book_id=? AND m.role='assistant' AND json_valid(m.structured_output) AND json_extract(m.structured_output,'$._request') IS NOT NULL ORDER BY m.created_at DESC LIMIT 1").get(bookId) as { structured_output: string } | undefined;

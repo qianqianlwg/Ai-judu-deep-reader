@@ -1,6 +1,8 @@
 // @ts-check
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { installSecretKey } from '../src/lib/desktop-secret-codec.mjs';
+import { observeRuntimeActivity } from './runtime-activity.mjs';
 
 /** @param {NodeJS.ProcessEnv} env */
 export function runtimeReleaseDirectory(env) {
@@ -15,8 +17,20 @@ export function shutdownRuntime() {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const root = runtimeReleaseDirectory(process.env);
+  // WHY：先由父进程确认Windows Job归属并通过IPC解锁；密钥不写命令行或环境变量。
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('桌面安全启动握手超时')),30000);
+    process.once('message',message=>{
+      if(!message||typeof message!=='object'||!('type'in message)||message.type!=='bootstrap'||!('key'in message)||typeof message.key!=='string') {clearTimeout(timer);reject(new Error('桌面安全启动握手无效'));return;}
+      installSecretKey(Buffer.from(message.key,'base64'));clearTimeout(timer);resolve(undefined);
+    });
+    process.once('disconnect',()=>{clearTimeout(timer);reject(new Error('桌面父进程已退出'));});
+  });
+  const activity=observeRuntimeActivity(process.env.JUDU_DATA_DIR ?? '');
   process.on('message', message => {
-    if (message && typeof message === 'object' && 'type' in message && message.type === 'shutdown') shutdownRuntime();
+    if (!message || typeof message !== 'object' || !('type' in message)) return;
+    if(message.type==='shutdown') shutdownRuntime();
+    if(message.type==='busy' && 'id'in message) void activity.busy().then(count=>process.send?.({type:'busy',id:message.id,count}),()=>process.send?.({type:'busy',id:message.id,count:-1}));
   });
   process.on('disconnect', shutdownRuntime);
   // WHY：工作目录就是成品目录，EPUB/MOBI/UMD 的 process.execPath 仍是随包 Node，而非 Electron。

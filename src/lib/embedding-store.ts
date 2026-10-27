@@ -1,3 +1,4 @@
+import { openSecret, sealSecret } from "./secret-storage";
 import { EMBEDDING_BASE_URL, EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, embeddingProfile, normalizeEmbeddingBaseUrl, type EmbeddingConfig } from "./embedding-provider";
 export type EmbeddingStore = { exec(sql: string): void; prepare(sql: string): { get(...args: unknown[]): unknown; all(...args: unknown[]): unknown[]; run(...args: unknown[]): unknown } };
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }
@@ -25,7 +26,7 @@ export function readEmbeddingConfig(db: EmbeddingStore): EmbeddingConfig {
     else if (typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 16_384) dimensions = value;
     else throw new Error("\u5df2\u4fdd\u5b58\u7684\u5411\u91cf\u7ef4\u5ea6\u914d\u7f6e\u65e0\u6548");
   }
-  return { apiKey: savedKey || process.env.SILICONFLOW_API_KEY?.trim() || "", baseUrl: normalizeEmbeddingBaseUrl(savedUrl), model: savedModel, dimensions };
+  return { apiKey: openSecret(savedKey) || process.env.SILICONFLOW_API_KEY?.trim() || "", baseUrl: normalizeEmbeddingBaseUrl(savedUrl), model: savedModel, dimensions };
 }
 
 export function saveEmbeddingConfig(db: EmbeddingStore, value: unknown): EmbeddingConfig {
@@ -61,7 +62,7 @@ export function saveEmbeddingConfig(db: EmbeddingStore, value: unknown): Embeddi
     db.prepare("DELETE FROM embedding_build_leases").run();
   }
   const updatedAt = new Date().toISOString();
-  db.prepare("INSERT INTO ai_provider_configs (id, provider, base_url, api_key, model, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, updated_at=excluded.updated_at").run("embedding", "openai", baseUrl, apiKey, model, updatedAt);
+  db.prepare("INSERT INTO ai_provider_configs (id, provider, base_url, api_key, model, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, updated_at=excluded.updated_at").run("embedding", "openai", baseUrl, sealSecret(apiKey), model, updatedAt);
   db.prepare("INSERT INTO embedding_provider_settings (id, dimensions) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET dimensions=excluded.dimensions").run(dimensions);
   return next;
 }

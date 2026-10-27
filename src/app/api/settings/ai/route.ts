@@ -1,3 +1,4 @@
+import { openSecret, sealSecret } from "@/lib/secret-storage";
 import { NextRequest, NextResponse } from "next/server";
 import {normalizeModelChoices,readModelEntries,saveModelChoices,type ModelChoice} from "@/lib/model-choices";
 import { getDb } from "@/lib/db";
@@ -19,7 +20,7 @@ function rowToConfig(row: unknown): StoredConfig | null {
   if (!row || typeof row !== "object") return null;
   const item = row as Record<string, unknown>;
   if (typeof item.provider !== "string" || typeof item.base_url !== "string" || typeof item.api_key !== "string" || typeof item.model !== "string") return null;
-  return { provider: item.provider as AiProviderKind, baseUrl: item.base_url, apiKey: item.api_key, model: item.model, updatedAt: String(item.updated_at ?? "") };
+  return { provider: item.provider as AiProviderKind, baseUrl: item.base_url, apiKey: openSecret(item.api_key), model: item.model, updatedAt: String(item.updated_at ?? "") };
 }
 function getStored(): StoredConfig | null { return rowToConfig(getDb().prepare("SELECT provider, base_url, api_key, model, updated_at FROM ai_provider_configs WHERE id = ?").get(CONFIG_ID)); }
 function publicConfig(config: StoredConfig | null) { return config ? { provider: config.provider, baseUrl: config.baseUrl, model: config.model, hasApiKey: Boolean(config.apiKey), maskedApiKey: config.apiKey ? (config.apiKey.length > 8 ? `${config.apiKey.slice(0, 4)}••••${config.apiKey.slice(-4)}` : "••••") : "" } : { provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", hasApiKey: false, maskedApiKey: "" }; }
@@ -34,7 +35,7 @@ export async function PUT(request: NextRequest) {
     if (!modelEntries.some(entry => entry.enabled && entry.model === config.model)) throw new Error("\u9ed8\u8ba4\u6a21\u578b\u5fc5\u987b\u662f\u5df2\u542f\u7528\u6a21\u578b");
     db.exec("BEGIN IMMEDIATE");
     try {
-    db.prepare("INSERT INTO ai_provider_configs (id, provider, base_url, api_key, model, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, updated_at=excluded.updated_at").run(CONFIG_ID, config.provider, config.baseUrl, config.apiKey, config.model, new Date().toISOString());
+    db.prepare("INSERT INTO ai_provider_configs (id, provider, base_url, api_key, model, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, updated_at=excluded.updated_at").run(CONFIG_ID, config.provider, config.baseUrl, sealSecret(config.apiKey), config.model, new Date().toISOString());
     saveModelChoices(db,modelEntries); db.exec("COMMIT");
     } catch(error:unknown) { db.exec("ROLLBACK"); throw error; }
     return GET();

@@ -11,6 +11,8 @@ export function electronEnvironment(parent) {
   return env;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const {buildDesktopGuard}=await import('../scripts/build-desktop-guard.mjs');
+  await buildDesktopGuard(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
   const require = createRequire(import.meta.url);
   /** @type {string} */ const executable = require('electron');
   const child = spawn(executable, [path.dirname(fileURLToPath(import.meta.url)), ...process.argv.slice(2)], {

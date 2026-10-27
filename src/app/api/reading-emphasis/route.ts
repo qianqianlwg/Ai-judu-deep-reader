@@ -1,3 +1,4 @@
+import { openSecret } from "@/lib/secret-storage";
 import {NextRequest,NextResponse} from 'next/server';
 import {z} from 'zod';
 import {getDb} from '@/lib/db';
@@ -32,7 +33,7 @@ export async function POST(request:NextRequest){
   selected=resolveChapterSelection(db,data.editionId,data.bookId,data.chapterId);
   const row=db.prepare('SELECT provider,base_url,api_key,model FROM ai_provider_configs WHERE id=?').get('default') as {provider:string;base_url:string;api_key:string;model:string}|undefined;
   if(!row?.api_key)throw new Error('请先配置 AI 模型');
-  config=selectRequestModel({provider:row.provider==='claude'?'claude':'openai',baseUrl:row.base_url,apiKey:row.api_key,model:row.model},data.model,readModelChoices(db,row.model));
+  config=selectRequestModel({provider:row.provider==='claude'?'claude':'openai',baseUrl:row.base_url,apiKey:openSecret(row.api_key),model:row.model},data.model,readModelChoices(db,row.model));
  }catch(error:unknown){return NextResponse.json({error:error instanceof Error?error.message:'无法读取本节'},{status:400});}
  try{
   let usage:TokenUsage|undefined;

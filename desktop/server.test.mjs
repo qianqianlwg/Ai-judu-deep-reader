@@ -23,7 +23,7 @@ const server=http.createServer((request,response)=>{
  response.setHeader('content-type','application/json');response.end(JSON.stringify({protocol:1,pid:mode==='identity'?0:process.pid}));
 });
 server.listen(Number(process.env.PORT),'127.0.0.1');
-process.on('message',message=>{if(message.type==='shutdown'){worker?.kill();server.close(()=>process.exit(0));}});
+process.on('message',message=>{if(message.type==='busy')process.send({id:message.id,count:2});if(message.type==='shutdown'){worker?.kill();server.close(()=>process.exit(0));}});
 `);
   return {nodePath:process.execPath,releaseDir:directory,dataDir:path.join(directory,'data'),entryPath,timeoutMs:3000,shutdownMs:50};
 }
@@ -66,3 +66,5 @@ test('Windows 退出终止自有解析子进程树', {skip:process.platform!=='w
  t.after(()=>server.stop());assert.ok(workerPid);await server.stop();
  assert.throws(()=>process.kill(workerPid,0));await canBind(server.port);
 });
+
+test("后台任务状态通过私有IPC返回，不暴露公有API",async t=>{const server=await startDesktopServer(await fixture(t));t.after(()=>server.stop());assert.equal(await server.busy(),2);await server.stop();});
