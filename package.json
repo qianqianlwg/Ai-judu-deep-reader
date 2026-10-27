@@ -17,7 +17,10 @@
         "build:release": "node scripts/build-release.mjs",
         "package:release": "node scripts/package-release.mjs",
         "verify:release": "node scripts/smoke-release.mjs",
-        "test:release": "node --test scripts/release-manifest.test.mjs scripts/release-traces.test.mjs scripts/package-release.test.mjs scripts/build-release.test.mjs scripts/smoke-release.test.mjs scripts/start-release.test.mjs"
+        "test:release": "node --test scripts/release-manifest.test.mjs scripts/release-traces.test.mjs scripts/package-release.test.mjs scripts/build-release.test.mjs scripts/smoke-release.test.mjs scripts/start-release.test.mjs",
+        "desktop:dev": "node desktop/launch.mjs",
+        "test:desktop": "node --test desktop/*.test.mjs",
+        "check:desktop": "tsc --project desktop/tsconfig.json"
     },
     "dependencies": {
         "@langchain/anthropic": "^1.5.10",
@@ -46,12 +49,14 @@
         "zod": "^4.6.5"
     },
     "devDependencies": {
+        "@electron/packager": "20.3.0",
         "@lingo-reader/mobi-parser": "0.4.6",
         "@tailwindcss/postcss": "^4",
         "@types/jsdom": "30.0.0",
         "@types/node": "^20",
         "@types/react": "^19",
         "@types/react-dom": "^19",
+        "electron": "45.0.0",
         "esbuild": "0.28.2",
         "eslint": "^9",
         "eslint-config-next": "16.3.5",

@@ -16,7 +16,7 @@
 
 新分支与独立 worktree，不把主工程未提交的 `tsconfig.json` 状态或 `pelican*` 文件带入任务。不接触主工程正式书库，不停止原有 3000 服务。
 
-### P1：桌面启动闭环与兼容性验证（进行中）
+### P1：桌面启动闭环与兼容性验证（启动闭环已验证）
 
 - Electron 只管理窗口、单实例与后台生命周期。
 - 后台用独立 Node 运行 standalone；`process.execPath` 不切换为 Electron，避免 EPUB/MOBI/UMD 子进程与 SQLite 运行语义发生隐式变化。
@@ -82,8 +82,28 @@ npm run desktop:dev
 未通过或尚未执行的检查：
 
 - 全量 Vitest：404 个测试文件通过、1 个失败、5 个跳过；4706 项通过、2 项失败、7 项跳过。失败均来自 `src/app/api/import/route.test.ts` 的默认 5000ms 超时（PDF 导入与旧 EPUB 懒补建）。原因尚未确认，不能宣称全量通过，也没有提高超时或改写解析器来消除现象。
-- Electron 45.0.0 官方 Windows x64 ZIP 的 HEAD 返回 200，但受控 GET 报 `UND_ERR_CONNECT_TIMEOUT`；官方安装器等待十多分钟，临时 ZIP 仍为 0 字节。已停止明确属于本任务的下载器 PID 57624；目前 `node_modules/electron/dist/electron.exe` 不存在。
+- Electron 45.0.0 官方 Windows x64 ZIP 的 HEAD 返回 200，但受控 GET 报 `UND_ERR_CONNECT_TIMEOUT`；官方安装器等待十多分钟，临时 ZIP 仍为 0 字节。已停止明确属于本任务的下载器 PID 57624；当时 `node_modules/electron/dist/electron.exe` 不存在；后续代理重试结果见下一节。
 - 按验证环境异常确认约定，真实桌面窗口相关开发与验收停在环境确认关口；不重启下载，不更换镜像/框架，不关闭校验，也不修改上游依赖或渲染策略。需用户确认 GitHub 大文件下载或代理环境后再继续。
 - 安装/卸载、随包 Node、已有正式书库迁移、Windows 密钥保护、生成中退出处理与真实模型均未完成验收，整个 Goal 仍未完成。
 
-保留与提交边界：本阶段只提交已确认的 Goal/计划/证据文档；实现代码仍留在该分支工作区，待窗口环境和失败验证收口后再按功能提交，不用窄范围通过代替完整验收。原项目 3000 服务不重启，不向正式 `data` 执行迁移、清理或写入。
+该次提交边界：仅提交 Goal/计划/证据文档 `9179f81`，实现代码当时保留工作区。后续确认网络环境后再验证与提交启动阶段功能；不能用启动闭环代替完整客户端验收。原项目 3000 服务不重启，不向正式 `data` 执行迁移、清理或写入。
+
+
+### 2026-10-27：用户确认代理后的恢复验证
+
+- 用户明确提供本机 HTTP/HTTPS 代理 `http://127.0.0.1:7897` 并授权重试。只在官方安装器进程设置代理与 `NODE_USE_ENV_PROXY=1`，没有修改系统代理、应用网络实现或上游依赖，也没有关闭 TLS/哈希校验。
+- Electron 45.0.0 官方 Windows x64 ZIP 下载成功，158,223,852 字节，SHA-256 为 `ae53887a23bb640369c93dbd38c408a2af5c0deb86f2fa76c6c244cb444b7f47`，与 npm 包自带的官方校验清单一致；官方安装器退出 0，可执行文件与版本文件均存在。记录：`build/desktop-electron-proxy-download.json`。下载阻塞已解除。
+- 真实 Electron 窗口已经运行，不再只是配置检查：隔离书库、首页/书库 HTTP 200、未授权健康探针 404、renderer 中 require/process 不可用、外站导航与弹窗阻止、相同 profile 重复启动只保留原实例均通过；导入自造 TXT 后关闭重启，书籍 ID 与窗口书架中的书籍保留。没有调用真实模型。
+- 启动阶段包含真实 GUI 的桌面测试执行 17 项，均通过，无跳过；报告与截图位于 `build/desktop-p1-e2e/`。运行时与解析器仍使用独立 Node 24.22.1，不是 Electron 内置 Node。
+- 在原默认 5000ms 单例超时下单独复跑导入路由与新健康路由：32 项通过。随后完整执行 `vitest run --exclude '.verify-*/**' --maxWorkers=4`：405 个文件通过、5 个跳过，4708 项通过、7 项跳过。没有提高测试超时；不把降低并发后的通过解释为已确认或修复先前超时的根因。
+- P1 只证明桌面启动与基本安全/持久化闭环：现有候选 core 仍标记 working-tree，开发路径仍需显式指定。本次不是已签名安装包，也没有完成无需开发环境的分发、正式书库迁移、Windows 密钥保护、生成中退出排空与完整阅读/解读 UI 验收。P2/P3 及整个 Goal 仍待完成。
+
+显式开启 GUI 验证（只允许使用独立测试数据，不传正式书库）：
+
+```powershell
+$env:JUDU_DESKTOP_E2E_RELEASE_DIR='C:\独立验证\app-core'
+$env:JUDU_DESKTOP_E2E_ARTIFACTS='C:\独立验证\artifacts'
+npm run test:desktop
+```
+
+最终检查：桌面退出异常也记录日志而不静默丢弃；桌面 strict/checkJs、应用 TypeScript、本次相关 ESLint 再次通过；既有发布工具 28 项测试通过。最终 GUI 用例端口 55237/55259/55744/55748/55755 均已释放，没有遗留本任务的 Electron/Node 进程。原项目 3000 的首页与书库 API 再次返回 200，主服务没有重启，未迁移或写入正式书库。上述 GUI 仍是 AI 隔离自测，不是让用户验收临时书库。
