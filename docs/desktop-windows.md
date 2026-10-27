@@ -20,7 +20,7 @@
 
 - Electron 只管理窗口、单实例与后台生命周期。
 - 后台用独立 Node 运行 standalone；`process.execPath` 不切换为 Electron，避免 EPUB/MOBI/UMD 子进程与 SQLite 运行语义发生隐式变化。
-- 后台绑定 `127.0.0.1` 的新空闲端口；启动通过随机令牌、协议号和自有 PID 校验，不能误连其他本地服务。
+- 后台绑定 `127.0.0.1`，profile 首次从新空闲端口选址后持久复用来源；启动通过随机令牌、协议号和自有 PID 校验，不能误连其他本地服务。
 - 窗口 sandbox/contextIsolation 开启，禁用 Node 集成、webview、网页权限、任意新窗口与外站导航。
 - 开发验证使用独立 profile 和新书库；正式成品忽略开发环境的路径覆盖。
 - 验证健康接口、首页/书库 API、实际桌面页面、关闭后端口释放及自有 worker 清理。
@@ -34,7 +34,7 @@
 - 当前 P1 在 Windows 使用自有父 PID 的整树终止，优先防止遗留解析 worker；正常退出前的任务排空与中断状态处理必须在本阶段补齐，不能把强制退出当成完整日用验收。
 - 八格式导入、原版与精读、笔记/标注、解读流式协议、重启持久化回归；不未经授权调用付费模型。
 
-### P3：随包运行时与 Windows 成品（待完成）
+### P3：随包运行时与 Windows 成品（已完成本机内测验收）
 
 - 固定 Node/Electron 版本、校验哈希、保留完整运行依赖与第三方许可。
 - 生成可运行/可安装成品，安装目录不可写条件、中文与空格路径、无 Node 环境验证。
@@ -96,7 +96,7 @@ npm run desktop:dev
 - 真实 Electron 窗口已经运行，不再只是配置检查：隔离书库、首页/书库 HTTP 200、未授权健康探针 404、renderer 中 require/process 不可用、外站导航与弹窗阻止、相同 profile 重复启动只保留原实例均通过；导入自造 TXT 后关闭重启，书籍 ID 与窗口书架中的书籍保留。没有调用真实模型。
 - 启动阶段包含真实 GUI 的桌面测试执行 17 项，均通过，无跳过；报告与截图位于 `build/desktop-p1-e2e/`。运行时与解析器仍使用独立 Node 24.22.1，不是 Electron 内置 Node。
 - 在原默认 5000ms 单例超时下单独复跑导入路由与新健康路由：32 项通过。随后完整执行 `vitest run --exclude '.verify-*/**' --maxWorkers=4`：405 个文件通过、5 个跳过，4708 项通过、7 项跳过。没有提高测试超时；不把降低并发后的通过解释为已确认或修复先前超时的根因。
-- P1 只证明桌面启动与基本安全/持久化闭环：现有候选 core 仍标记 working-tree，开发路径仍需显式指定。本次不是已签名安装包，也没有完成无需开发环境的分发、正式书库迁移、Windows 密钥保护、生成中退出排空与完整阅读/解读 UI 验收。P2/P3 及整个 Goal 仍待完成。
+- P1 只证明桌面启动与基本安全/持久化闭环：现有候选 core 仍标记 working-tree，开发路径仍需显式指定。本次不是已签名安装包，也没有完成无需开发环境的分发、正式书库迁移、Windows 密钥保护、生成中退出排空与完整阅读/解读 UI 验收。此为P1时点的历史结论；后续进展以本文末尾P2/P3收口记录为准。
 
 显式开启 GUI 验证（只允许使用独立测试数据，不传正式书库）：
 
@@ -136,3 +136,52 @@ npm run test:desktop
 - 每个profile首启在空闲端口启动后持久保存 `desktop-port.json`；后续重用该端口，使浏览器localStorage内的字体/主题/阅读位置与会话定位跨重启保持。旧版profile从最后started事件迁移端口。端口被其他应用占用则明确报错，不悄悄换来源丢状态。
 - 退出决策模块测试覆盖空闲、等待排空、取消等待、取消退出、强退与状态异常；对话框复用Electron原生按钮，未对系统窗口做自动点击验收。
 - 真实生产核心已扩展到模拟模型完成chat→submit_reading_sentence→小结→update_reading_guide，导读源状态完成；无真实模型。模拟帧必须含assistant角色、唯一tool id和工具结束后无工具小结，不能把不合协议的夹具错误当成产品错误。
+
+
+## P3 构建实现
+
+- `scripts/build-desktop.mjs` 使用固定 Electron 45.0.0 / electron-builder 26.18.0 生成每用户 NSIS 安装器与完整目录版；默认不提权、不自动启动、不创建快捷方式、不在卸载时删除用户数据。
+- 官方 Node 24.22.1 Windows x64 ZIP 经官方SHASUMS256.txt核对；ZIP SHA256：`d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5`。随包保留 Node、Electron 与核心第三方许可。
+- 安装器以独立最小application工程打包，避免构建器向上扫描根开发依赖。核心使用afterPack逐字复制并按原清单再验证，不能让构建器的node_modules默认过滤再次裁剪，也不能重写清单掩盖裁剪。
+- 初版候选曾丢失核心依赖，完整性检查正确拒启；该候选不交付。最终核心为5233文件、160769676 bytes，不含正式书库、模型密钥或.env。守护exe与外部Node使用的入口位于asar之外。
+- `scripts/smoke-desktop-install.mjs` 仅在自建中文/空格临时目录安装旧版、升级新版、核对书库文件哈希、验证只读安装目录、确认实际后台exe路径、杀单独主PID后检查后台和端口、卸载后核对书库。所有删除路径局限本测试根，不接触正式data。
+- 无系统Node的证据限定为移除PATH中的第三方Node并确认实际process路径；不是第二台干净Windows。ACL夹具只拒绝写入数据/属性，保留执行权；不使用泛化W拒绝导致误禁执行。路径探针输出显式UTF8，避免中文路径被测试端误解码。
+
+### 发布范围与保留关口
+
+- 成品是未签名Windows内测版，不代表已完成代码签名、商用发布或全新Windows机器验收。未绕过SmartScreen、TLS、原版渲染或上游shadow root。
+- 真实模型、真实向量/语音服务、原生选址对话框的人工按钮操作、大书长期压力和第二台Windows仍未验收；不会把本地模拟模型当作真实服务效果。
+- npm audit仍为既有13项（3 low / 1 moderate / 6 high / 3 critical）；本轮未新增，生产依赖版本未改变。公开分发前必须另行处理或审查这些基线风险，不能因为本次功能测试通过就忽略。
+- 当前分支不自动合入原Web主工程；原书库没有自动迁移或复制。客户端需要用户明确选择目标。原Web主服务3000不用于隔离自测。
+
+### 用户使用
+
+1. 安装验收通过的NSIS安装器，或直接运行完整 `win-unpacked` 目录中的 `Judu Reader.exe`；目录版不能只复制一个exe，须保留resources。
+2. 首次原生对话框选择新书库，或复制旧Web版的data目录。迁移前停止旧库生成任务；发生并发写入或校验失败时会拒绝切换，源书库保留。
+3. 模型、向量和语音密钥从客户端设置填写，不需要安装Node或手动启动服务。开发代理只影响当次构建命令，未修改系统代理。
+4. 备份时关闭客户端并整体复制当前书库，尤其保留 `desktop-vault.bin`。不要把客户端加密数据库直接放回旧Web版本使用；跨Windows账户/重装系统后不能承诺原凭据可解密。
+5. 用户验收不使用AI自测的临时书库、临时profile或调试端口。原Web主项目仍使用正式data与3000端口。
+
+
+## 最终交付：0.1.4（2026-10-27）
+
+- 分支：`codex/windows-desktop`。客户端有效载荷提交 `ab572a9`；生产核心提交 `6622446`，对应Windows x64清单5233文件、160769676 bytes。
+- 最终安装器：`build/windows-verified-0.1.4/Judu-Reader-0.1.4-win-x64-setup.exe`，189958456 bytes（约190MB / 181.16MiB）。不是早期被撤回的windows-final/candidate包。
+- 安装器SHA256：`8d6f15f0dbed6aa7ad29ae44706280ff25b829a0f418e132d23933f693986a4a`。
+- 完整可运行目录：`build/windows-verified-0.1.4/win-unpacked`。程序总大小见 `docs/desktop-windows-acceptance.json` 的unpackedBytes，约630MB；已包含Electron、Node和约160MB核心，不包含导入书籍。
+- 真实Windows 10 x64、普通用户Medium Integrity进程，0.1.3安装→0.1.4升级通过；升级前后外部书库逐文件哈希一致，卸载后书库仍一致。只读安装目录运行、后台实际使用随包Node、仅杀主PID后后台/端口清理通过。
+- 安装版GUI重复验证八格式真正首屏就绪（等待页面加载事件和阅读器就绪，而非旧DOM或空白页），保存了各格式截图。模拟上游完成chat、逐句提交/小结、导读整理；三类凭据密文与重启解锁、笔记/会话/localStorage保留、知识卡片打开原文、单实例和安全导航通过。
+- 最终GUI端口57627 / 57635 / 57907 / 57925 / 57960；升级/崩溃检查端口57002 / 58047。全部重新绑定确认释放，无本任务遗留Electron、Job守护或后台进程。
+- 全量Vitest：4709项通过、7项既有跳过；桌面/安全/新构建工具聚焦Node测试37项通过无跳过；发布工具32项通过。两种TS strict/checkJs与ESLint通过。
+- 默认位置的新建书库使用独立目录，不覆盖正在使用的默认库；首次启动仍保留接入已有默认库的语义，并有专门测试。
+- 原Web主工程分支保持不变、未合入本分支；3000端口原PID39668未重启，首页与书库API重新检查均200。正式data、既有tsconfig状态及pelican文件未纳入本分支提交。
+
+### 验收证据
+
+- `docs/desktop-windows-acceptance.json`：可追溯摘要、组件提交、版本、哈希、边界和端口复查。
+- `build/desktop-installed-e2e/desktop-acceptance.json`：最终安装版GUI结果；同目录包含八格式截图和来源回跳截图。
+- `build/desktop-install-acceptance-final.json`：安装/升级/只读/卸载/崩溃验收。
+- `build/desktop-p2-vitest-isolated.log`、`build/desktop-final-node-tests.log`：测试日志。
+- `build/desktop-final-audit.json`：仍保留的13项既有依赖告警；不作为公开分发安全通过证明。
+
+既定Goal的功能开发和Windows本机自动化验收已完成，当前交付为未签名内测版。真实付费服务、第二台全新Windows、原生书库对话框人工操作、真实大书长期压力、签名及既有依赖风险继续作为公开发布/人工验收关口，不冒充已完成。

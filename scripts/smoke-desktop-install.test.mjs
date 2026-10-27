@@ -1,0 +1,2 @@
+import test from'node:test';import assert from'node:assert/strict';import path from'node:path';import os from'node:os';import{assertTestDirectory}from'./smoke-desktop-install.mjs';
+test('安装验收清理不能触及任意目录',()=>{const root=path.join(os.tmpdir(),'句读客户端 验收-fixture');assert.doesNotThrow(()=>assertTestDirectory(root,path.join(root,'程序')));assert.throws(()=>assertTestDirectory(root,path.join(os.tmpdir(),'elsewhere')));assert.throws(()=>assertTestDirectory(os.tmpdir(),root));});

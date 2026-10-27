@@ -20,7 +20,9 @@
         "test:release": "node --test scripts/release-manifest.test.mjs scripts/release-traces.test.mjs scripts/package-release.test.mjs scripts/build-release.test.mjs scripts/smoke-release.test.mjs scripts/start-release.test.mjs",
         "desktop:dev": "node desktop/launch.mjs",
         "test:desktop": "node scripts/build-desktop-guard.mjs && node --test desktop/*.test.mjs",
-        "check:desktop": "tsc --project desktop/tsconfig.json"
+        "check:desktop": "tsc --project desktop/tsconfig.json",
+        "build:desktop": "node scripts/build-desktop.mjs",
+        "verify:desktop-install": "node scripts/smoke-desktop-install.mjs"
     },
     "dependencies": {
         "@langchain/anthropic": "^1.5.10",

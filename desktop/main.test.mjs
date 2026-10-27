@@ -13,7 +13,7 @@ import { electronEnvironment } from './launch.mjs';
 import {runHttpSmokeChecks}from'../scripts/smoke-release.mjs';
 import {verifyRelease}from'../scripts/release-manifest.mjs';
 import {DatabaseSync}from'node:sqlite';
-import{createServer}from'node:http';
+import{createServer}from'node:http';import{createHash}from'node:crypto';
 
 async function waitFor(check, timeout=60000) {
   const deadline=Date.now()+timeout;
@@ -21,14 +21,15 @@ async function waitFor(check, timeout=60000) {
   throw new Error('桌面E2E等待超时');
 }
 async function cdp(url) {
-  const socket=new WebSocket(url); let next=0; const pending=new Map();
+  const socket=new WebSocket(url); let next=0; const pending=new Map();const events=new Map();
   await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
   socket.addEventListener('message',event=>{
-    const message=JSON.parse(String(event.data)); const request=pending.get(message.id);if(!request)return;
+    const message=JSON.parse(String(event.data));if(message.method&&events.has(message.method)){const listeners=events.get(message.method);events.delete(message.method);for(const listener of listeners)listener(message.params);}
+    const request=pending.get(message.id);if(!request)return;
     pending.delete(message.id);if(message.error)request.reject(new Error(message.error.message));else request.resolve(message.result);
   });
   socket.addEventListener('close',()=>{for(const request of pending.values())request.reject(new Error('CDP已关闭'));pending.clear();});
-  return {close:()=>socket.close(),send:(method,params={})=>new Promise((resolve,reject)=>{
+  return {waitEvent:(name)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('CDP事件超时 '+name)),30000);const listeners=events.get(name)||[];listeners.push(value=>{clearTimeout(timer);resolve(value);});events.set(name,listeners);}),close:()=>socket.close(),send:(method,params={})=>new Promise((resolve,reject)=>{
     const id=++next;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}));
   })};
 }
@@ -129,6 +130,7 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     assert.equal(database.prepare('SELECT status FROM chat_messages WHERE id=?').get(assistantId).status,'completed');database.close();
     const semanticDb=new DatabaseSync(path.join(directory,'library','judu.sqlite'),{readOnly:true});const semantic=JSON.parse(semanticDb.prepare('SELECT structured_output FROM chat_messages WHERE id=?').get(analysisId).structured_output);assert.ok(semantic.semantic.units.some(unit=>unit.status==='completed'));semanticDb.close();
     const vault=await readFile(path.join(directory,'library','desktop-vault.bin'));assert.ok(vault.length>32);
+    const note=await fetch(origin+'/api/reading-marks',{method:'POST',headers:{Origin:origin,'content-type':'application/json'},body:JSON.stringify({editionId:book.editionId,kind:'note',note:'客户端持久化验收笔记',anchors:[{paragraphId:selected.id,startOffset:0,endOffset:selected.text.length,selectedText:selected.text,textHash:createHash('sha256').update(selected.text).digest('hex')}]})});assert.equal(note.status,201,await note.clone().text());
     const books=await(await fetch(origin+'/api/books')).json();const ids=books.map(book=>book.id);assert.ok(ids.length>=1);
     // WHY：安全策略必须在真实Electron窗口观察，不只断言配置常量。
     await connection.send('Runtime.evaluate',{expression:"window.location.assign('https://example.invalid/blocked')"});
@@ -149,23 +151,43 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     const stableOrigin=origin===priorOrigin&&retainedState==='reading-state';if(process.env.JUDU_DESKTOP_E2E_STABLE_ORIGIN)assert.ok(stableOrigin,'阅读来源与localStorage必须跨重启保留');
     const unlocked=await(await fetch(origin+'/api/settings/ai')).json();assert.equal(unlocked.hasApiKey,true);assert.match(unlocked.maskedApiKey,/desk/);
     assert.equal((await(await fetch(origin+'/api/settings/embedding')).json()).hasApiKey,true);assert.equal((await(await fetch(origin+'/api/settings/speech')).json()).hasApiKey,true);
+    const notes=await(await fetch(origin+'/api/reading-marks?editionId='+book.editionId)).json();assert.ok(notes.marks.some(mark=>mark.note==='客户端持久化验收笔记'));
     const history=await(await fetch(origin+'/api/threads/'+threadId+'?editionId='+book.editionId)).json();assert.ok(JSON.stringify(history).includes(assistantId));
     await new Promise(resolve=>fixture.close(resolve));const restored=await(await fetch(origin+'/api/books')).json();assert.deepEqual(restored.map(book=>book.id),ids);
     await waitFor(async()=>{const visible=await connection.send('Runtime.evaluate',{expression:'document.body.innerText.includes('+JSON.stringify(restored[0].title)+')',returnByValue:true});return visible.result.value===true;});
-    const rendered=[];
+    await connection.send('Page.enable');const rendered=[];
     for(const extension of ['.txt','.md','.epub','.pdf','.mobi','.fb2','.fbz','.cbz']){
       phase='render:'+extension;console.log(phase);const target=restored.find(item=>item.edition?.fileType===extension);assert.ok(target,extension);
-      await connection.send('Page.navigate',{url:origin+'/?bookId='+target.id+'&editionId='+target.editionId});
+      const loaded=connection.waitEvent('Page.loadEventFired');await connection.send('Page.navigate',{url:origin+'/?bookId='+target.id+'&editionId='+target.editionId});await loaded;
       await waitFor(async()=>{
-        const state=await connection.send('Runtime.evaluate',{expression:`(()=>{if(document.readyState!=='complete')return null;const r=document.querySelector('.epub-reader,.pdf-reader,.cbz-reader');if(r){const e=r.querySelector('[role="alert"]');if(e)return {error:e.textContent};if(r.getAttribute('aria-busy')==='true'||(r.matches('.cbz-reader')&&r.querySelector('[aria-busy="true"]')))return null;return {ready:true};}return document.body.innerText.includes(${JSON.stringify(target.chapters[0]?.paragraphs[0]?.text||'__no_text__')})?{ready:true}:null;})()`,returnByValue:true});
+        const expected=['.epub','.mobi','.fb2','.fbz'].includes(extension)?'.epub-reader':extension==='.pdf'?'.pdf-reader':extension==='.cbz'?'.cbz-reader':null;
+        const state=await connection.send('Runtime.evaluate',{expression:`(()=>{
+          if(document.readyState!=='complete'||new URL(location.href).searchParams.get('bookId')!==${JSON.stringify(target.id)})return null;
+          const selector=${JSON.stringify(expected)};
+          if(selector){const r=document.querySelector(selector);if(!r)return null;const e=r.querySelector('[role="alert"]');if(e)return {error:e.textContent};
+            if(r.getAttribute('aria-busy')==='true')return null;
+            if(selector==='.epub-reader'){const next=r.querySelector('button[aria-label*="下一页"]');return next&&!next.disabled?{ready:true}:null;}
+            if(selector==='.pdf-reader'){const canvas=r.querySelector('canvas');return canvas&&canvas.width>0&&canvas.height>0?{ready:true}:null;}
+            const image=r.querySelector('img');return image&&image.complete&&image.naturalWidth>0?{ready:true}:null;
+          }
+          const pane=document.querySelector('.reading-pane');if(!pane||pane.getAttribute('aria-busy')==='true')return null;
+          return Array.from(pane.querySelectorAll('[data-reader-text]')).map(node=>node.textContent).join('').includes(${JSON.stringify(target.chapters[0]?.paragraphs[0]?.text||'__no_text__')})?{ready:true}:null;
+        })()`,returnByValue:true});
         const value=state.result.value;if(value?.error)throw new Error(extension+'原版失败: '+value.error);return value?.ready;
       },30000);rendered.push(extension);
       if(artifacts){await mkdir(artifacts,{recursive:true});const shot=await connection.send('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'reader-'+extension.slice(1)+'.png'),Buffer.from(shot.data,'base64'));}
     }
+    phase='knowledge-source-return';
+    const bookLoaded=connection.waitEvent('Page.loadEventFired');await connection.send('Page.navigate',{url:origin+'/?bookId='+book.id+'&editionId='+book.editionId});await bookLoaded;
+    await waitFor(async()=>{const ready=await connection.send('Runtime.evaluate',{expression:"Boolean(document.querySelector('.reading-pane[aria-busy=\"false\"] [data-reader-text]'))",returnByValue:true});return ready.result.value;});
+    await connection.send('Runtime.evaluate',{expression:"Array.from(document.querySelectorAll('.workspace-destinations button')).find(button=>button.textContent.includes(\"\u77e5\u8bc6\u5e93\")).click()"});
+    await waitFor(async()=>{const ready=await connection.send('Runtime.evaluate',{expression:"Boolean(document.querySelector('.knowledge-material-card button[aria-label=\"\u6253\u5f00\u539f\u6587\"]'))",returnByValue:true});return ready.result.value;});
+    await connection.send('Runtime.evaluate',{expression:"document.querySelector('.knowledge-material-card button[aria-label=\"\u6253\u5f00\u539f\u6587\"]').click()"});
+    await waitFor(async()=>{const returned=await connection.send('Runtime.evaluate',{expression:"Boolean(document.querySelector('.workspace-main[data-workspace-view=\"reader\"] [data-active-source=\"true\"]'))",returnByValue:true});return returned.result.value;});
     if(artifacts){await mkdir(artifacts,{recursive:true});const screenshot=await connection.send('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'desktop-acceptance.png'),Buffer.from(screenshot.data,'base64'));}
     await close();
     for(const port of ports){const server=await import('node:net').then(({createServer})=>createServer());await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',()=>resolve(undefined));});await new Promise(resolve=>server.close(resolve));}
-    const report={stableOrigin,localStorageRestored:stableOrigin,systemNodeOnPath:!Boolean(process.env.JUDU_DESKTOP_E2E_PATH_ISOLATED),packaged:Boolean(process.env.JUDU_DESKTOP_E2E_EXECUTABLE),renderedFormats:rendered,formats:formats.importedFormats,dpapiVault:true,providerEncryptedAtRest:true,speechEncryptedAtRest:true,embeddingKeyRestored:true,fixtureModelCalls:modelCalls,realModelCalled:false,streamCompleted:true,readingAnalysisCompleted:true,guideFixtureCompleted:true,threadPreserved:true,electron:require('electron/package.json').version,node:process.version,ports,homepage:200,books:200,healthWithoutToken:404,rendererNodeIntegration:false,externalNavigationBlocked:true,popupBlocked:true,singleInstanceConfirmed:true,importedFixture:true,restartPreservedBookIds:true,portsReleased:true};
+    const report={stableOrigin,localStorageRestored:stableOrigin,systemNodeOnPath:!Boolean(process.env.JUDU_DESKTOP_E2E_PATH_ISOLATED),packaged:Boolean(process.env.JUDU_DESKTOP_E2E_EXECUTABLE),renderedFormats:rendered,formats:formats.importedFormats,dpapiVault:true,providerEncryptedAtRest:true,speechEncryptedAtRest:true,embeddingKeyRestored:true,fixtureModelCalls:modelCalls,realModelCalled:false,streamCompleted:true,readingAnalysisCompleted:true,guideFixtureCompleted:true,noteRestored:true,knowledgeSourceReturn:true,threadPreserved:true,electron:require('electron/package.json').version,node:process.version,ports,homepage:200,books:200,healthWithoutToken:404,rendererNodeIntegration:false,externalNavigationBlocked:true,popupBlocked:true,singleInstanceConfirmed:true,importedFixture:true,restartPreservedBookIds:true,portsReleased:true};
     if(artifacts)await writeFile(path.join(artifacts,'desktop-acceptance.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify(report));
   }catch(error){

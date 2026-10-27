@@ -1,0 +1,130 @@
+{
+  "validatedAt": "2026-10-27T12:00:54.310Z",
+  "platform": "Windows 10 x64",
+  "version": "0.1.4",
+  "desktopSourceRevision": "ab572a92f01fed57d5651b029cc9e59efbe10961",
+  "unsigned": true,
+  "nodeVersion": "24.22.1",
+  "electronVersion": "45.0.0",
+  "coreSourceRevision": "662244647a3ca95919a93b9a7c490b34dfa35a2b",
+  "artifacts": [
+    {
+      "name": "Judu-Reader-0.1.4-win-x64-setup.exe",
+      "bytes": 189958456,
+      "sha256": "8d6f15f0dbed6aa7ad29ae44706280ff25b829a0f418e132d23933f693986a4a"
+    }
+  ],
+  "gui": {
+    "stableOrigin": true,
+    "localStorageRestored": true,
+    "systemNodeOnPath": false,
+    "packaged": true,
+    "renderedFormats": [
+      ".txt",
+      ".md",
+      ".epub",
+      ".pdf",
+      ".mobi",
+      ".fb2",
+      ".fbz",
+      ".cbz"
+    ],
+    "formats": [
+      ".txt",
+      ".md",
+      ".epub",
+      ".pdf",
+      ".mobi",
+      ".fb2",
+      ".fbz",
+      ".cbz"
+    ],
+    "dpapiVault": true,
+    "providerEncryptedAtRest": true,
+    "speechEncryptedAtRest": true,
+    "embeddingKeyRestored": true,
+    "fixtureModelCalls": 4,
+    "realModelCalled": false,
+    "streamCompleted": true,
+    "readingAnalysisCompleted": true,
+    "guideFixtureCompleted": true,
+    "noteRestored": true,
+    "knowledgeSourceReturn": true,
+    "threadPreserved": true,
+    "electron": "45.0.0",
+    "node": "v24.22.1",
+    "ports": [
+      57627,
+      57635,
+      57907,
+      57925,
+      57960,
+      57635
+    ],
+    "homepage": 200,
+    "books": 200,
+    "healthWithoutToken": 404,
+    "rendererNodeIntegration": false,
+    "externalNavigationBlocked": true,
+    "popupBlocked": true,
+    "singleInstanceConfirmed": true,
+    "importedFixture": true,
+    "restartPreservedBookIds": true,
+    "portsReleased": true
+  },
+  "installerAcceptance": {
+    "installer": "Judu-Reader-0.1.3-win-x64-setup.exe",
+    "upgradeInstaller": "Judu-Reader-0.1.4-win-x64-setup.exe",
+    "installedWithoutElevation": true,
+    "chineseAndSpacePath": true,
+    "externalLibraryPreservedOnUpgrade": true,
+    "externalLibraryPreservedOnUninstall": true,
+    "readOnlyInstallationConfirmed": true,
+    "bundledNodePathConfirmed": true,
+    "systemNodeNotOnPath": true,
+    "abruptMainExitReleasedBackend": true,
+    "ports": [
+      57002,
+      58047
+    ],
+    "notCleanSecondMachine": true,
+    "realModelCalled": false
+  },
+  "audit": {
+    "total": 13,
+    "low": 3,
+    "moderate": 1,
+    "high": 6,
+    "critical": 3,
+    "newVulnerabilities": 0
+  },
+  "fullVitest": {
+    "filesPassed": 406,
+    "filesSkipped": 5,
+    "testsPassed": 4709,
+    "testsSkipped": 7
+  },
+  "focusedNodeTests": {
+    "passed": 37,
+    "skipped": 0
+  },
+  "releaseToolTests": {
+    "passed": 32,
+    "skipped": 0
+  },
+  "portsRecheckedAndReleased": true,
+  "originalProject": {
+    "port": 3000,
+    "restarted": false,
+    "homepage": 200,
+    "books": 200
+  },
+  "remainingExternalAcceptance": [
+    "second clean Windows machine",
+    "paid provider / embeddings / speech",
+    "native library dialogs manual acceptance",
+    "large real books sustained load",
+    "code signing and baseline vulnerability review"
+  ],
+  "unpackedBytes": 630144835
+}
