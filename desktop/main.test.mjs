@@ -56,7 +56,7 @@ test('Electron真实窗口：隔离核心、导入、重启持久化与退出释
     debugPort=await unusedLoopbackPort();ports.push(debugPort);
     const env=electronEnvironment({...process.env,JUDU_DESKTOP_RELEASE_DIR:releaseDir,
       JUDU_DESKTOP_NODE_PATH:process.execPath,JUDU_DESKTOP_DATA_DIR:path.join(directory,'library'),JUDU_DESKTOP_PROFILE_DIR:path.join(directory,'profile')});
-    if(process.env.JUDU_DESKTOP_E2E_PATH_ISOLATED){delete env.PATH;delete env.Path;env.Path=path.join(process.env.SystemRoot||'C:\\Windows','System32')+';'+(process.env.SystemRoot||'C:\\Windows');}
+    if(process.env.JUDU_DESKTOP_E2E_PATH_ISOLATED){delete env.PATH;delete env.Path;env.Path=path.join(process.env.SystemRoot||'C:\\Windows','System32')+';'+path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0');}
     delete env.AI_API_KEY;delete env.SILICONFLOW_API_KEY;delete env.OPENAI_API_KEY;delete env.ANTHROPIC_API_KEY;
     await mkdir(path.join(directory,'profile'),{recursive:true});await writeFile(path.join(directory,'profile','library-choice.json'),JSON.stringify({directory:path.join(directory,'library')}));
     active=spawn(executable,[...(process.env.JUDU_DESKTOP_E2E_EXECUTABLE?['--profile-dir='+path.join(directory,'profile')]:[appPath]),`--remote-debugging-port=${debugPort}`,'--remote-debugging-address=127.0.0.1'],{env,windowsHide:true,stdio:['ignore','pipe','pipe']});

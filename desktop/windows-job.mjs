@@ -9,9 +9,13 @@ export async function guardWindowsProcess(pid){
   const cached=JSON.parse(await readFile(new URL('../build/desktop-tools/guard-location.json',import.meta.url),'utf8'));
   const allowed=fileURLToPath(new URL('../build/desktop-tools/',import.meta.url));if(typeof cached.file!=='string'||!path.resolve(cached.file).startsWith(allowed))throw new Error('守护程序构建路径无效');executable=cached.file;
  }
+ return await spawnWindowsGuard(executable,pid);
+}
+/** @param {string} executable @param {number} pid */
+export async function spawnWindowsGuard(executable,pid){
  const child=spawn(executable,[String(pid)],{windowsHide:true,stdio:['pipe','pipe','pipe']});
  let ready=false;let text='';let error='';
- const closed=new Promise(resolve=>child.once('exit',resolve));
+ const closed=new Promise(resolve=>child.once('close',resolve));
  try{
   await new Promise((resolve,reject)=>{
    const timer=setTimeout(()=>reject(new Error('Windows进程保护启动超时')),15000);
